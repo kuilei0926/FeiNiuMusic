@@ -38,9 +38,9 @@ class _LoginPageState extends State<LoginPage> {
       final savedPassword = prefs.getString(_prefsPassword) ?? '';
       if (mounted) {
         setState(() {
-          // 没有已保存的完整 URL 时，用上次的 FNID
+          // FNID 优先：上次通过 FNID 登录过则保留 FNID，否则用保存的完整 URL
           _serverUrlController.text =
-              savedUrl.isNotEmpty ? savedUrl : (AppFnConnectionSettings.lastFnId ?? '');
+              AppFnConnectionSettings.lastFnId ?? savedUrl;
           _usernameController.text = savedUsername;
           _passwordController.text = savedPassword;
         });
@@ -135,11 +135,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   /// FNID 登录流程：探测 → 连接 → 认证
-  Future<void> _fnLogin(
-    String fnId,
-    String username,
-    String password,
-  ) async {
+  Future<void> _fnLogin(String fnId, String username, String password) async {
     // 展示探测浮层
     _probeOverlay = ProbeOverlay.show(context);
 
@@ -167,8 +163,12 @@ class _LoginPageState extends State<LoginPage> {
         method: result.probeMethod,
         isRelay: result.isRelay,
       );
-      await _performLogin(result.serverUrl, username, password,
-          relayMode: result.isRelay);
+      await _performLogin(
+        result.serverUrl,
+        username,
+        password,
+        relayMode: result.isRelay,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -348,8 +348,7 @@ class _LoginPageState extends State<LoginPage> {
                               : Icons.visibility_outlined,
                         ),
                         onPressed: () {
-                          setState(
-                              () => _obscurePassword = !_obscurePassword);
+                          setState(() => _obscurePassword = !_obscurePassword);
                         },
                       ),
                       border: OutlineInputBorder(

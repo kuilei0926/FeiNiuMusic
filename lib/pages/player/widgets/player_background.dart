@@ -11,6 +11,7 @@ import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
 import '../../../app/services/feiniu/api_client.dart';
 import '../../../app/state/song_state.dart';
+import '../../../app/utils/route_visibility.dart';
 
 class PlayerBackgroundSettings {
   static const String _prefsPlaybackThemeMode = 'setting_playback_theme_mode';
@@ -23,9 +24,7 @@ class PlayerBackgroundSettings {
   static final ValueNotifier<ThemeMode> playbackThemeMode = ValueNotifier(
     ThemeMode.system,
   );
-  static final ValueNotifier<bool> dynamicGradientEnabled = ValueNotifier(
-    true,
-  );
+  static final ValueNotifier<bool> dynamicGradientEnabled = ValueNotifier(true);
   static final ValueNotifier<double> saturation = ValueNotifier(1.2);
   static final ValueNotifier<double> hueShift = ValueNotifier(120.0);
   static final ValueNotifier<bool> roundCover = ValueNotifier(true);
@@ -67,7 +66,8 @@ class PlayerBackgroundSettings {
     saturation.value = prefs.getDouble(_prefsSaturation) ?? 1.2;
     hueShift.value = prefs.getDouble(_prefsHueShift) ?? 120.0;
     roundCover.value = prefs.getBool(_prefsRoundCover) ?? true;
-    rotateCover.value = prefs.getBool(_prefsRotateCover) ?? true;
+    rotateCover.value =
+        (prefs.getBool(_prefsRotateCover) ?? true) && roundCover.value;
   }
 
   static Future<void> setPlaybackThemeMode(ThemeMode mode) async {
@@ -98,6 +98,10 @@ class PlayerBackgroundSettings {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefsRoundCover, value);
     roundCover.value = value;
+    if (!value && rotateCover.value) {
+      await prefs.setBool(_prefsRotateCover, false);
+      rotateCover.value = false;
+    }
   }
 
   static Future<void> setRotateCover(bool value) async {
@@ -394,13 +398,16 @@ class _DynamicGradientBackground extends StatefulWidget {
 }
 
 class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AppRouteVisibilityMixin {
   // ~30fps over the 22s loop. Quantizing the animation phase lets the painter's
   // shouldRepaint skip the full-screen multi-shader repaint between steps, while
   // the very slow drift stays visually smooth.
   static const int _phaseSteps = 22 * 30;
 
   late AnimationController _controller;
+
+  @override
+  AnimationController get visibilityController => _controller;
 
   @override
   void initState() {

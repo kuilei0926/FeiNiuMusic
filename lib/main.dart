@@ -25,6 +25,11 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DebugLogService.instance.ensureLoaded();
   await FlutterDisplayMode.setHighRefreshRate();
+  // 必须先恢复认证信息（token / 服务器地址）再初始化播放相关服务：
+  // MediaNotificationService.init() 会实例化 PlayerService，其启动恢复流程
+  // （含「进入应用自动播放」）依赖 FeiNiuApiClient.baseUrl 已就绪，
+  // 否则流地址解析失败，自动播放会被静默吞掉。
+  await AuthService.instance.init();
   await MediaNotificationService.init();
   await AppThemeSettings.ensureLoaded();
   await AppLayoutSettings.ensureLoaded();
@@ -32,8 +37,6 @@ Future<void> main() async {
   await AppFnConnectionSettings.ensureLoaded();
   await PlayerStyleSettings.ensureLoaded();
   await AppLaunchNavigationSettings.ensureLoaded();
-  // 初始化认证状态（从 SharedPreferences 恢复 token）
-  await AuthService.instance.init();
   // 初始化自动重连服务（监听网络变化 + API 失败）
   FnAutoReconnectService.instance.init();
   runApp(const FeiNiuMusicApp());
@@ -102,6 +105,8 @@ void _warmupConnection() {
         FeiNiuApiClient.instance.setRelayMode(result.isRelay);
       })
       .catchError((_) {
-        // 后台预热失败不报错，等自动重连机制兜底
+        // 后台预热失败不报错：标记服务器不可达让横幅显示，
+        // 并立即触发自动重连（失败后保持周期重试直到恢复）
+        FnAutoReconnectService.instance.onConnectionLost(reason: '启动预热连接失败');
       });
 }

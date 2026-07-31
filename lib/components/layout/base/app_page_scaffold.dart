@@ -63,6 +63,11 @@ class AppPageScaffoldState extends State<AppPageScaffold>
   );
   bool _draggingDrawer = false;
 
+  /// True while the drawer is mid-slide; the mini player's backdrop blur is
+  /// paused then so the moving page doesn't force an expensive re-blur on
+  /// every animation frame.
+  final ValueNotifier<bool> _drawerAnimating = ValueNotifier(false);
+
   bool get _hasDrawer => widget.drawer != null;
 
   void openDrawer() {
@@ -79,6 +84,7 @@ class AppPageScaffoldState extends State<AppPageScaffold>
 
   @override
   void dispose() {
+    _drawerAnimating.dispose();
     _drawerController.dispose();
     super.dispose();
   }
@@ -110,6 +116,7 @@ class AppPageScaffoldState extends State<AppPageScaffold>
             padding: hasBottomNav
                 ? const EdgeInsets.fromLTRB(16, 4, 16, 0)
                 : const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            blurPaused: _drawerAnimating,
           )
         : null;
 
@@ -239,8 +246,13 @@ class AppPageScaffoldState extends State<AppPageScaffold>
                 AnimatedBuilder(
                   animation: _drawerController,
                   builder: (context, child) {
+                    final value = _drawerController.value;
+                    final animating = value > 0.0 && value < 1.0;
+                    if (animating != _drawerAnimating.value) {
+                      _drawerAnimating.value = animating;
+                    }
                     return Positioned(
-                      left: drawerWidth * _drawerController.value,
+                      left: drawerWidth * value,
                       right: 0,
                       bottom: effectiveMiniPlayerBottom,
                       child: child!,

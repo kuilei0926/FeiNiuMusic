@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
 import '../../../app/services/lyrics/lyrics_service.dart';
+import '../../../app/services/lyrics/lyrics_view_colors.dart';
 import '../../../app/services/player_service.dart';
 import '../../../components/index.dart';
 import 'widgets/lyrics_actions_bar.dart';
@@ -312,7 +313,10 @@ class _PlayerLyricsViewState extends State<PlayerLyricsView> with SignalsMixin {
                                   ? null
                                   : Color(inactiveColorValue),
                               onTap: () {
-                                final fallback = _defaultInactiveColor(context);
+                                final fallback =
+                                    LyricsViewColors.defaultInactiveColor(
+                                      context,
+                                    );
                                 _openColorPicker(
                                   title: '普通歌词颜色',
                                   initialColor: inactiveColorValue == null
@@ -338,7 +342,10 @@ class _PlayerLyricsViewState extends State<PlayerLyricsView> with SignalsMixin {
                                   ? null
                                   : Color(activeColorValue),
                               onTap: () {
-                                final fallback = _defaultActiveColor(context);
+                                final fallback =
+                                    LyricsViewColors.defaultActiveColor(
+                                      context,
+                                    );
                                 _openColorPicker(
                                   title: '当前歌词颜色',
                                   initialColor: activeColorValue == null
@@ -363,9 +370,10 @@ class _PlayerLyricsViewState extends State<PlayerLyricsView> with SignalsMixin {
                                   ? null
                                   : Color(highlightColorValue),
                               onTap: () {
-                                final fallback = _defaultHighlightColor(
-                                  context,
-                                );
+                                final fallback =
+                                    LyricsViewColors.defaultHighlightColor(
+                                      context,
+                                    );
                                 _openColorPicker(
                                   title: '逐字高亮颜色',
                                   initialColor: highlightColorValue == null
@@ -570,22 +578,26 @@ class _PlayerLyricsViewState extends State<PlayerLyricsView> with SignalsMixin {
                         (line) => line.words?.isNotEmpty ?? false,
                       );
                       final karaokeMode = forceKaraoke || hasKaraokeWords;
-                      final inactiveColor = _customColorOrDefault(
-                        _inactiveColorValue.value,
-                        _defaultInactiveColor(context),
-                      );
-                      final activeColor = _customColorOrDefault(
+                      final inactiveColor =
+                          LyricsViewColors.customColorOrDefault(
+                            _inactiveColorValue.value,
+                            LyricsViewColors.defaultInactiveColor(context),
+                          );
+                      final activeColor = LyricsViewColors.customColorOrDefault(
                         _activeColorValue.value,
-                        _defaultActiveColor(context),
+                        LyricsViewColors.defaultActiveColor(context),
                       );
-                      final highlightColor = _customColorOrDefault(
-                        _highlightColorValue.value,
-                        _defaultHighlightColor(context),
-                      );
+                      final highlightColor =
+                          LyricsViewColors.customColorOrDefault(
+                            _highlightColorValue.value,
+                            LyricsViewColors.defaultHighlightColor(context),
+                          );
                       final isLight = theme.brightness == Brightness.light;
-                      final karaokeBaseColor = isLight
-                          ? inactiveColor
-                          : onSurface.withValues(alpha: 0.85);
+                      final karaokeBaseColor =
+                          LyricsViewColors.karaokeBaseColor(
+                            context,
+                            inactiveColor: inactiveColor,
+                          );
 
                       final translationStyle = showTranslation
                           ? TextStyle(
@@ -753,32 +765,6 @@ class _PlayerLyricsViewState extends State<PlayerLyricsView> with SignalsMixin {
         );
       },
     );
-  }
-
-  Color _customColorOrDefault(int? value, Color fallback) {
-    return value == null ? fallback : Color(value);
-  }
-
-  Color _defaultInactiveColor(BuildContext context) {
-    final theme = Theme.of(context);
-    final onSurface = theme.colorScheme.onSurface;
-    return theme.brightness == Brightness.light
-        ? const Color(0xFF8C8C8C)
-        : onSurface.withValues(alpha: 0.45);
-  }
-
-  Color _defaultActiveColor(BuildContext context) {
-    final theme = Theme.of(context);
-    return theme.brightness == Brightness.light
-        ? Colors.black
-        : theme.colorScheme.onSurface;
-  }
-
-  Color _defaultHighlightColor(BuildContext context) {
-    final theme = Theme.of(context);
-    return theme.brightness == Brightness.light
-        ? Colors.black
-        : theme.colorScheme.primaryFixedDim;
   }
 }
 

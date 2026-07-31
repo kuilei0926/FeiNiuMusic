@@ -105,13 +105,18 @@ class GlassPanel extends StatelessWidget {
       child: material,
     );
 
-    // 启用高斯模糊时叠加 BackdropFilter
+    // 启用高斯模糊时叠加 BackdropFilter。
+    // 用 RepaintBoundary 把模糊合成隔离到独立图层：页面切换转场期间
+    // 底层页面在滑动/淡出时，模糊结果被图层缓存复用，不再逐帧全屏重采样，
+    // 显著降低掉帧（BackdropFilter 的模糊采样是页面切换卡顿的主要来源）。
     if (blurStrength > 0) {
       result = ClipRRect(
         borderRadius: _resolvedBorderRadius,
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: blurStrength, sigmaY: blurStrength),
-          child: result,
+        child: RepaintBoundary(
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: blurStrength, sigmaY: blurStrength),
+            child: result,
+          ),
         ),
       );
     }

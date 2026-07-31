@@ -41,7 +41,7 @@ class _LaunchSettingsPageState extends State<LaunchSettingsPage> {
                 builder: (context, enabled, _) {
                   return AppSettingTile(
                     title: '启动软件自动打开播放界面',
-                    subtitle: '打开 APP 后自动跳转到播放器页面',
+                    subtitle: '控制APP启动后的行为',
                     trailing: Switch.adaptive(
                       value: enabled,
                       onChanged: (value) {

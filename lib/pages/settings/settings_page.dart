@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/router/app_router.dart';
 import '../../app/services/feiniu/auth_service.dart';
+import '../../app/services/player_service.dart';
 import '../../app/state/settings_state.dart';
 import '../../components/index.dart';
 import '../player/widgets/player_background.dart';
@@ -77,10 +78,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     subtitle: '连接偏好、当前连接与候选链路管理',
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () {
-                      Navigator.pushNamed(
-                        context,
-                        AppRoutes.fnConnectSettings,
-                      );
+                      Navigator.pushNamed(context, AppRoutes.fnConnectSettings);
                     },
                   ),
                   AppSettingTile(
@@ -139,7 +137,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 children: [
                   AppSettingTile(
                     title: '启动设置',
-                    subtitle: '启动时自动打开播放界面',
+                    subtitle: '控制APP启动后的行为',
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () =>
                         Navigator.pushNamed(context, AppRoutes.launchSettings),
@@ -168,12 +166,20 @@ class _SettingsPageState extends State<SettingsPage> {
                           title: const Text('退出登录'),
                           content: const Text('确定退出当前账号吗？'),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确定')),
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('取消'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              child: const Text('确定'),
+                            ),
                           ],
                         ),
                       );
                       if (confirmed == true) {
+                        // 退出登录前先停止音乐播放
+                        await PlayerService.instance.stopAndClear();
                         await AuthService.instance.logout();
                         if (!context.mounted) return;
                         Navigator.of(context).pushAndRemoveUntil(

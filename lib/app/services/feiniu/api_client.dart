@@ -14,44 +14,54 @@ import 'api_models.dart';
 /// 中继模式下额外携带 Cookie: mode=relay，并手动处理 302 重定向以保持中继 Cookie。
 class FeiNiuApiClient {
   FeiNiuApiClient._() {
-    _dio.interceptors.add(InterceptorsWrapper(
-      onError: (error, handler) {
-        // 通知自动重连监听器
-        for (final monitor in _reconnectMonitors) {
-          monitor(error);
-        }
-        // 401 时自动清除 token，交给 AuthService 处理
-        if (error.response?.statusCode == 401) {
-          _clearToken();
-        }
-        handler.next(error);
-      },
-      onResponse: (response, handler) {
-        // 全局处理 3xx 重定向（手动跟随以保持自定义 Cookie）
-        final statusCode = response.statusCode ?? 0;
-        if (statusCode >= 300 && statusCode < 400) {
-          _handleRedirect(response).then((result) {
-            handler.resolve(result);
-          }).catchError((e) {
-            handler.next(e);
-          });
-          return;
-        }
-        handler.next(response);
-      },
-    ));
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onError: (error, handler) {
+          // 通知自动重连监听器
+          for (final monitor in _reconnectMonitors) {
+            monitor(error);
+          }
+          // 401 时自动清除 token，交给 AuthService 处理
+          if (error.response?.statusCode == 401) {
+            _clearToken();
+          }
+          handler.next(error);
+        },
+        onResponse: (response, handler) {
+          // 收到响应即表示服务器可达，通知连接恢复监听器
+          for (final monitor in _recoveryMonitors) {
+            monitor();
+          }
+          // 全局处理 3xx 重定向（手动跟随以保持自定义 Cookie）
+          final statusCode = response.statusCode ?? 0;
+          if (statusCode >= 300 && statusCode < 400) {
+            _handleRedirect(response)
+                .then((result) {
+                  handler.resolve(result);
+                })
+                .catchError((e) {
+                  handler.next(e);
+                });
+            return;
+          }
+          handler.next(response);
+        },
+      ),
+    );
   }
 
   static final FeiNiuApiClient instance = FeiNiuApiClient._();
 
-  final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 15),
-    receiveTimeout: const Duration(seconds: 30),
-    sendTimeout: const Duration(seconds: 15),
-    followRedirects: false,
-    maxRedirects: 0,
-    validateStatus: (_) => true,
-  ));
+  final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 30),
+      sendTimeout: const Duration(seconds: 15),
+      followRedirects: false,
+      maxRedirects: 0,
+      validateStatus: (_) => true,
+    ),
+  );
 
   String _baseUrl = '';
   String _token = '';
@@ -59,6 +69,9 @@ class FeiNiuApiClient {
 
   /// 网络失败监听回调列表（用于自动重连）
   final List<void Function(DioException)> _reconnectMonitors = [];
+
+  /// 网络恢复监听回调列表（用于重置连接状态）
+  final List<VoidCallback> _recoveryMonitors = [];
 
   // region Token / Auth / Relay 管理
 
@@ -69,6 +82,11 @@ class FeiNiuApiClient {
   /// 注册网络失败监听（供 FnAutoReconnectService 使用）
   void addReconnectMonitor(void Function(DioException) callback) {
     _reconnectMonitors.add(callback);
+  }
+
+  /// 注册网络恢复监听（供连接状态横幅使用）
+  void addRecoveryMonitor(VoidCallback callback) {
+    _recoveryMonitors.add(callback);
   }
 
   /// 设置中继模式（供自动重连时使用）
@@ -101,7 +119,11 @@ class FeiNiuApiClient {
   }
 
   /// 在内存中设置认证凭据并持久化
-  Future<void> setAuth(String baseUrl, String token, {bool relayMode = false}) async {
+  Future<void> setAuth(
+    String baseUrl,
+    String token, {
+    bool relayMode = false,
+  }) async {
     // 去掉用户可能输入的 /music/api/v1 后缀
     _baseUrl = baseUrl.replaceAll(RegExp(r'/music/api/v1/*$'), '');
     _baseUrl = _baseUrl.endsWith('/')
@@ -166,7 +188,9 @@ class FeiNiuApiClient {
   Future<Response> _handleRedirect(Response response, {int depth = 0}) async {
     if (depth >= 5) {
       if (kDebugMode) {
-        debugPrint('[ApiClient] Redirect depth exceeded, returning last response');
+        debugPrint(
+          '[ApiClient] Redirect depth exceeded, returning last response',
+        );
       }
       return response;
     }
@@ -190,8 +214,11 @@ class FeiNiuApiClient {
         response.requestOptions.headers['Cookie'] as String? ??
         response.requestOptions.headers['cookie'] as String?;
     // 如果没有原始 Cookie，再根据当前状态构造一个兜底
-    final effectiveCookie = originalCookie ??
-        (_relayMode ? 'music-token=$_token; mode=relay' : 'music-token=$_token');
+    final effectiveCookie =
+        originalCookie ??
+        (_relayMode
+            ? 'music-token=$_token; mode=relay'
+            : 'music-token=$_token');
     final redirectResponse = await _dio.requestUri(
       redirectUri,
       options: Options(
@@ -229,8 +256,10 @@ class FeiNiuApiClient {
 
   // region 通用请求方法
 
-  Future<Map<String, dynamic>> _get(String path,
-      {Map<String, dynamic>? queryParameters}) async {
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
     final response = await _dio.get(
       _url(path),
       queryParameters: queryParameters,
@@ -262,7 +291,8 @@ class FeiNiuApiClient {
     Map<String, dynamic> data,
     T Function(Map<String, dynamic>) fromItem,
   ) {
-    final list = (data['list'] as List<dynamic>?)
+    final list =
+        (data['list'] as List<dynamic>?)
             ?.map((e) => fromItem(e as Map<String, dynamic>))
             .toList() ??
         [];
@@ -287,9 +317,10 @@ class FeiNiuApiClient {
   /// 生成设备 ID（32 位 hex）
   static String generateDeviceId() {
     final random = Random();
-    return List.generate(16, (_) => random.nextInt(256))
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
+    return List.generate(
+      16,
+      (_) => random.nextInt(256),
+    ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   /// 密码登录
@@ -307,9 +338,7 @@ class FeiNiuApiClient {
         'password': hashedPassword,
         'deviceId': deviceId,
       },
-      options: Options(
-        headers: relayMode ? {'Cookie': 'mode=relay'} : null,
-      ),
+      options: Options(headers: relayMode ? {'Cookie': 'mode=relay'} : null),
     );
     final data = response.data is Map<String, dynamic>
         ? response.data as Map<String, dynamic>
@@ -368,7 +397,11 @@ class FeiNiuApiClient {
     int size = 300,
     String? sort,
   }) async {
-    final params = <String, dynamic>{'genreGUID': genreGUID, 'page': page, 'size': size};
+    final params = <String, dynamic>{
+      'genreGUID': genreGUID,
+      'page': page,
+      'size': size,
+    };
     if (sort != null) params['sort'] = sort;
     final data = await _get(
       '/track/genre-detail/list',
@@ -435,11 +468,7 @@ class FeiNiuApiClient {
   }) async {
     final data = await _get(
       '/track/album-detail/list',
-      queryParameters: {
-        'albumGUID': albumGUID,
-        'page': page,
-        'size': size,
-      },
+      queryParameters: {'albumGUID': albumGUID, 'page': page, 'size': size},
     );
     final response = FeiNiuResponse.fromJson(
       data,
@@ -483,7 +512,9 @@ class FeiNiuApiClient {
       'size': size,
     };
     if (sort != null && sort.isNotEmpty) params['sort'] = sort;
-    debugPrint('[ApiClient] getArtistTracks artistGUID=$artistGUID page=$page size=$size');
+    debugPrint(
+      '[ApiClient] getArtistTracks artistGUID=$artistGUID page=$page size=$size',
+    );
     final data = await _get(
       '/track/artist-detail/list',
       queryParameters: params,
@@ -531,20 +562,14 @@ class FeiNiuApiClient {
   // region 11. 歌曲元数据
 
   Future<FeiNiuTrack?> getTrackMetadata(String guid) async {
-    final data = await _get(
-      '/track/metadata',
-      queryParameters: {'guid': guid},
-    );
-    final response = FeiNiuResponse.fromJson(
-      data,
-      (d) {
-        final d2 = d is Map<String, dynamic> ? d : <String, dynamic>{};
-        // metadata 返回的 track 在 track 字段内
-        final track = d2['track'] as Map<String, dynamic>?;
-        if (track != null) return FeiNiuTrack.fromJson(track);
-        return FeiNiuTrack.fromJson(d2);
-      },
-    );
+    final data = await _get('/track/metadata', queryParameters: {'guid': guid});
+    final response = FeiNiuResponse.fromJson(data, (d) {
+      final d2 = d is Map<String, dynamic> ? d : <String, dynamic>{};
+      // metadata 返回的 track 在 track 字段内
+      final track = d2['track'] as Map<String, dynamic>?;
+      if (track != null) return FeiNiuTrack.fromJson(track);
+      return FeiNiuTrack.fromJson(d2);
+    });
     return response.data;
   }
 
@@ -563,8 +588,7 @@ class FeiNiuApiClient {
     );
     final response = FeiNiuResponse.fromJson(
       data,
-      (d) =>
-          _parsePage(d as Map<String, dynamic>, FeiNiuSearchTrack.fromJson),
+      (d) => _parsePage(d as Map<String, dynamic>, FeiNiuSearchTrack.fromJson),
     );
     return response.data ?? const FeiNiuPageData(list: [], total: 0);
   }
@@ -638,10 +662,7 @@ class FeiNiuApiClient {
   }) async {
     final params = <String, dynamic>{'page': page, 'size': size};
     if (sort != null) params['sort'] = sort;
-    final data = await _get(
-      '/favorite-track/list',
-      queryParameters: params,
-    );
+    final data = await _get('/favorite-track/list', queryParameters: params);
     final response = FeiNiuResponse.fromJson(
       data,
       (d) => _parsePage(d as Map<String, dynamic>, FeiNiuTrack.fromJson),
@@ -678,10 +699,7 @@ class FeiNiuApiClient {
   ) async {
     final data = await _get(
       '/track/roam-next',
-      queryParameters: {
-        'deviceId': deviceId,
-        'relativeRoamId': relativeRoamId,
-      },
+      queryParameters: {'deviceId': deviceId, 'relativeRoamId': relativeRoamId},
     );
     final response = FeiNiuResponse.fromJson(
       data,
@@ -782,10 +800,9 @@ class FeiNiuApiClient {
       final uploadResponse = await _dio.post(
         _url('/static/cover/playlist'),
         data: formData,
-        options: Options(headers: {
-          ...authHeaders(),
-          'Content-Type': 'multipart/form-data',
-        }),
+        options: Options(
+          headers: {...authHeaders(), 'Content-Type': 'multipart/form-data'},
+        ),
       );
       final rawData = uploadResponse.data;
       final data = rawData is Map<String, dynamic>
@@ -811,10 +828,7 @@ class FeiNiuApiClient {
     if (coverId != null && coverId.isNotEmpty) {
       body['coverId'] = coverId;
     }
-    final data = await _post(
-      '/playlist/create',
-      data: body,
-    );
+    final data = await _post('/playlist/create', data: body);
     final response = FeiNiuResponse.fromJson(
       data,
       (d) => FeiNiuPlaylist.fromJson(d as Map<String, dynamic>),
@@ -826,10 +840,7 @@ class FeiNiuApiClient {
   }
 
   Future<void> deletePlaylist(String guid) async {
-    final data = await _post(
-      '/playlist/delete',
-      data: {'guid': guid},
-    );
+    final data = await _post('/playlist/delete', data: {'guid': guid});
     final response = FeiNiuResponse.fromJson(data, null);
     if (!response.isSuccess) {
       throw Exception(response.msg.isNotEmpty ? response.msg : '删除歌单失败');

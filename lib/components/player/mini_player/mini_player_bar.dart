@@ -1,6 +1,8 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_lyric/core/lyric_model.dart';
 
 import '../../../app/services/lyrics/lyrics_service.dart';
 import '../../../app/services/player_service.dart';
@@ -8,6 +10,7 @@ import '../../../app/router/app_router.dart';
 import '../../../app/state/settings_state.dart';
 import '../../../app/state/song_state.dart';
 import '../../common/artwork_widget.dart';
+import '../../player/karaoke_lyric_text.dart';
 import '../../../pages/player/player_page.dart';
 import '../../../pages/player/widgets/player_bottom_panel.dart';
 
@@ -24,6 +27,12 @@ class MiniPlayerBar extends StatelessWidget {
   final bool enableSwipe;
   final Widget? trailing;
 
+  /// When non-null and its value is true, the bar renders with a solid
+  /// background instead of a [BackdropFilter]. The drawer/sidebar animation
+  /// uses this so the moving page below doesn't force an expensive backdrop
+  /// re-blur on every frame while the drawer is sliding.
+  final ValueListenable<bool>? blurPaused;
+
   MiniPlayerBar({
     super.key,
     PlayerService? player,
@@ -35,10 +44,32 @@ class MiniPlayerBar extends StatelessWidget {
     this.boxShadow,
     this.enableSwipe = true,
     this.trailing,
+    this.blurPaused,
   }) : player = player ?? PlayerService.instance;
 
   @override
   Widget build(BuildContext context) {
+    // Follow the same panel blur slider as cards/settings panels so the
+    // bottom music bar (which the setting description explicitly names) reacts
+    // to the "高斯模糊强度" slider instead of a hardcoded blur.
+    final blurPaused = this.blurPaused;
+    if (blurPaused == null) {
+      return ValueListenableBuilder<double>(
+        valueListenable: AppBackgroundSettings.panelBlurStrength,
+        builder: (context, blurStrength, _) => _buildBar(context, blurStrength),
+      );
+    }
+    return ValueListenableBuilder<bool>(
+      valueListenable: blurPaused,
+      builder: (context, paused, _) => ValueListenableBuilder<double>(
+        valueListenable: AppBackgroundSettings.panelBlurStrength,
+        builder: (context, blurStrength, _) =>
+            _buildBar(context, paused ? 0.0 : blurStrength),
+      ),
+    );
+  }
+
+  Widget _buildBar(BuildContext context, double blurStrength) {
     // Only rebuild the bar chrome when the SONG changes — not on every position
     // tick. Position/playing are consumed by the leaf play-button & subtitle
     // widgets, which have their own snapshot listeners.
@@ -62,9 +93,12 @@ class MiniPlayerBar extends StatelessWidget {
             onOpenQueue ?? () => showPlayerPlaylistSheet(context, player);
 
         final isDark = theme.brightness == Brightness.dark;
-        final bgColor = isDark
-            ? Colors.black.withValues(alpha: 0.06)
-            : Colors.white.withValues(alpha: 0.08);
+        final isBlurred = blurStrength > 0;
+        final bgColor = isBlurred
+            ? (isDark
+                  ? Colors.black.withValues(alpha: 0.06)
+                  : Colors.white.withValues(alpha: 0.08))
+            : scheme.surface.withValues(alpha: 0.85);
 
         final border = Border.all(
           color: isDark
@@ -97,48 +131,66 @@ class MiniPlayerBar extends StatelessWidget {
                   horizontal: 10,
                   vertical: 7,
                 ),
-                child: Row(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.12),
-                            blurRadius: 6,
-                            offset: const Offset(0, 1),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // When the drawer squeezes this bar, drop the trailing
+                    // queue button and shrink the artwork/play button so the
+                    // Row never overflows (which painted overflow stripes).
+                    final tight = constraints.maxWidth < 91;
+                    final compact = tight || constraints.maxWidth < 145;
+                    final resolvedArtworkSize = tight
+                        ? 36.0
+                        : (compact ? 40.0 : artworkSize);
+                    final resolvedArtworkRadius = compact ? 9.0 : 10.0;
+                    final playSize = compact ? 34.0 : 38.0;
+                    return Row(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(
+                              resolvedArtworkRadius,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.12),
+                                blurRadius: 6,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      child: MiniPlayerArtwork(
-                        song: song,
-                        size: artworkSize,
-                        borderRadius: 10,
-                      ),
-                    ),
-                    const SizedBox(width: 11),
-                    Expanded(
-                      child: MiniPlayerInfo(
-                        song: song,
-                        enableSwipe: enableSwipe,
-                        player: player,
-                        onOpenPlayer: openPlayer,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    MiniPlayerPlayButton(
-                      player: player,
-                      size: 38,
-                      enabled: hasSong,
-                    ),
-                    const SizedBox(width: 4),
-                    trailing ??
-                        MiniPlayerQueueButton(
-                          onPressed: hasSong ? openQueue : null,
-                          color: scheme.onSurface,
+                          child: MiniPlayerArtwork(
+                            song: song,
+                            size: resolvedArtworkSize,
+                            borderRadius: resolvedArtworkRadius,
+                          ),
                         ),
-                    const SizedBox(width: 2),
-                  ],
+                        SizedBox(width: tight ? 8 : 11),
+                        Expanded(
+                          child: MiniPlayerInfo(
+                            song: song,
+                            enableSwipe: enableSwipe,
+                            player: player,
+                            onOpenPlayer: openPlayer,
+                          ),
+                        ),
+                        SizedBox(width: tight ? 4 : 6),
+                        MiniPlayerPlayButton(
+                          player: player,
+                          size: playSize,
+                          enabled: hasSong,
+                        ),
+                        if (!compact) ...[
+                          const SizedBox(width: 4),
+                          trailing ??
+                              MiniPlayerQueueButton(
+                                onPressed: hasSong ? openQueue : null,
+                                color: scheme.onSurface,
+                              ),
+                          const SizedBox(width: 2),
+                        ],
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -154,10 +206,17 @@ class MiniPlayerBar extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(borderRadius),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                child: content,
-              ),
+              child: isBlurred
+                  ? RepaintBoundary(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(
+                          sigmaX: blurStrength,
+                          sigmaY: blurStrength,
+                        ),
+                        child: content,
+                      ),
+                    )
+                  : content,
             ),
           ),
         );
@@ -351,11 +410,7 @@ class _InfoContent extends StatelessWidget {
                 return _MiniPlayerSubtitleText(
                   text: subtitle,
                   useProgressMarquee: showLyrics && lyric.isNotEmpty,
-                  player: player,
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 11.5,
-                  ),
+                  style: const TextStyle(fontSize: 11.5),
                 );
               },
             );
@@ -507,13 +562,11 @@ class _SwipeableInfoState extends State<_SwipeableInfo>
 class _MiniPlayerSubtitleText extends StatelessWidget {
   final String text;
   final bool useProgressMarquee;
-  final PlayerService player;
   final TextStyle style;
 
   const _MiniPlayerSubtitleText({
     required this.text,
     required this.useProgressMarquee,
-    required this.player,
     required this.style,
   });
 
@@ -528,76 +581,44 @@ class _MiniPlayerSubtitleText extends StatelessWidget {
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final painter = TextPainter(
-          text: TextSpan(text: text, style: style),
-          textAlign: TextAlign.left,
-          maxLines: 1,
-          textDirection: Directionality.of(context),
-        )..layout(minWidth: 0);
+    final lyrics = LyricsService.instance;
+    final model = lyrics.controller.lyricNotifier.value;
+    final index = lyrics.controller.activeIndexNotifiter.value;
+    if (model == null || index < 0 || index >= model.lines.length) {
+      return Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+    final line = model.lines[index];
+    if (line.text.trim().isEmpty) {
+      return Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
 
-        final overflow = painter.width - constraints.maxWidth;
-        if (overflow <= 6) {
-          return Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: style,
-          );
-        }
-
-        return ValueListenableBuilder<PlaybackSnapshot>(
-          valueListenable: player.snapshot,
-          builder: (context, snapshot, _) {
-            final progress = _lineProgress(snapshot);
-            final maxOffset = overflow + 24;
-            return ClipRect(
-              child: SizedBox(
-                height: (style.fontSize ?? 12) * 1.35,
-                child: Transform.translate(
-                  offset: Offset(-maxOffset * progress, 0),
-                  child: SizedBox(
-                    width: painter.width,
-                    child: Text(
-                      text,
-                      maxLines: 1,
-                      softWrap: false,
-                      overflow: TextOverflow.visible,
-                      style: style,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+    return KaraokeLyricText(
+      line: line,
+      position: lyrics.controller.progressNotifier,
+      offset: Duration(milliseconds: lyrics.controller.lyricOffset),
+      lineEnd: _subtitleLineEnd(model, index),
+      style: style,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
   }
 
-  double _lineProgress(PlaybackSnapshot snapshot) {
-    final model = LyricsService.instance.controller.lyricNotifier.value;
-    final index = LyricsService.instance.controller.activeIndexNotifiter.value;
-    if (model == null || index < 0 || index >= model.lines.length) {
-      final totalMs = snapshot.duration?.inMilliseconds ?? 0;
-      if (totalMs <= 0) return 0;
-      return (snapshot.position.inMilliseconds / totalMs).clamp(0.0, 1.0);
+  Duration _subtitleLineEnd(LyricModel model, int index) {
+    if (index + 1 < model.lines.length) {
+      return model.lines[index + 1].start;
     }
-
     final line = model.lines[index];
-    final startMs = line.start.inMilliseconds;
-    final nextStartMs = index + 1 < model.lines.length
-        ? model.lines[index + 1].start.inMilliseconds
-        : snapshot.duration?.inMilliseconds ??
-              line.end?.inMilliseconds ??
-              startMs;
-    final endMs = (line.end?.inMilliseconds ?? nextStartMs).clamp(
-      startMs + 1,
-      1 << 30,
-    );
-    final currentMs = snapshot.position.inMilliseconds.clamp(startMs, endMs);
-    return ((currentMs - startMs) / (endMs - startMs)).clamp(0.0, 1.0);
+    return line.end ?? line.start + const Duration(seconds: 8);
   }
 }
 
@@ -624,6 +645,7 @@ class MiniPlayerPlayButton extends StatelessWidget {
             ? 0.0
             : snapshot.position.inMilliseconds / totalMs;
         final playing = snapshot.isPlaying;
+        final loading = snapshot.isLoading;
         return SizedBox(
           width: size,
           height: size,
@@ -646,16 +668,28 @@ class MiniPlayerPlayButton extends StatelessWidget {
                     strokeCap: StrokeCap.round,
                   ),
                 ),
-                IconButton(
-                  icon: Icon(
-                    playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    color: scheme.onSurface,
-                    size: 20,
+                if (loading && enabled)
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      color: scheme.primary,
+                    ),
+                  )
+                else
+                  IconButton(
+                    icon: Icon(
+                      playing
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      color: scheme.onSurface,
+                      size: 20,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: enabled ? player.togglePlayPause : null,
                   ),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: enabled ? player.togglePlayPause : null,
-                ),
               ],
             ),
           ),

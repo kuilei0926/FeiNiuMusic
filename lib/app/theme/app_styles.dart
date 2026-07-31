@@ -28,18 +28,20 @@ class CoverPageTransitionsBuilder extends PageTransitionsBuilder {
     Widget child,
   ) {
     // Incoming page: ease in from the right with a short fade.
+    // 轻量化转场：滑动幅度更小、淡入更早到位，配合 AppPageRoute 缩短时长后
+    // 进入/返回更干脆，避免长距离滑动的拖拽感。
     final inCurve = CurvedAnimation(
       parent: animation,
       curve: Curves.easeOutCubic,
       reverseCurve: Curves.easeInCubic,
     );
     final slideIn = inCurve.drive(
-      Tween(begin: const Offset(0.16, 0), end: Offset.zero),
+      Tween(begin: const Offset(0.10, 0), end: Offset.zero),
     );
     final fadeIn = CurvedAnimation(
       parent: animation,
-      curve: const Interval(0.0, 0.55, curve: Curves.easeOut),
-      reverseCurve: const Interval(0.45, 1.0, curve: Curves.easeIn),
+      curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
+      reverseCurve: const Interval(0.4, 1.0, curve: Curves.easeIn),
     );
 
     Widget result = SlideTransition(
@@ -57,7 +59,7 @@ class CoverPageTransitionsBuilder extends PageTransitionsBuilder {
       );
       result = SlideTransition(
         position: outCurve.drive(
-          Tween(begin: Offset.zero, end: const Offset(-0.08, 0)),
+          Tween(begin: Offset.zero, end: const Offset(-0.05, 0)),
         ),
         child: result,
       );

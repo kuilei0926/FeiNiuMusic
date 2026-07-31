@@ -15,6 +15,7 @@ import '../../../components/common/artwork_widget.dart';
 import '../../../components/common/labeled_slider.dart';
 import '../../../components/common/playing_bars.dart';
 import '../../../components/feedback/app_toast.dart';
+import '../../../components/player/lyric_preview.dart';
 import '../../library/library_detail_pages.dart';
 import '../../songs/song_detail_sheet.dart';
 import 'player_background.dart';
@@ -107,7 +108,6 @@ class _MiniLyricsPreviewState extends State<_MiniLyricsPreview>
         }
         final scheme = Theme.of(context).colorScheme;
         final lyrics = LyricsService.instance;
-        final active = lyrics.activeIndexSignal.value;
         final snap = lyrics.snapshotSignal.value;
         final model = lyrics.lyricModelSignal.value;
         final lines = model?.lines ?? const <LyricLine>[];
@@ -177,86 +177,15 @@ class _MiniLyricsPreviewState extends State<_MiniLyricsPreview>
                         );
                       }
 
-                      final base = (active >= 0 && active < lines.length)
-                          ? active
-                          : 0;
-                      String lineAt(int i) {
-                        if (i < 0) return '';
-                        if (i >= lines.length) return '';
-                        return lines[i].text;
-                      }
-
-                      String translationAt(int i) {
-                        if (i < 0) return '';
-                        if (i >= lines.length) return '';
-                        return (lines[i].translation ?? '').trim();
-                      }
-
-                      final prev = lineAt(base - 1);
-                      final curr = lineAt(base);
-                      final currTrans = _showTranslation.value
-                          ? translationAt(base)
-                          : '';
-                      final next = lineAt(base + 1);
-                      final showTransLine = currTrans.isNotEmpty;
-
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: crossAlign,
-                        children: [
-                          Text(
-                            prev.isEmpty ? ' ' : prev,
-                            style: TextStyle(
-                              color: scheme.onSurfaceVariant.withValues(
-                                alpha: 0.55,
-                              ),
-                              fontSize: 14,
-                            ),
-                            textAlign: textAlign,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          SizedBox(height: showTransLine ? 6 : 8),
-                          Text(
-                            curr.isEmpty ? ' ' : curr,
-                            style: TextStyle(
-                              color: scheme.onSurface,
-                              fontSize: showTransLine ? 16 : 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            textAlign: textAlign,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (showTransLine) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              currTrans,
-                              style: TextStyle(
-                                color: scheme.onSurfaceVariant.withValues(
-                                  alpha: 0.55,
-                                ),
-                                fontSize: 12,
-                              ),
-                              textAlign: textAlign,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                          SizedBox(height: showTransLine ? 6 : 8),
-                          Text(
-                            next.isEmpty ? ' ' : next,
-                            style: TextStyle(
-                              color: scheme.onSurfaceVariant.withValues(
-                                alpha: 0.55,
-                              ),
-                              fontSize: 14,
-                            ),
-                            textAlign: textAlign,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                      // 复用歌词页的 LyricView 渲染管线（AnimationController 驱动 +
+                      // CustomPainter 高亮），保证与歌词页一致的流畅逐字动画。
+                      return LyricPreview(
+                        height: previewHeight,
+                        textAlign: textAlign,
+                        contentAlignment: crossAlign,
+                        showTranslation: _showTranslation.value,
+                        fontSize: 15,
+                        activeFontSize: 18,
                       );
                     }(),
                   ),
@@ -391,6 +320,7 @@ class _PlayerControls extends StatelessWidget {
     return Watch.builder(
       builder: (context) {
         final playing = player.isPlayingSignal.value;
+        final loading = player.isLoadingSignal.value;
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -407,10 +337,21 @@ class _PlayerControls extends StatelessWidget {
               ),
               child: IconButton(
                 iconSize: mainButtonSize,
-                icon: Icon(
-                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  color: scheme.onPrimaryContainer,
-                ),
+                icon: loading
+                    ? SizedBox(
+                        width: mainButtonSize,
+                        height: mainButtonSize,
+                        child: CircularProgressIndicator(
+                          strokeWidth: mainButtonSize * 0.055,
+                          color: scheme.onPrimaryContainer,
+                        ),
+                      )
+                    : Icon(
+                        playing
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        color: scheme.onPrimaryContainer,
+                      ),
                 onPressed: player.togglePlayPause,
               ),
             ),
@@ -568,18 +509,22 @@ class _BottomActions extends StatelessWidget {
         },
         onOpenArtist: (artistName) {
           Navigator.of(context).push(
-            buildAppPageRoute((_) => ArtistDetailPage(
-              artistName: artistName,
-              artistGuid: song.firstArtistGuid,
-            )),
+            buildAppPageRoute(
+              (_) => ArtistDetailPage(
+                artistName: artistName,
+                artistGuid: song.firstArtistGuid,
+              ),
+            ),
           );
         },
         onOpenAlbum: (albumName) {
           Navigator.of(context).push(
-            buildAppPageRoute((_) => AlbumDetailPage(
-              albumName: albumName,
-              albumGuid: song.albumGuid,
-            )),
+            buildAppPageRoute(
+              (_) => AlbumDetailPage(
+                albumName: albumName,
+                albumGuid: song.albumGuid,
+              ),
+            ),
           );
         },
       ),
@@ -645,12 +590,14 @@ class _PlayerSheetView extends StatelessWidget {
                 builder: (context, blurStrength, _) {
                   final mask = Container(color: maskColor);
                   if (blurStrength <= 0) return mask;
-                  return BackdropFilter(
-                    filter: ui.ImageFilter.blur(
-                      sigmaX: blurStrength,
-                      sigmaY: blurStrength,
+                  return RepaintBoundary(
+                    child: BackdropFilter(
+                      filter: ui.ImageFilter.blur(
+                        sigmaX: blurStrength,
+                        sigmaY: blurStrength,
+                      ),
+                      child: mask,
                     ),
-                    child: mask,
                   );
                 },
               ),
@@ -1146,7 +1093,9 @@ class _QueueItem extends StatelessWidget {
     final artistColor = isCurrent
         ? accent.withValues(alpha: 0.78)
         : secondaryTextColor.withValues(alpha: 0.82);
-    final artist = song.artistDisplayName.isEmpty ? '未知歌手' : song.artistDisplayName;
+    final artist = song.artistDisplayName.isEmpty
+        ? '未知歌手'
+        : song.artistDisplayName;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

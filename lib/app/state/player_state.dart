@@ -13,6 +13,7 @@ class PlaybackSnapshot {
   final List<SongEntity> queue;
   final int index;
   final bool isPlaying;
+  final bool isLoading;
   final Duration position;
   final Duration? duration;
   final Duration bufferedPosition;
@@ -22,6 +23,7 @@ class PlaybackSnapshot {
     required this.queue,
     required this.index,
     required this.isPlaying,
+    this.isLoading = false,
     required this.position,
     required this.duration,
     required this.bufferedPosition,
@@ -33,6 +35,7 @@ class PlaybackSnapshot {
       queue: [],
       index: -1,
       isPlaying: false,
+      isLoading: false,
       position: Duration.zero,
       duration: null,
       bufferedPosition: Duration.zero,
@@ -53,6 +56,7 @@ class AppPlayerState {
   final ValueNotifier<Duration?> duration = ValueNotifier(null);
   final ValueNotifier<Duration> bufferedPosition = ValueNotifier(Duration.zero);
   final ValueNotifier<bool> isPlaying = ValueNotifier(false);
+  final ValueNotifier<bool> isLoading = ValueNotifier(false);
   final ValueNotifier<List<SongEntity>> queue = ValueNotifier(const []);
   final ValueNotifier<int> currentIndex = ValueNotifier(-1);
   final ValueNotifier<SongEntity?> currentSong = ValueNotifier(null);
@@ -68,6 +72,7 @@ class AppPlayerState {
   final durationSignal = signal<Duration?>(null);
   final bufferedPositionSignal = signal(Duration.zero);
   final isPlayingSignal = signal(false);
+  final isLoadingSignal = signal(false);
   final queueSignal = signal<List<SongEntity>>([]);
   final currentIndexSignal = signal(-1);
   final currentSongSignal = signal<SongEntity?>(null);
@@ -83,6 +88,7 @@ class AppPlayerState {
       () => bufferedPositionSignal.value = bufferedPosition.value,
     );
     isPlaying.addListener(() => isPlayingSignal.value = isPlaying.value);
+    isLoading.addListener(() => isLoadingSignal.value = isLoading.value);
     queue.addListener(() => queueSignal.value = queue.value);
     currentIndex.addListener(
         () => currentIndexSignal.value = currentIndex.value);
@@ -105,6 +111,7 @@ class AppPlayerState {
     duration.dispose();
     bufferedPosition.dispose();
     isPlaying.dispose();
+    isLoading.dispose();
     queue.dispose();
     currentIndex.dispose();
     currentSong.dispose();

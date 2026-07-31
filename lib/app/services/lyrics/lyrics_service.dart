@@ -62,6 +62,9 @@ class LyricsService {
       'lyrics_lyricon_hide_translation';
   static const String _prefsMeizuLyrics = 'lyrics_meizu_enabled';
   static const String _prefsViewForceKaraoke = 'lyrics_view_force_karaoke';
+  static const String _prefsViewInactiveColor = 'lyrics_view_inactive_color';
+  static const String _prefsViewActiveColor = 'lyrics_view_active_color';
+  static const String _prefsViewHighlightColor = 'lyrics_view_highlight_color';
 
   final LyricsRepository _repo = LyricsRepository();
   final PlayerService _player = PlayerService.instance;
@@ -71,6 +74,11 @@ class LyricsService {
   );
   final ValueNotifier<String?> currentLineText = ValueNotifier(null);
   final ValueNotifier<int> viewSettingsTick = ValueNotifier(0);
+
+  /// 歌词页自定义颜色的镜像，供播放页逐字歌词保持一致。
+  final ValueNotifier<int?> viewInactiveColor = ValueNotifier(null);
+  final ValueNotifier<int?> viewActiveColor = ValueNotifier(null);
+  final ValueNotifier<int?> viewHighlightColor = ValueNotifier(null);
   late final snapshotSignal = signal(LyricsSnapshot.idle());
   late final viewSettingsTickSignal = signal(0);
   late final activeIndexSignal = signal(controller.activeIndexNotifiter.value);
@@ -115,12 +123,21 @@ class LyricsService {
     _player.currentSong.addListener(_onSongChanged);
     _player.position.addListener(_onPositionChanged);
     _player.isPlaying.addListener(_onPlayingChanged);
+    viewSettingsTick.addListener(_reloadViewColorPrefs);
     refreshSettings();
+    _reloadViewColorPrefs();
     _onSongChanged();
   }
 
   void notifyViewSettingsChanged() {
     viewSettingsTick.value = viewSettingsTick.value + 1;
+  }
+
+  Future<void> _reloadViewColorPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    viewInactiveColor.value = prefs.getInt(_prefsViewInactiveColor);
+    viewActiveColor.value = prefs.getInt(_prefsViewActiveColor);
+    viewHighlightColor.value = prefs.getInt(_prefsViewHighlightColor);
   }
 
   Future<void> refreshSettings() async {

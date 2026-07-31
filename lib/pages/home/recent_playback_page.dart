@@ -150,7 +150,10 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
                         : null,
                     filled: true,
                     fillColor: theme.appPanelColor,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     border: const OutlineInputBorder(
                       borderRadius: BorderRadius.all(Radius.circular(20)),
                       borderSide: BorderSide.none,
@@ -172,9 +175,16 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.history_rounded, size: 64, color: scheme.primary),
+                          Icon(
+                            Icons.history_rounded,
+                            size: 64,
+                            color: scheme.primary,
+                          ),
                           const SizedBox(height: 16),
-                          Text('还没有播放记录', style: TextStyle(color: scheme.onSurfaceVariant)),
+                          Text(
+                            '还没有播放记录',
+                            style: TextStyle(color: scheme.onSurfaceVariant),
+                          ),
                         ],
                       ),
                     );
@@ -182,36 +192,89 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
 
                   return RefreshIndicator(
                     onRefresh: _loadHistory,
-                    child: ListView.builder(
-                      padding: EdgeInsets.fromLTRB(16, 12, 16, 160),
-                      itemCount: songs.length,
-                      itemBuilder: (context, index) {
-                        final song = songs[index];
-                        return InkWell(
-                          onTap: () => _playSong(index),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                ArtworkWidget(song: song, size: 48, borderRadius: 8),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                          child: Row(
+                            children: [
+                              InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () => _player.playShuffle(_songs.value),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: Icon(
+                                    Icons.shuffle_rounded,
+                                    size: 18,
+                                    color: scheme.primary,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '共 ${_allSongs.value.length} 首',
+                                style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView.builder(
+                            padding: EdgeInsets.fromLTRB(16, 0, 16, 160),
+                            itemCount: songs.length,
+                            itemBuilder: (context, index) {
+                              final song = songs[index];
+                              return InkWell(
+                                onTap: () => _playSong(index),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  child: Row(
                                     children: [
-                                      Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                      const SizedBox(height: 2),
-                                      Text(song.artistDisplayName, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                                      ArtworkWidget(
+                                        song: song,
+                                        size: 48,
+                                        borderRadius: 8,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              song.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              song.artistDisplayName,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: scheme.onSurfaceVariant,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
-                              ],
-                            ),
+                              );
+                            },
                           ),
-                        );
-                      },
+                        ),
+                      ],
                     ),
                   );
                 },

@@ -136,8 +136,9 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
         if (cached.recentTracks != null) _recentTracks.value = cached.recentTracks!;
         _loading.value = false;
         _preloadHomeCovers();
-      } catch (_) {
-        // 缓存解析失败则忽略
+      } catch (e, stack) {
+        // 缓存解析失败则忽略，但记录到调试日志便于排查
+        debugPrint('[HomePage] cache parse error: $e\n$stack');
       }
     }
 
@@ -155,6 +156,14 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
       _loading.value = false;
       _isRefreshing.value = false;
       _preloadHomeCovers();
+      debugPrint(
+        '[HomePage] loadAll done: '
+        'favorites=${_favoriteSongs.value.length} '
+        'history=${_recentSongs.value.length} '
+        'albums=${_recentAlbums.value.length} '
+        'playlists=${_playlists.value.length} '
+        'tracks=${_recentTracks.value.length}',
+      );
       // 写缓存
       try {
         final data = _HomeCacheData(
@@ -170,7 +179,9 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
           jsonData: jsonEncode(data.toJson()),
           ttlMs: 300000,
         );
-      } catch (_) {}
+      } catch (e, stack) {
+        debugPrint('[HomePage] cache write error: $e\n$stack');
+      }
     }
   }
 
@@ -229,8 +240,8 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
         _roamSong.value = track;
         _roamQueue.value = queue;
       }
-    } catch (e) {
-      debugPrint('[HomePage] roam error: $e');
+    } catch (e, stack) {
+      debugPrint('[HomePage] roam error: $e\n$stack');
     }
   }
 
@@ -241,8 +252,8 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
           .map((t) => _trackService.trackToSongEntity(t.toJson()))
           .toList();
       if (mounted) _favoriteSongs.value = songs;
-    } catch (e) {
-      debugPrint('[HomePage] favorites error: $e');
+    } catch (e, stack) {
+      debugPrint('[HomePage] favorites error: $e\n$stack');
     }
   }
 
@@ -253,8 +264,8 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
           .map((t) => _trackService.trackToSongEntity(t.toJson()))
           .toList();
       if (mounted) _recentSongs.value = songs;
-    } catch (e) {
-      debugPrint('[HomePage] history error: $e');
+    } catch (e, stack) {
+      debugPrint('[HomePage] history error: $e\n$stack');
     }
   }
 
@@ -263,8 +274,8 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
       final pageData =
           await _api.getAlbumList(page: 1, size: 10, sort: 'newTrackAddedAt,desc');
       if (mounted) _recentAlbums.value = pageData.list;
-    } catch (e) {
-      debugPrint('[HomePage] albums error: $e');
+    } catch (e, stack) {
+      debugPrint('[HomePage] albums error: $e\n$stack');
     }
   }
 
@@ -272,8 +283,8 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
     try {
       final pageData = await _api.getPlaylistList();
       if (mounted) _playlists.value = pageData.list;
-    } catch (e) {
-      debugPrint('[HomePage] playlists error: $e');
+    } catch (e, stack) {
+      debugPrint('[HomePage] playlists error: $e\n$stack');
     }
   }
 
@@ -285,8 +296,8 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
           .map((t) => _trackService.trackToSongEntity(t.toJson()))
           .toList();
       if (mounted) _recentTracks.value = songs;
-    } catch (e) {
-      debugPrint('[HomePage] recent tracks error: $e');
+    } catch (e, stack) {
+      debugPrint('[HomePage] recent tracks error: $e\n$stack');
     }
   }
 
@@ -339,17 +350,18 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
       }
       if (mounted) {
         // 必须在 playQueue 之后设置扩展器，因为 playQueue 会清除它
-        _player.playQueue(songs, 0);
+        await _player.playQueue(songs, 0);
         // playQueue 会清空 roamId，恢复它
         _player.roamId = response.current.roamId;
         // 切换到随机播放模式，后续走 _appendRoamAndPlay 逻辑
-        unawaited(_player.setPlaybackMode(PlaybackMode.shuffle));
+        await _player.setPlaybackMode(PlaybackMode.shuffle);
         _player.queueExtender = _roamQueueExtender;
       }
     } catch (e) {
       debugPrint('[HomePage] roam play error: $e');
-      _player.playQueue([first], 0);
+      await _player.playQueue([first], 0);
       _player.queueExtender = _roamQueueExtender;
+      await _player.setPlaybackMode(PlaybackMode.shuffle);
     }
   }
 

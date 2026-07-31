@@ -10,8 +10,10 @@ import '../../app/services/lyrics/lyrics_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/state/settings_state.dart';
 import '../../app/state/song_state.dart';
+import '../../app/utils/route_visibility.dart';
 import '../../components/common/artwork_widget.dart';
 import '../../components/feedback/app_toast.dart';
+import '../../components/player/lyric_preview.dart';
 import '../library/library_detail_pages.dart';
 import '../songs/song_detail_sheet.dart';
 import 'lyrics/lyric_view.dart';
@@ -154,9 +156,7 @@ class _PlayerPageState extends State<PlayerPage>
           child: Stack(
             children: [
               RepaintBoundary(
-                child: PlayerBackground(
-                  songSignal: _player.currentSongSignal,
-                ),
+                child: PlayerBackground(songSignal: _player.currentSongSignal),
               ),
               PlayerTheme(
                 child: ValueListenableBuilder<PlayerStylePreset>(
@@ -411,7 +411,10 @@ class _PosterPlayerLayout extends StatelessWidget {
             : '未知歌手';
         return Column(
           children: [
-            _PosterArtwork(songSignal: player.currentSongSignal, player: player),
+            _PosterArtwork(
+              songSignal: player.currentSongSignal,
+              player: player,
+            ),
             Expanded(
               child: Container(
                 width: double.infinity,
@@ -507,8 +510,7 @@ class _PosterArtwork extends StatelessWidget {
               children: [
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final boxSize =
-                        constraints.maxWidth > constraints.maxHeight
+                    final boxSize = constraints.maxWidth > constraints.maxHeight
                         ? constraints.maxWidth
                         : constraints.maxHeight;
                     final child = song == null
@@ -522,7 +524,10 @@ class _PosterArtwork extends StatelessWidget {
                         : ArtworkWidget(
                             song: song,
                             size: boxSize,
-                            borderRadius: PlayerBackgroundSettings.roundCover.value ? boxSize / 2 : 0,
+                            borderRadius:
+                                PlayerBackgroundSettings.roundCover.value
+                                ? boxSize / 2
+                                : 0,
                             preferOriginal: true,
                             keepPreviousUntilLoaded: true,
                             placeholder: Skeletonizer(
@@ -578,7 +583,6 @@ class _PosterLyricsPreview extends StatelessWidget {
         final snap = lyrics.snapshotSignal.value;
         final model = lyrics.lyricModelSignal.value;
         final lines = model?.lines ?? const <LyricLine>[];
-        final active = lyrics.activeIndexSignal.value;
         // No skeleton: keep blank while loading a new song's lyrics, show the
         // real lines as soon as they arrive.
         if (snap.status == LyricsLoadStatus.loading && lines.isEmpty) {
@@ -599,21 +603,15 @@ class _PosterLyricsPreview extends StatelessWidget {
           );
         }
 
-        final base = (active >= 0 && active < lines.length) ? active : 0;
-        String lineAt(int index) {
-          if (index < 0 || index >= lines.length) return ' ';
-          return lines[index].text.trim().isEmpty ? ' ' : lines[index].text;
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _PosterLyricLine(text: lineAt(base - 1), active: false),
-            const SizedBox(height: 8),
-            _PosterLyricLine(text: lineAt(base), active: true),
-            const SizedBox(height: 8),
-            _PosterLyricLine(text: lineAt(base + 1), active: false),
-          ],
+        // 复用歌词页的 LyricView 渲染管线（AnimationController 驱动 +
+        // CustomPainter 高亮），保证与歌词页一致的流畅逐字动画。
+        return LyricPreview(
+          height: 118,
+          textAlign: TextAlign.start,
+          contentAlignment: CrossAxisAlignment.start,
+          showTranslation: true,
+          fontSize: 15,
+          activeFontSize: 18,
         );
       },
     );
@@ -803,7 +801,9 @@ class _PosterSeekBarState extends State<_PosterSeekBar> with SignalsMixin {
         final max = totalMs <= 0 ? 1.0 : totalMs.toDouble();
         final currentMs = position.inMilliseconds.clamp(0, max.toInt()).toInt();
         final value = (_dragValue.value ?? currentMs.toDouble()).clamp(0, max);
-        final bufferedRatio = totalMs > 0 ? (buffered.inMilliseconds / totalMs).clamp(0.0, 1.0) : 0.0;
+        final bufferedRatio = totalMs > 0
+            ? (buffered.inMilliseconds / totalMs).clamp(0.0, 1.0)
+            : 0.0;
         return Column(
           children: [
             Row(
@@ -827,13 +827,18 @@ class _PosterSeekBarState extends State<_PosterSeekBar> with SignalsMixin {
                       children: [
                         Positioned.fill(
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 0,
+                              vertical: 10,
+                            ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(2),
                               child: LinearProgressIndicator(
                                 value: bufferedRatio,
                                 backgroundColor: Colors.transparent,
-                                valueColor: AlwaysStoppedAnimation(scheme.onSurface.withValues(alpha: 0.22)),
+                                valueColor: AlwaysStoppedAnimation(
+                                  scheme.onSurface.withValues(alpha: 0.22),
+                                ),
                                 minHeight: 3,
                               ),
                             ),
@@ -850,8 +855,12 @@ class _PosterSeekBarState extends State<_PosterSeekBar> with SignalsMixin {
                             overlayShape: const RoundSliderOverlayShape(
                               overlayRadius: 12,
                             ),
-                            activeTrackColor: scheme.onSurface.withValues(alpha: 0.64),
-                            inactiveTrackColor: scheme.onSurface.withValues(alpha: 0.13),
+                            activeTrackColor: scheme.onSurface.withValues(
+                              alpha: 0.64,
+                            ),
+                            inactiveTrackColor: scheme.onSurface.withValues(
+                              alpha: 0.13,
+                            ),
                             thumbColor: scheme.onSurface,
                           ),
                           child: Slider(
@@ -865,10 +874,10 @@ class _PosterSeekBarState extends State<_PosterSeekBar> with SignalsMixin {
                                 ? null
                                 : (next) {
                                     _dragValue.value = null;
-                              widget.player.seek(
-                                Duration(milliseconds: next.round()),
-                              );
-                            },
+                                    widget.player.seek(
+                                      Duration(milliseconds: next.round()),
+                                    );
+                                  },
                           ),
                         ),
                       ],
@@ -876,18 +885,25 @@ class _PosterSeekBarState extends State<_PosterSeekBar> with SignalsMixin {
                   ),
                 ),
                 SizedBox(
-              width: 48,
-              child: Text(_format(duration), textAlign: TextAlign.right,
-                  style: TextStyle(color: scheme.onSurfaceVariant.withValues(alpha: 0.78), fontSize: 14, fontWeight: FontWeight.w600)),
+                  width: 48,
+                  child: Text(
+                    _format(duration),
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.78),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Container(
+              height: 1,
+              margin: const EdgeInsets.only(top: 2),
+              color: scheme.onSurface.withValues(alpha: 0.04),
             ),
           ],
-        ),
-        Container(
-          height: 1,
-          margin: const EdgeInsets.only(top: 2),
-          color: scheme.onSurface.withValues(alpha: 0.04),
-        ),
-      ],
         );
       },
     );
@@ -906,13 +922,19 @@ class _PosterControls extends StatelessWidget {
     return Watch.builder(
       builder: (context) {
         final playing = player.isPlayingSignal.value;
+        final mode = player.playbackModeSignal.value;
+        final modeIcon = switch (mode) {
+          PlaybackMode.shuffle => Icons.shuffle_rounded,
+          PlaybackMode.loop => Icons.repeat_rounded,
+          PlaybackMode.single => Icons.repeat_one_rounded,
+        };
         return Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             IconButton(
               iconSize: 30,
               color: iconColor,
-              icon: const Icon(Icons.repeat_rounded),
+              icon: Icon(modeIcon),
               onPressed: player.cyclePlaybackMode,
             ),
             IconButton(
@@ -983,10 +1005,7 @@ class _PlayerArtwork extends StatelessWidget {
                         height: boxSize,
                         child: _ArtworkShadowContainer(
                           border: border,
-                          child: _ArtworkPlaceholder(
-                            border: border,
-                            label: '',
-                          ),
+                          child: _ArtworkPlaceholder(border: border, label: ''),
                         ),
                       ),
                     );
@@ -1012,7 +1031,10 @@ class _PlayerArtwork extends StatelessWidget {
                                 child: ArtworkWidget(
                                   song: song,
                                   size: boxSize,
-                                  borderRadius: PlayerBackgroundSettings.roundCover.value ? boxSize / 2 : 12,
+                                  borderRadius:
+                                      PlayerBackgroundSettings.roundCover.value
+                                      ? boxSize / 2
+                                      : 12,
                                   preferOriginal: true,
                                   keepPreviousUntilLoaded: true,
                                   placeholder: _ArtworkPlaceholder(
@@ -1024,7 +1046,10 @@ class _PlayerArtwork extends StatelessWidget {
                             : ArtworkWidget(
                                 song: song,
                                 size: boxSize,
-                                borderRadius: PlayerBackgroundSettings.roundCover.value ? boxSize / 2 : 12,
+                                borderRadius:
+                                    PlayerBackgroundSettings.roundCover.value
+                                    ? boxSize / 2
+                                    : 12,
                                 preferOriginal: true,
                                 keepPreviousUntilLoaded: true,
                                 placeholder: _ArtworkPlaceholder(
@@ -1097,8 +1122,11 @@ class _RotatingCover extends StatefulWidget {
 }
 
 class _RotatingCoverState extends State<_RotatingCover>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AppRouteVisibilityMixin {
   late AnimationController _controller;
+
+  @override
+  AnimationController get visibilityController => _controller;
 
   @override
   void initState() {
@@ -1127,11 +1155,14 @@ class _RotatingCoverState extends State<_RotatingCover>
   }
 
   @override
+  void resumeVisibilityAnimation() {
+    // 仅播放中恢复旋转；暂停状态被覆盖后回来仍保持静止。
+    if (widget.playing) _controller.repeat();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return RotationTransition(
-      turns: _controller,
-      child: widget.child,
-    );
+    return RotationTransition(turns: _controller, child: widget.child);
   }
 }
 

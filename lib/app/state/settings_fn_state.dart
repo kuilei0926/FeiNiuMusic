@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,6 +16,9 @@ class AppFnConnectionSettings {
   static const String _prefsIsRelay = 'fn_connection_is_relay';
   static const String _prefsIgnoreSsl = 'fn_connection_ignore_ssl';
 
+  /// 服务器是否可达（false 时在顶部显示连接失败横幅）
+  static final ValueNotifier<bool> serverConnected = ValueNotifier(true);
+
   /// 当前连接偏好
   static final ValueNotifier<FnConnectionPreference> connectionPreference =
       ValueNotifier(FnConnectionPreference.publicFirst);
@@ -26,12 +27,14 @@ class AppFnConnectionSettings {
   static String? lastFnId;
 
   /// 当前实际使用的连接 URL（探测成功后设置）
-  static final ValueNotifier<String?> currentConnectionUrl =
-      ValueNotifier(null);
+  static final ValueNotifier<String?> currentConnectionUrl = ValueNotifier(
+    null,
+  );
 
   /// 当前连接方式的描述（如"内网 IPv4 HTTPS (192.168.11.200:5667)"）
-  static final ValueNotifier<String?> currentConnectionMethod =
-      ValueNotifier(null);
+  static final ValueNotifier<String?> currentConnectionMethod = ValueNotifier(
+    null,
+  );
 
   /// 最后的连接是否为中继模式
   static bool lastIsRelay = false;
@@ -42,8 +45,8 @@ class AppFnConnectionSettings {
   /// 最近一次全量探测结果（每个候选链路的状态）
   ///
   /// 用于「FN Connect」设置页展示完整列表，null 表示从未全量探测过。
-  static final ValueNotifier<List<ProbeCandidateResult>?> currentCandidateResults =
-      ValueNotifier(null);
+  static final ValueNotifier<List<ProbeCandidateResult>?>
+  currentCandidateResults = ValueNotifier(null);
 
   /// FnConnectionParams 摘要字符串（用于判断是否需要重新探测）
   static String? lastProbedFingerprint;
@@ -124,7 +127,10 @@ class AppFnConnectionSettings {
   }
 
   /// 设置忽略 SSL 证书校验并持久化，同时通知监听器应用变更
-  static Future<void> setIgnoreSsl(bool value, {VoidCallback? onChanged}) async {
+  static Future<void> setIgnoreSsl(
+    bool value, {
+    VoidCallback? onChanged,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefsIgnoreSsl, value);
     ignoreSsl.value = value;
@@ -141,17 +147,18 @@ class AppFnConnectionSettings {
   }
 
   /// 清除连接信息（登出时调用）
+  ///
+  /// 保留 FNID，便于退出登录后登录页继续显示 FNID 快速登录。
   static Future<void> clearConnection() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefsLastFnId);
     await prefs.remove(_prefsConnectionUrl);
     await prefs.remove(_prefsConnectionMethod);
     await prefs.remove(_prefsIsRelay);
     await prefs.remove(_prefsIgnoreSsl);
-    lastFnId = null;
     lastIsRelay = false;
     ignoreSsl.value = true;
     currentConnectionUrl.value = null;
     currentConnectionMethod.value = null;
+    serverConnected.value = true;
   }
 }

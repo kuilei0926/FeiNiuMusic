@@ -231,14 +231,22 @@ class _PlayerAppearanceSettingsPageState
                 },
               ),
               ValueListenableBuilder<bool>(
-                valueListenable: PlayerBackgroundSettings.rotateCover,
-                builder: (context, enabled, _) {
-                  return AppSettingSwitchTile(
-                    title: '旋转封面',
-                    subtitle: '播放时封面缓慢旋转',
-                    value: enabled,
-                    onChanged: (value) {
-                      PlayerBackgroundSettings.setRotateCover(value);
+                valueListenable: PlayerBackgroundSettings.roundCover,
+                builder: (context, roundEnabled, _) {
+                  if (!roundEnabled) {
+                    return const SizedBox.shrink();
+                  }
+                  return ValueListenableBuilder<bool>(
+                    valueListenable: PlayerBackgroundSettings.rotateCover,
+                    builder: (context, enabled, _) {
+                      return AppSettingSwitchTile(
+                        title: '旋转封面',
+                        subtitle: '播放时封面缓慢旋转',
+                        value: enabled,
+                        onChanged: (value) {
+                          PlayerBackgroundSettings.setRotateCover(value);
+                        },
+                      );
                     },
                   );
                 },

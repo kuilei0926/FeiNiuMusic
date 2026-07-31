@@ -144,12 +144,16 @@ class ModernNavigationBar extends StatelessWidget {
             ),
           ),
         );
-        // 启用高斯模糊时包裹 BackdropFilter
+        // 启用高斯模糊时包裹 BackdropFilter。
+        // RepaintBoundary 隔离模糊合成图层：页面切换转场期间底层内容变化时，
+        // 模糊结果被图层缓存复用，避免逐帧全屏重采样造成掉帧。
         if (blurStrength > 0) {
           navBar = ClipRect(
-            child: BackdropFilter(
-              filter: ui.ImageFilter.blur(sigmaX: blurStrength, sigmaY: blurStrength),
-              child: navBar,
+            child: RepaintBoundary(
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: blurStrength, sigmaY: blurStrength),
+                child: navBar,
+              ),
             ),
           );
         }

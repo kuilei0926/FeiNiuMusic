@@ -204,7 +204,7 @@ class MiniPlayerInfoSettings {
   static const String _prefsShowLyricsInSubtitle =
       'mini_player_show_lyrics_in_subtitle';
 
-  static final ValueNotifier<bool> showLyricsInSubtitle = ValueNotifier(false);
+  static final ValueNotifier<bool> showLyricsInSubtitle = ValueNotifier(true);
 
   static Future<void>? _loading;
 
@@ -213,7 +213,7 @@ class MiniPlayerInfoSettings {
   static Future<void> _doLoad() async {
     final prefs = await SharedPreferences.getInstance();
     showLyricsInSubtitle.value =
-        prefs.getBool(_prefsShowLyricsInSubtitle) ?? false;
+        prefs.getBool(_prefsShowLyricsInSubtitle) ?? true;
   }
 
   static Future<void> setShowLyricsInSubtitle(bool enabled) async {

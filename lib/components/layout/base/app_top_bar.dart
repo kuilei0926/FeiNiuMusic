@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../app/router/app_router.dart';
+import '../../../app/state/settings_fn_state.dart';
 import '../../../app/state/settings_theme_state.dart';
 import '../../../app/theme/app_fonts.dart';
 
@@ -76,6 +78,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
         ),
       );
     }
+    resolvedActions.add(const _ConnectionFailedAction());
     return AppBar(
       title:
           titleWidget ??
@@ -92,6 +95,43 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
       toolbarHeight: resolvedHeight,
       bottom: bottom,
       systemOverlayStyle: overlayStyle,
+    );
+  }
+}
+
+/// 连接失败提示（AppBar 标题右侧的 actions 区域）
+///
+/// 当 [AppFnConnectionSettings.serverConnected] 为 false 时显示，
+/// 点击跳转连接设置页处理。不占用额外布局空间。
+class _ConnectionFailedAction extends StatelessWidget {
+  const _ConnectionFailedAction();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isFnId = (AppFnConnectionSettings.lastFnId ?? '').isNotEmpty;
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppFnConnectionSettings.serverConnected,
+      builder: (context, connected, _) {
+        if (connected) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(right: 4),
+          child: IconButton(
+            tooltip: '服务器连接失败，点击处理',
+            onPressed: () {
+              Navigator.pushNamed(
+                context,
+                isFnId ? AppRoutes.fnConnectSettings : AppRoutes.settings,
+              );
+            },
+            icon: Icon(
+              Icons.wifi_off_rounded,
+              size: 18,
+              color: colorScheme.error,
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -1,4 +1,16 @@
-import 'dart:convert';
+/// 兼容服务端把数字字段返回成字符串的情况
+/// （如 `releaseDate: "2024-01-01"` 或 `"1714521600"`）
+int? _toInt(dynamic value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return null;
+    return int.tryParse(trimmed);
+  }
+  return null;
+}
 
 /// API 响应统一封装
 class FeiNiuResponse<T> {
@@ -15,7 +27,7 @@ class FeiNiuResponse<T> {
     T? Function(dynamic data)? fromData,
   ) {
     return FeiNiuResponse(
-      code: json['code'] as int? ?? -1,
+      code: _toInt(json['code']) ?? -1,
       msg: json['msg'] as String? ?? '',
       data: json['data'] != null && fromData != null
           ? fromData(json['data'])
@@ -81,9 +93,9 @@ class FeiNiuAlbum {
       guid: json['guid'] as String? ?? '',
       name: json['name'] as String? ?? '未知专辑',
       coverId: json['coverId'] as String?,
-      releaseDate: json['releaseDate'] as int?,
-      trackCount: json['trackCount'] as int?,
-      createdAt: json['createdAt'] as int?,
+      releaseDate: _toInt(json['releaseDate']),
+      trackCount: _toInt(json['trackCount']),
+      createdAt: _toInt(json['createdAt']),
     );
   }
 
@@ -118,8 +130,8 @@ class FeiNiuArtist {
       guid: json['guid'] as String? ?? '',
       name: json['name'] as String? ?? '未知歌手',
       coverId: json['coverId'] as String?,
-      trackCount: json['trackCount'] as int?,
-      albumCount: json['albumCount'] as int?,
+      trackCount: _toInt(json['trackCount']),
+      albumCount: _toInt(json['albumCount']),
     );
   }
 
@@ -159,14 +171,14 @@ class FeiNiuAudioSpec {
   factory FeiNiuAudioSpec.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const FeiNiuAudioSpec();
     return FeiNiuAudioSpec(
-      bitDepth: json['bitDepth'] as int?,
-      sampleRate: json['sampleRate'] as int?,
-      channel: json['channel'] as int?,
-      bitrate: json['bitrate'] as int?,
+      bitDepth: _toInt(json['bitDepth']),
+      sampleRate: _toInt(json['sampleRate']),
+      channel: _toInt(json['channel']),
+      bitrate: _toInt(json['bitrate']),
       codec: json['codec'] as String?,
       format: json['format'] as String?,
-      duration: json['duration'] as int?,
-      size: json['size'] as int?,
+      duration: _toInt(json['duration']),
+      size: _toInt(json['size']),
       path: json['path'] as String?,
     );
   }
@@ -226,29 +238,23 @@ class FeiNiuTrack {
       guid: json['guid'] as String? ?? '',
       title: json['title'] as String? ?? '未知标题',
       coverId: json['coverId'] as String?,
-      year: json['year'] as int?,
-      discNo: json['discNo'] as int?,
-      trackNo: json['trackNo'] as int?,
-      duration: json['duration'] as int?,
+      year: _toInt(json['year']),
+      discNo: _toInt(json['discNo']),
+      trackNo: _toInt(json['trackNo']),
+      duration: _toInt(json['duration']),
       isCue: json['isCue'] as bool? ?? false,
-      createdAt: json['createdAt'] as int? ?? 0,
-      updatedAt: json['updatedAt'] as int? ?? 0,
-      album: FeiNiuAlbum.fromJson(
-        json['album'] as Map<String, dynamic>? ?? {},
-      ),
-      artists: (json['artists'] as List<dynamic>?)
-              ?.map(
-                (e) =>
-                    FeiNiuArtist.fromJson(e as Map<String, dynamic>),
-              )
+      createdAt: _toInt(json['createdAt']) ?? 0,
+      updatedAt: _toInt(json['updatedAt']) ?? 0,
+      album: FeiNiuAlbum.fromJson(json['album'] as Map<String, dynamic>? ?? {}),
+      artists:
+          (json['artists'] as List<dynamic>?)
+              ?.map((e) => FeiNiuArtist.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
       isFavorite: json['isFavorite'] as bool? ?? false,
       hasLyric: json['hasLyric'] as bool?,
       audioSpec: json['audioSpec'] != null
-          ? FeiNiuAudioSpec.fromJson(
-              json['audioSpec'] as Map<String, dynamic>,
-            )
+          ? FeiNiuAudioSpec.fromJson(json['audioSpec'] as Map<String, dynamic>)
           : null,
     );
   }
@@ -350,9 +356,9 @@ class FeiNiuPlaylist {
       guid: json['guid'] as String? ?? '',
       name: json['name'] as String? ?? '未知歌单',
       coverId: json['coverId'] as String?,
-      trackCount: json['trackCount'] as int? ?? 0,
-      createdAt: json['createdAt'] as int? ?? 0,
-      updatedAt: json['updatedAt'] as int? ?? 0,
+      trackCount: _toInt(json['trackCount']) ?? 0,
+      createdAt: _toInt(json['createdAt']) ?? 0,
+      updatedAt: _toInt(json['updatedAt']) ?? 0,
     );
   }
 
@@ -389,9 +395,9 @@ class FeiNiuGenre {
       guid: json['guid'] as String? ?? '',
       name: json['name'] as String? ?? '未知风格',
       coverId: json['coverId'] as String?,
-      trackCount: json['trackCount'] as int? ?? 0,
-      createdAt: json['createdAt'] as int? ?? 0,
-      updatedAt: json['updatedAt'] as int? ?? 0,
+      trackCount: _toInt(json['trackCount']) ?? 0,
+      createdAt: _toInt(json['createdAt']) ?? 0,
+      updatedAt: _toInt(json['updatedAt']) ?? 0,
     );
   }
 
@@ -415,9 +421,7 @@ class FeiNiuRoamTrack {
   factory FeiNiuRoamTrack.fromJson(Map<String, dynamic> json) {
     return FeiNiuRoamTrack(
       roamId: json['roamId'] as String? ?? '',
-      track: FeiNiuTrack.fromJson(
-        json['track'] as Map<String, dynamic>? ?? {},
-      ),
+      track: FeiNiuTrack.fromJson(json['track'] as Map<String, dynamic>? ?? {}),
     );
   }
 }
@@ -481,7 +485,7 @@ class FeiNiuLyric {
       guid: json['guid'] as String? ?? '',
       content: json['content'] as String? ?? '',
       isLRC: json['isLRC'] as bool? ?? true,
-      offset: json['offset'] as int?,
+      offset: _toInt(json['offset']),
     );
   }
 }
@@ -494,10 +498,9 @@ class FeiNiuLyricResponse {
 
   factory FeiNiuLyricResponse.fromJson(Map<String, dynamic> json) {
     return FeiNiuLyricResponse(
-      list: (json['list'] as List<dynamic>?)
-              ?.map(
-                (e) => FeiNiuLyric.fromJson(e as Map<String, dynamic>),
-              )
+      list:
+          (json['list'] as List<dynamic>?)
+              ?.map((e) => FeiNiuLyric.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
       preferred: json['preferred'] as String?,

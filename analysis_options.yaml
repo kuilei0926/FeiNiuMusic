@@ -12,6 +12,7 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - old/**
+    - plugins/flutter_lyric/example/**
 
 linter:
   # The lint rules applied to this project can be customized in the

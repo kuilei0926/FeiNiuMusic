@@ -22,8 +22,7 @@ class FavoritePage extends StatefulWidget {
 class _FavoritePageState extends State<FavoritePage> with SignalsMixin {
   final FeiNiuApiClient _api = FeiNiuApiClient.instance;
   final FeiNiuTrackService _trackService = FeiNiuTrackService.instance;
-  final FeiNiuFavoriteService _favoriteService =
-      FeiNiuFavoriteService.instance;
+  final FeiNiuFavoriteService _favoriteService = FeiNiuFavoriteService.instance;
   final PlayerService _player = PlayerService.instance;
   final GlobalKey<AppPageScaffoldState> _scaffoldKey =
       GlobalKey<AppPageScaffoldState>();
@@ -151,8 +150,14 @@ class _FavoritePageState extends State<FavoritePage> with SignalsMixin {
         title: const Text('取消收藏'),
         content: Text('确定取消收藏「${song.title}」吗？'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确定')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确定'),
+          ),
         ],
       ),
     );
@@ -179,7 +184,11 @@ class _FavoritePageState extends State<FavoritePage> with SignalsMixin {
           title: '收藏排序',
           options: const [
             SortOption(key: 'favoriteAt', label: '收藏日期', icon: Icons.favorite),
-            SortOption(key: 'title', label: '歌曲名', icon: Icons.music_note_outlined),
+            SortOption(
+              key: 'title',
+              label: '歌曲名',
+              icon: Icons.music_note_outlined,
+            ),
           ],
           currentKey: _sortKey.value,
           ascending: _ascending.value,
@@ -270,7 +279,10 @@ class _FavoritePageState extends State<FavoritePage> with SignalsMixin {
                         : null,
                     filled: true,
                     fillColor: theme.appPanelColor,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     border: const OutlineInputBorder(
                       borderRadius: BorderRadius.all(Radius.circular(20)),
                       borderSide: BorderSide.none,
@@ -289,41 +301,99 @@ class _FavoritePageState extends State<FavoritePage> with SignalsMixin {
                   final songs = _songs.value;
                   if (songs.isEmpty) {
                     return Center(
-                      child: Text('还没有收藏歌曲', style: TextStyle(color: scheme.onSurfaceVariant)),
+                      child: Text(
+                        '还没有收藏歌曲',
+                        style: TextStyle(color: scheme.onSurfaceVariant),
+                      ),
                     );
                   }
 
                   return RefreshIndicator(
                     onRefresh: () => _load(forceRefresh: true),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 160),
-                      itemCount: songs.length,
-                      itemBuilder: (context, index) {
-                        final song = songs[index];
-                        return InkWell(
-                          onTap: () => _playSong(index),
-                          onLongPress: () => _unfavoriteSong(song, index),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                ArtworkWidget(song: song, size: 48, borderRadius: 8),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                          child: Row(
+                            children: [
+                              InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () => _player.playShuffle(_songs.value),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: Icon(
+                                    Icons.shuffle_rounded,
+                                    size: 18,
+                                    color: scheme.primary,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '共 ${_allSongs.value.length} 首',
+                                style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 160),
+                            itemCount: songs.length,
+                            itemBuilder: (context, index) {
+                              final song = songs[index];
+                              return InkWell(
+                                onTap: () => _playSong(index),
+                                onLongPress: () => _unfavoriteSong(song, index),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  child: Row(
                                     children: [
-                                      Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                      const SizedBox(height: 2),
-                                      Text(song.artistDisplayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                                      ArtworkWidget(
+                                        song: song,
+                                        size: 48,
+                                        borderRadius: 8,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              song.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              song.artistDisplayName,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: scheme.onSurfaceVariant,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
-                              ],
-                            ),
+                              );
+                            },
                           ),
-                        );
-                      },
+                        ),
+                      ],
                     ),
                   );
                 },

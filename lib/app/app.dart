@@ -11,6 +11,7 @@ import 'services/feiniu/auth_service.dart';
 import 'state/settings_state.dart';
 import 'theme/app_styles.dart';
 import 'theme/app_visual_theme.dart';
+import 'utils/route_visibility.dart';
 
 class FeiNiuMusicApp extends StatelessWidget {
   static final GlobalKey<NavigatorState> rootNavigatorKey =
@@ -163,6 +164,7 @@ class FeiNiuMusicApp extends StatelessWidget {
                           darkTheme: darkTheme,
                           themeMode: mode,
                           scrollBehavior: const AppScrollBehavior(),
+                          navigatorObservers: [appRouteObserver],
                           home: _AppStartupGate(
                             baseNavigatorKey: baseNavigatorKey,
                             onGenerateRoute: onGenerateRoute,
@@ -186,10 +188,11 @@ class FeiNiuMusicApp extends StatelessWidget {
                                   : Brightness.dark,
                               systemNavigationBarDividerColor: navColor,
                             );
-                            Widget content = AnnotatedRegion<SystemUiOverlayStyle>(
-                              value: overlay,
-                              child: child ?? const SizedBox.shrink(),
-                            );
+                            Widget content =
+                                AnnotatedRegion<SystemUiOverlayStyle>(
+                                  value: overlay,
+                                  child: child ?? const SizedBox.shrink(),
+                                );
                             if (visualStyle == AppVisualStyle.miuix) {
                               final shadMode = switch (mode) {
                                 ThemeMode.light => shad.ThemeMode.light,
@@ -197,8 +200,12 @@ class FeiNiuMusicApp extends StatelessWidget {
                                 ThemeMode.system => shad.ThemeMode.system,
                               };
                               content = shad.ShadcnLayer(
-                                theme: buildMiuixShadTheme(lightTheme.colorScheme),
-                                darkTheme: buildMiuixShadTheme(darkTheme.colorScheme),
+                                theme: buildMiuixShadTheme(
+                                  lightTheme.colorScheme,
+                                ),
+                                darkTheme: buildMiuixShadTheme(
+                                  darkTheme.colorScheme,
+                                ),
                                 themeMode: shadMode,
                                 scaling: const shad.AdaptiveScaling(),
                                 child: content,

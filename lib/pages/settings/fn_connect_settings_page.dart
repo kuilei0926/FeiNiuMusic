@@ -19,36 +19,38 @@ class FnConnectSettingsPage extends StatefulWidget {
 
 class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
   bool _probing = false;
-  String? _errorMessage;
-  String? _successMessage;
+
+  /// 已展开不可用连接的分组
+  final Set<ProbeCandidateGroup> _expandedUnreachableGroups = {};
 
   @override
   void initState() {
     super.initState();
     AppFnConnectionSettings.ensureLoaded();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _startFullProbe();
+    });
   }
 
   /// 执行全量探测
   Future<void> _startFullProbe({FnConnectionPreference? overridePref}) async {
     final fnId = AppFnConnectionSettings.lastFnId;
     if (fnId == null || fnId.isEmpty) {
-      setState(() {
-        _errorMessage = '没有可用的 FNID，请先使用 FNID 登录';
-      });
+      AppToast.show(context, '没有可用的 FNID，请先使用 FNID 登录', type: ToastType.error);
       return;
     }
 
     setState(() {
       _probing = true;
-      _errorMessage = null;
-      _successMessage = null;
     });
 
     try {
       final pref =
           overridePref ?? AppFnConnectionSettings.connectionPreference.value;
-      final result = await FnConnectionProbeService.instance
-          .probeAllCandidates(fnId: fnId, preference: pref);
+      final result = await FnConnectionProbeService.instance.probeAllCandidates(
+        fnId: fnId,
+        preference: pref,
+      );
 
       if (!mounted) return;
 
@@ -70,21 +72,28 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
         }
         FeiNiuApiClient.instance.setRelayMode(success.isRelay);
 
-        setState(() {
-          _successMessage = '已切换至: ${success.probeMethod}';
-        });
+        if (mounted) {
+          AppToast.show(
+            context,
+            '已切换至: ${success.probeMethod}',
+            type: ToastType.success,
+          );
+        }
       } else {
         // 全部不可达
-        AppFnConnectionSettings.currentCandidateResults.value = result.candidates;
-        setState(() {
-          _errorMessage = '所有链路均无法连接';
-        });
+        AppFnConnectionSettings.currentCandidateResults.value =
+            result.candidates;
+        if (mounted) {
+          AppToast.show(context, '所有链路均无法连接', type: ToastType.error);
+        }
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _errorMessage = e.toString().replaceFirst('Exception: ', '');
-      });
+      AppToast.show(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+        type: ToastType.error,
+      );
     } finally {
       if (mounted) {
         setState(() => _probing = false);
@@ -108,15 +117,14 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
       );
 
       if (!mounted) return;
-      setState(() {
-        _successMessage = '已切换至: ${candidate.description}';
-        _errorMessage = null;
-      });
+      AppToast.show(
+        context,
+        '已切换至: ${candidate.description}',
+        type: ToastType.success,
+      );
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _errorMessage = '切换失败: $e';
-      });
+      AppToast.show(context, '切换失败: $e', type: ToastType.error);
     }
   }
 
@@ -175,23 +183,25 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
                                 children: [
                                   Text(
                                     isRelay ? '中继连接' : '直连',
-                                    style: theme.textTheme.titleSmall
-                                        ?.copyWith(
+                                    style: theme.textTheme.titleSmall?.copyWith(
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                   const SizedBox(width: 8),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 2),
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: isRelay
-                                          ? Colors.orange
-                                              .withValues(alpha: 0.15)
-                                          : Colors.green
-                                              .withValues(alpha: 0.15),
-                                      borderRadius:
-                                          BorderRadius.circular(4),
+                                          ? Colors.orange.withValues(
+                                              alpha: 0.15,
+                                            )
+                                          : Colors.green.withValues(
+                                              alpha: 0.15,
+                                            ),
+                                      borderRadius: BorderRadius.circular(4),
                                     ),
                                     child: Text(
                                       isRelay ? '中继' : '直连',
@@ -241,17 +251,14 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
             title: '连接偏好',
             children: [
               ValueListenableBuilder<FnConnectionPreference>(
-                valueListenable:
-                    AppFnConnectionSettings.connectionPreference,
+                valueListenable: AppFnConnectionSettings.connectionPreference,
                 builder: (context, currentPref, _) {
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       RadioListTile<FnConnectionPreference>(
                         title: const Text('公网优先'),
-                        subtitle: const Text(
-                          '内网 → 公网 IPv6 → IPv4 → 中继兜底',
-                        ),
+                        subtitle: const Text('内网 → 公网 IPv6 → IPv4 → 中继兜底'),
                         value: FnConnectionPreference.publicFirst,
                         groupValue: currentPref,
                         onChanged: (value) {
@@ -261,9 +268,7 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
                       ),
                       RadioListTile<FnConnectionPreference>(
                         title: const Text('中继优先'),
-                        subtitle: const Text(
-                          '内网 → 跳过公网直连，直接中继连接',
-                        ),
+                        subtitle: const Text('内网 → 跳过公网直连，直接中继连接'),
                         value: FnConnectionPreference.relayFirst,
                         groupValue: currentPref,
                         onChanged: (value) {
@@ -321,125 +326,89 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
                   }
 
                   // 按分组排序并分组显示，组内再按 IP 分割
-                  final grouped = <ProbeCandidateGroup, List<ProbeCandidateResult>>{};
+                  final grouped =
+                      <ProbeCandidateGroup, List<ProbeCandidateResult>>{};
                   for (final r in results) {
                     grouped.putIfAbsent(r.group, () => []).add(r);
                   }
                   final sortedGroups = grouped.entries.toList()
-                    ..sort((a, b) => a.value.first.groupOrder.compareTo(b.value.first.groupOrder));
-
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: sortedGroups.expand((entry) {
-                      final title = entry.value.first.groupTitle;
-                      final items = <Widget>[];
-
-                      // 组标题
-                      items.add(
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(4, 12, 0, 6),
-                          child: Text(
-                            title,
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      );
-
-                      // 组内按 ipLabel 分割
-                      final byIp = <String?, List<ProbeCandidateResult>>{};
-                      for (final r in entry.value) {
-                        byIp.putIfAbsent(r.ipLabel, () => []).add(r);
+                    ..sort((a, b) {
+                      final aReachable = a.value.any((r) => r.isReachable)
+                          ? 0
+                          : 1;
+                      final bReachable = b.value.any((r) => r.isReachable)
+                          ? 0
+                          : 1;
+                      if (aReachable != bReachable) {
+                        return aReachable.compareTo(bReachable);
                       }
-                      final ipEntries = byIp.entries.toList();
-                      for (var i = 0; i < ipEntries.length; i++) {
-                        final ipEntry = ipEntries[i];
-                        // IP 分割线（中继无 ipLabel，不加）
-                        if (i > 0) {
+                      return a.value.first.groupOrder.compareTo(
+                        b.value.first.groupOrder,
+                      );
+                    });
+
+                  return ValueListenableBuilder<String?>(
+                    valueListenable:
+                        AppFnConnectionSettings.currentConnectionUrl,
+                    builder: (context, currentUrl, _) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: sortedGroups.expand((entry) {
+                          final items = <Widget>[];
+
+                          // 组标题
                           items.add(
                             Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Divider(
-                                height: 4,
-                                indent: 32,
-                                endIndent: 32,
-                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                              padding: const EdgeInsets.fromLTRB(4, 12, 0, 6),
+                              child: Text(
+                                entry.value.first.groupTitle,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
                             ),
                           );
-                        }
-                        items.addAll(
-                          ipEntry.value.map((candidate) => _CandidateTile(
-                            candidate: candidate,
-                            onTap: candidate.isReachable
-                                ? () => _switchToCandidate(candidate)
-                                : null,
-                          )),
-                        );
-                      }
-                      return items;
-                    }).toList(),
+
+                          // 可用连接直接展示
+                          final reachable = entry.value
+                              .where((r) => r.isReachable)
+                              .toList();
+                          items.addAll(
+                            _buildCandidateTiles(reachable, currentUrl),
+                          );
+
+                          // 不可用连接默认折叠
+                          final unreachable = entry.value
+                              .where((r) => !r.isReachable)
+                              .toList();
+                          if (unreachable.isNotEmpty) {
+                            final expanded = _expandedUnreachableGroups
+                                .contains(entry.key);
+                            items.add(
+                              _UnreachableToggle(
+                                count: unreachable.length,
+                                expanded: expanded,
+                                onTap: () => _toggleUnreachableGroup(entry.key),
+                              ),
+                            );
+                            if (expanded) {
+                              items.addAll(
+                                _buildCandidateTiles(unreachable, currentUrl),
+                              );
+                            }
+                          }
+                          return items;
+                        }).toList(),
+                      );
+                    },
                   );
                 },
               ),
             ],
           ),
           const SizedBox(height: 16),
-
-          // === 状态信息 ===
-          if (_errorMessage != null)
-            Container(
-              padding: const EdgeInsets.all(12),
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.errorContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.error_outline_rounded,
-                      size: 18, color: theme.colorScheme.onErrorContainer),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _errorMessage!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onErrorContainer,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          if (_successMessage != null)
-            Container(
-              padding: const EdgeInsets.all(12),
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.check_circle_outline_rounded,
-                      size: 18,
-                      color: theme.colorScheme.onPrimaryContainer),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _successMessage!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
 
           // === 重新探测按钮 ===
           SizedBox(
@@ -494,15 +463,69 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
       },
     );
   }
+
+  void _toggleUnreachableGroup(ProbeCandidateGroup group) {
+    setState(() {
+      if (!_expandedUnreachableGroups.remove(group)) {
+        _expandedUnreachableGroups.add(group);
+      }
+    });
+  }
+
+  /// 将一组候选链路按 ipLabel 分组渲染（组间加分隔线）
+  List<Widget> _buildCandidateTiles(
+    List<ProbeCandidateResult> candidates,
+    String? currentUrl,
+  ) {
+    final theme = Theme.of(context);
+    final byIp = <String?, List<ProbeCandidateResult>>{};
+    for (final r in candidates) {
+      byIp.putIfAbsent(r.ipLabel, () => []).add(r);
+    }
+    final ipEntries = byIp.entries.toList();
+    final items = <Widget>[];
+    for (var i = 0; i < ipEntries.length; i++) {
+      final ipEntry = ipEntries[i];
+      // IP 分割线（中继无 ipLabel，不加）
+      if (i > 0) {
+        items.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Divider(
+              height: 4,
+              indent: 32,
+              endIndent: 32,
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+            ),
+          ),
+        );
+      }
+      items.addAll(
+        ipEntry.value.map((candidate) {
+          final isActive = candidate.address == currentUrl;
+          return _CandidateTile(
+            candidate: candidate,
+            isActive: isActive,
+            onTap: (candidate.isReachable && !isActive)
+                ? () => _switchToCandidate(candidate)
+                : null,
+          );
+        }),
+      );
+    }
+    return items;
+  }
 }
 
 /// 单条候选链路 Tile
 class _CandidateTile extends StatelessWidget {
   final ProbeCandidateResult candidate;
+  final bool isActive;
   final VoidCallback? onTap;
 
   const _CandidateTile({
     required this.candidate,
+    this.isActive = false,
     this.onTap,
   });
 
@@ -521,11 +544,49 @@ class _CandidateTile extends StatelessWidget {
           size: 20,
           color: isReachable ? Colors.green : theme.colorScheme.error,
         ),
-        trailing: isReachable
-            ? const Icon(Icons.swap_horiz_rounded, size: 18)
-            : null,
+        trailing: isActive
+            ? Icon(
+                Icons.check_rounded,
+                size: 20,
+                color: theme.colorScheme.primary,
+              )
+            : (isReachable
+                  ? const Icon(Icons.swap_horiz_rounded, size: 18)
+                  : null),
         onTap: onTap,
       ),
+    );
+  }
+}
+
+/// 展开/折叠不可用连接的切换行
+class _UnreachableToggle extends StatelessWidget {
+  final int count;
+  final bool expanded;
+  final VoidCallback onTap;
+
+  const _UnreachableToggle({
+    required this.count,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AppSettingTile(
+      title: expanded ? '收起不可用连接' : '展开 $count 个不可用连接',
+      leading: Icon(
+        expanded ? Icons.unfold_less_rounded : Icons.unfold_more_rounded,
+        size: 20,
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+      trailing: Icon(
+        expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+        size: 18,
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+      onTap: onTap,
     );
   }
 }
