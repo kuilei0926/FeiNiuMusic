@@ -56,21 +56,21 @@ class FnConnectionProbeService {
   ///
   /// [fnId] - FNID（如 "kuilei0926"）
   /// [order] - 连接优先级顺序，默认读 [AppFnConnectionSettings.connectionOrder]
-  /// [preferHttps] - 直连组内是否优先 HTTPS，默认读 [AppFnConnectionSettings.preferHttps]
+  ///
+  /// 传输协议按地址类型自动选择（IP 先 HTTP、域名/中继仅 HTTPS），
+  /// 见 [buildProbeCandidateSpecs]。
   ///
   /// 返回 [ConnectionProbeResult]，包含最终成功的 URL。
   /// 所有链路失败时抛出 [Exception]。
   Future<ConnectionProbeResult> probe({
     required String fnId,
     List<ProbeCandidateGroup>? order,
-    bool? preferHttps,
   }) {
     return _joinOrStartProbe(
       fnId: fnId,
       start: () => _probeCore(
         fnId: fnId,
         order: order,
-        preferHttps: preferHttps,
       ),
     );
   }
@@ -79,7 +79,6 @@ class FnConnectionProbeService {
   Future<ConnectionProbeResult> _probeCore({
     required String fnId,
     List<ProbeCandidateGroup>? order,
-    bool? preferHttps,
   }) async {
     isProbing.value = true;
     _cancelToken = CancelToken();
@@ -100,7 +99,6 @@ class FnConnectionProbeService {
         params,
         cancelToken: _cancelToken!,
         order: order ?? AppFnConnectionSettings.connectionOrder.value,
-        preferHttps: preferHttps ?? AppFnConnectionSettings.preferHttps.value,
       );
 
       if (kDebugMode) {
@@ -185,7 +183,6 @@ class FnConnectionProbeService {
   /// [cachedIsRelay] - 上次连接是否为中继模式
   /// [fnId] - FNID
   /// [order] - 连接优先级顺序，默认读 [AppFnConnectionSettings.connectionOrder]
-  /// [preferHttps] - 直连组内是否优先 HTTPS，默认读 [AppFnConnectionSettings.preferHttps]
   ///
   /// 返回 [ConnectionProbeResult]，包含最终成功的 URL。
   /// 所有链路失败时抛出 [Exception]。
@@ -194,7 +191,6 @@ class FnConnectionProbeService {
     String? cachedUrl,
     bool cachedIsRelay = false,
     List<ProbeCandidateGroup>? order,
-    bool? preferHttps,
   }) {
     return _joinOrStartProbe(
       fnId: fnId,
@@ -203,7 +199,6 @@ class FnConnectionProbeService {
         cachedUrl: cachedUrl,
         cachedIsRelay: cachedIsRelay,
         order: order,
-        preferHttps: preferHttps,
       ),
     );
   }
@@ -214,10 +209,8 @@ class FnConnectionProbeService {
     String? cachedUrl,
     bool cachedIsRelay = false,
     List<ProbeCandidateGroup>? order,
-    bool? preferHttps,
   }) async {
     final effOrder = order ?? AppFnConnectionSettings.connectionOrder.value;
-    final effHttps = preferHttps ?? AppFnConnectionSettings.preferHttps.value;
 
     isProbing.value = true;
     _cancelToken = CancelToken();
@@ -233,7 +226,6 @@ class FnConnectionProbeService {
         fnId: fnId,
         params: params,
         order: effOrder,
-        preferHttps: effHttps,
       );
 
       // Step 2: 缓存优先快探
@@ -294,7 +286,6 @@ class FnConnectionProbeService {
         params,
         cancelToken: _cancelToken!,
         order: effOrder,
-        preferHttps: effHttps,
       );
 
       if (kDebugMode) {
@@ -312,6 +303,29 @@ class FnConnectionProbeService {
       isProbing.value = false;
       _cancelToken = null;
       _clearInflightProbe();
+    }
+  }
+
+  /// 快速验证某个地址是否可达（200ms 快探）。
+  ///
+  /// 供自动重连的健康检查 / App 恢复检查使用：不触发完整探测，不发
+  /// FN API，只探测当前连接 URL 的连通性。复用 [probeAllCandidates] 的
+  /// 探测锁（isProbing）与 cancel token，避免与正在进行的全量探测并发
+  /// 相互干扰。探测进行中返回 null（调用方按"可达"处理，跳过本次检查）。
+  Future<bool?> isAddressReachable(String url, {bool isRelay = false}) async {
+    if (isProbing.value) return null;
+    isProbing.value = true;
+    _cancelToken = CancelToken();
+    try {
+      return await _tryCachedAddress(url, isRelay, _cancelToken!);
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.cancel) {
+        return null;
+      }
+      return false;
+    } finally {
+      isProbing.value = false;
+      _cancelToken = null;
     }
   }
 
@@ -431,7 +445,6 @@ class FnConnectionProbeService {
   probeAllCandidates({
     required String fnId,
     List<ProbeCandidateGroup>? order,
-    bool? preferHttps,
   }) async {
     if (isProbing.value) {
       throw Exception('探测正在进行中，请等待完成');
@@ -446,7 +459,6 @@ class FnConnectionProbeService {
         fnId: fnId,
         params: params,
         order: order ?? AppFnConnectionSettings.connectionOrder.value,
-        preferHttps: preferHttps ?? AppFnConnectionSettings.preferHttps.value,
       );
 
       // 并行探测所有候选（默认所有候选中继模式共 4 条以上，并行可加速）
@@ -483,13 +495,11 @@ class FnConnectionProbeService {
     FnConnectionParams params, {
     required CancelToken cancelToken,
     required List<ProbeCandidateGroup> order,
-    required bool preferHttps,
   }) async {
     final candidates = buildProbeCandidateSpecs(
       fnId: fnId,
       params: params,
       order: order,
-      preferHttps: preferHttps,
     );
 
     // 并发探测所有候选

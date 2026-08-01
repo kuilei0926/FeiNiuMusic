@@ -9,7 +9,7 @@ void main() {
     AppFnConnectionSettings.resetForTest();
   });
 
-  test('no stored order → default order and preferHttps true', () async {
+  test('no stored order → default order', () async {
     SharedPreferences.setMockInitialValues({});
 
     await AppFnConnectionSettings.ensureLoaded();
@@ -18,13 +18,11 @@ void main() {
       AppFnConnectionSettings.connectionOrder.value,
       kDefaultConnectionOrder,
     );
-    expect(AppFnConnectionSettings.preferHttps.value, true);
   });
 
-  test('stored order is normalized and preferHttps loads', () async {
+  test('stored order is normalized', () async {
     SharedPreferences.setMockInitialValues({
       'fn_connection_order': ['publicIPv4', 'relay'],
-      'fn_connection_prefer_https': false,
     });
 
     await AppFnConnectionSettings.ensureLoaded();
@@ -35,7 +33,6 @@ void main() {
       ProbeCandidateGroup.internal,
       ProbeCandidateGroup.publicIPv6,
     ]);
-    expect(AppFnConnectionSettings.preferHttps.value, false);
   });
 
   test('garbage/duplicate entries are dropped and defaults appended', () async {
@@ -103,17 +100,4 @@ void main() {
       ]);
     },
   );
-
-  test('setPreferHttps persists and updates notifier', () async {
-    SharedPreferences.setMockInitialValues({});
-
-    await AppFnConnectionSettings.ensureLoaded();
-
-    await AppFnConnectionSettings.setPreferHttps(false);
-
-    expect(AppFnConnectionSettings.preferHttps.value, false);
-
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getBool('fn_connection_prefer_https'), false);
-  });
 }

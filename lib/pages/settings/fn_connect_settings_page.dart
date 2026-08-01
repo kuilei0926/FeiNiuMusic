@@ -35,7 +35,6 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
   /// 执行全量探测
   Future<void> _startFullProbe({
     List<ProbeCandidateGroup>? overrideOrder,
-    bool? overridePreferHttps,
   }) async {
     final fnId = AppFnConnectionSettings.lastFnId;
     if (fnId == null || fnId.isEmpty) {
@@ -51,7 +50,6 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
       final result = await FnConnectionProbeService.instance.probeAllCandidates(
         fnId: fnId,
         order: overrideOrder,
-        preferHttps: overridePreferHttps,
       );
 
       if (!mounted) return;
@@ -289,25 +287,6 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
           ),
           const SizedBox(height: 16),
 
-          // === 传输协议 ===
-          AppSettingSection(
-            title: '传输协议',
-            children: [
-              ValueListenableBuilder<bool>(
-                valueListenable: AppFnConnectionSettings.preferHttps,
-                builder: (context, preferHttps, _) {
-                  return AppSettingSwitchTile(
-                    title: 'HTTPS 优先',
-                    subtitle: '开启时优先使用 HTTPS 端口，关闭时优先使用 HTTP 端口',
-                    value: preferHttps,
-                    onChanged: _setPreferHttps,
-                  );
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
           // === 忽略 SSL 证书校验 ===
           AppSettingSection(
             title: '安全',
@@ -486,14 +465,6 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
     }
     // 保存顺序，下次连接（启动 / 登录 / 自动重连）时按新顺序生效
     AppFnConnectionSettings.setConnectionOrder(order);
-  }
-
-  void _setPreferHttps(bool value) {
-    if (FnConnectionProbeService.instance.isProbing.value) {
-      FnConnectionProbeService.instance.cancel();
-    }
-    // 保存协议偏好，下次连接时按新偏好生效
-    AppFnConnectionSettings.setPreferHttps(value);
   }
 
   void _toggleUnreachableGroup(ProbeCandidateGroup group) {

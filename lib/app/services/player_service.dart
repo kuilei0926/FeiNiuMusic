@@ -15,6 +15,7 @@ import 'audio/stream_cache_service.dart';
 import 'feiniu/api_client.dart';
 import 'feiniu/auth_service.dart';
 import 'feiniu/track_service.dart';
+import 'feiniu/transcode_service.dart';
 import 'stats_service.dart';
 import 'volume_schedule_service.dart';
 import '../state/settings_state.dart';
@@ -30,7 +31,12 @@ class PlayerService with WidgetsBindingObserver {
 
   final _state = AppPlayerState.instance;
 
-  final AudioPlayer _player = AudioPlayer();
+  /// `useProxyForRequestHeaders: false` 让 HLS/音频源的请求头（Cookie）由
+  /// Android ExoPlayer 原生发送（DefaultHttpDataSource），而不是走 just_audio
+  /// 的 Dart 本地代理。代理不解析 `#EXT-X-MAP`（m3u8 的 init.mp4 段），且会
+  /// 用 Dart HttpClient 去连 NAS 的 IPv6 地址导致不可达，二者都会让转码 HLS
+  /// 播放失败。
+  final AudioPlayer _player = AudioPlayer(useProxyForRequestHeaders: false);
   final SongDao _songDao = SongDao.instance;
   final StatsService _statsService = StatsService.instance;
   AudioSession? _audioSession;
@@ -712,6 +718,22 @@ class PlayerService with WidgetsBindingObserver {
       return;
     }
 
+    // 转码 FLAC 解码超限的安全处理：ExoPlayer 的输入缓冲（Android 平台
+    // FLAC 解码器上限 32KB）装不下单个 FLAC 帧时抛
+    // InsufficientCapacityException，错误信息形如 "Buffer too small (32768 < 94376)"。
+    // 这是服务器按请求转出的无损 FLAC 帧过大导致的（codec 转 mp3 后帧变小），
+    // 直接把该歌曲降级为 MP3 转码并重建，保证能播。
+    final errorMsg = error.message ?? '';
+    if (errorMsg.contains('InsufficientCapacity') ||
+        errorMsg.contains('Buffer too small')) {
+      FeiNiuTranscodeService.instance.degradeToMp3(failedSong.id);
+      if (kDebugMode) {
+        debugPrint(
+          'PlayerService transcode FLAC too large, degrade ${failedSong.title} to MP3',
+        );
+      }
+    }
+
     _recoveringCurrentSource = true;
     try {
       _debugLog(
@@ -851,10 +873,9 @@ class PlayerService with WidgetsBindingObserver {
       _suppressIndexSync = false;
       _applyLogicalQueue(newQueue, appendedIndex);
 
-      final allSources = <AudioSource>[];
-      for (final s in newQueue) {
-        allSources.add(await _sourceForSong(s));
-      }
+      final allSources = await Future.wait(
+        newQueue.map((s) => _sourceForSong(s)),
+      );
       await _player.setAudioSources(
         allSources,
         initialIndex: appendedIndex,
@@ -1747,10 +1768,9 @@ class PlayerService with WidgetsBindingObserver {
     final allSongs = [...oldQueue, ...newSongs];
     queue.value = allSongs;
 
-    final allSources = <AudioSource>[];
-    for (final song in allSongs) {
-      allSources.add(await _sourceForSong(song));
-    }
+    final allSources = await Future.wait(
+      allSongs.map((s) => _sourceForSong(s)),
+    );
 
     try {
       await _player.setAudioSources(
@@ -1796,16 +1816,15 @@ class PlayerService with WidgetsBindingObserver {
     List<SongEntity> songs, {
     String? forceRefreshSongId,
   }) async {
-    final sources = <AudioSource>[];
-    for (final song in songs) {
-      sources.add(
-        await _sourceForSong(
-          song,
-          forceRefresh:
-              forceRefreshSongId != null && song.id == forceRefreshSongId,
-        ),
-      );
-    }
+    // 并行构造各源：转码/缓存路径涉及网络与文件 IO，串行会让大列表
+    // 的队列构建逐个等待（尤其格式未知时逐个请求 metadata）。
+    final sources = await Future.wait(
+      songs.map((song) => _sourceForSong(
+            song,
+            forceRefresh:
+                forceRefreshSongId != null && song.id == forceRefreshSongId,
+          )),
+    );
     return _PlaybackSourceQueue(
       songs: List<SongEntity>.from(songs),
       sources: sources,
@@ -1956,7 +1975,30 @@ class PlayerService with WidgetsBindingObserver {
       // 播放出错重试时删除损坏/过期的缓存，强制走远端
       if (forceRefresh) {
         await StreamCacheService.instance.invalidate(song.id);
+        FeiNiuTranscodeService.instance.invalidate(song.id);
       }
+
+      // 本地不支持的格式 → 走服务器转码 HLS（不缓存、不落盘）。
+      // 列表接口常不返回 audioSpec.format，先经 metadata 确认格式；
+      // 转码或格式确认失败均回退直连，不中断播放。
+      try {
+        final format = await FeiNiuTranscodeService.instance
+            .resolvedFormatFor(song);
+        if (FeiNiuTranscodeService.instance.isTranscodeNeeded(format)) {
+          final hlsUrl = await FeiNiuTranscodeService.instance.hlsUrlFor(song);
+          if (hlsUrl != null) {
+            return HlsAudioSource(
+              Uri.parse(hlsUrl),
+              headers: FeiNiuApiClient.imageAuthHeaders(),
+            );
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('PlayerService transcode fallback for ${song.title}: $e');
+        }
+      }
+
       if (StreamCacheService.instance.isEnabled) {
         // 缓存命中 → 直接用本地文件（拖动进度条秒播）
         final complete = await StreamCacheService.instance.completeFileFor(

@@ -137,23 +137,28 @@ class ProbeCandidateSpec {
 /// 按用户优先级顺序构建候选链路列表（纯函数，可单测）
 ///
 /// [order] - 分组优先级顺序（内网 / 公网 IPv6 / 公网 IPv4 / 中继）
-/// [preferHttps] - 直连组内优先 HTTPS（中继始终仅 HTTPS）
+///
+/// 传输协议按地址类型自动选择（不再提供手动 HTTPS 优先开关）：
+/// - **IP 地址**（内网 IPv4 / 公网 IPv6 / 公网 IPv4）：**HTTP 优先**，随后
+///   HTTPS 兜底。IP 直连多为自签名证书，HTTP 可避开 ExoPlayer 原生栈的
+///   证书校验；若 NAS 仅开 HTTPS 端口，HTTP 失败后自动回退 HTTPS。
+/// - **中继 / 域名**（relay）：**仅 HTTPS**（延续原有行为）。
 ///
 /// 地址列表为空的分组不贡献候选；中继组恒有兜底地址（fnId.5ddd.com）。
 List<ProbeCandidateSpec> buildProbeCandidateSpecs({
   required String fnId,
   required FnConnectionParams params,
   required List<ProbeCandidateGroup> order,
-  required bool preferHttps,
 }) {
   final specs = <ProbeCandidateSpec>[];
-  final schemes = preferHttps ? ['https', 'http'] : ['http', 'https'];
+  // IP 直连：HTTP 在前（避开自签名证书校验），HTTPS 兜底
+  const ipSchemes = ['http', 'https'];
 
   for (final group in order) {
     switch (group) {
       case ProbeCandidateGroup.internal:
         for (final ip in params.internalIPv4s) {
-          for (final scheme in schemes) {
+          for (final scheme in ipSchemes) {
             final isHttps = scheme == 'https';
             final port = isHttps ? params.httpsPort : params.httpPort;
             specs.add(
@@ -168,7 +173,7 @@ List<ProbeCandidateSpec> buildProbeCandidateSpecs({
         }
       case ProbeCandidateGroup.publicIPv6:
         for (final ipv6 in params.publicIPv6s) {
-          for (final scheme in schemes) {
+          for (final scheme in ipSchemes) {
             final isHttps = scheme == 'https';
             final port = isHttps ? params.httpsPort : params.httpPort;
             specs.add(
@@ -183,7 +188,7 @@ List<ProbeCandidateSpec> buildProbeCandidateSpecs({
         }
       case ProbeCandidateGroup.publicIPv4:
         for (final ipv4 in params.publicIPv4s) {
-          for (final scheme in schemes) {
+          for (final scheme in ipSchemes) {
             final isHttps = scheme == 'https';
             final port = isHttps ? params.httpsPort : params.httpPort;
             specs.add(

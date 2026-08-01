@@ -279,15 +279,18 @@ class _MobilePlayerLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final spec = _PlayerLayoutSpec.fromPreset(stylePreset);
+    // 封面占满「面板上方」的全部剩余空间并居中；封面本身会按可用高度收缩
+    // （见 _PlayerArtwork），矮屏/大字体机型下也不会把下方控制区挤出屏幕。
     return Column(
       children: [
-        Spacer(flex: spec.topSpacerFlex),
-        _PlayerArtwork(
-          songSignal: player.currentSongSignal,
-          stylePreset: stylePreset,
+        Expanded(
+          child: Center(
+            child: _PlayerArtwork(
+              songSignal: player.currentSongSignal,
+              stylePreset: stylePreset,
+            ),
+          ),
         ),
-        if (spec.middleSpacerFlex > 0) Spacer(flex: spec.middleSpacerFlex),
         PlayerBottomPanel(
           player: player,
           stylePreset: stylePreset,
@@ -368,23 +371,49 @@ class _TabletLandscapePlayerLayout extends StatelessWidget {
   }
 }
 
-class _PlayerLayoutSpec {
-  final int topSpacerFlex;
-  final int middleSpacerFlex;
+class _PosterLayoutHeights {
+  /// 海报大封面高度。
+  final double hero;
+  /// 底部容器上内边距。
+  final double headerPad;
+  /// 底部容器下内边距（含底部安全区）。
+  final double bottomPad;
+  /// 歌词预览区高度（矮屏机型会小于 118 而不是溢出）。
+  final double lyricsPreview;
 
-  const _PlayerLayoutSpec({
-    required this.topSpacerFlex,
-    required this.middleSpacerFlex,
+  const _PosterLayoutHeights({
+    required this.hero,
+    required this.headerPad,
+    required this.bottomPad,
+    required this.lyricsPreview,
   });
+}
 
-  factory _PlayerLayoutSpec.fromPreset(PlayerStylePreset preset) {
-    switch (preset) {
-      case PlayerStylePreset.poster:
-        return const _PlayerLayoutSpec(topSpacerFlex: 1, middleSpacerFlex: 1);
-      case PlayerStylePreset.classic:
-        return const _PlayerLayoutSpec(topSpacerFlex: 1, middleSpacerFlex: 1);
-    }
-  }
+/// 海报布局高度分配：保证封面 + 底部内容恰好拼满屏幕。
+/// 原实现固定封面高度（46% 屏高），矮屏/大字体机型下底部内容溢出，导致
+/// 封面贴顶、标题/歌手上移、居中失效、底栏消失。
+_PosterLayoutHeights _posterLayoutHeights({
+  required double screenHeight,
+  required double bottomInset,
+}) {
+  final headerPad = screenHeight < 760 ? 12.0 : 18.0;
+  final bottomPad = bottomInset > 20 ? bottomInset + 8.0 : 18.0;
+  // 底部固定内容固有高度：标题/歌手块 + meta 行 + 进度条 + 按钮 + 上下内边距。
+  final fixedBottomContent = 71.0 + 142.0 + headerPad + bottomPad;
+  // 歌词预览最小高度（一行歌词）。
+  const minLyricsPreview = 60.0;
+  // 封面高度：默认 46% 屏高，但必须给底部固定内容 + 最小歌词预览留出空间。
+  final heroIdeal = (screenHeight * 0.46).clamp(270.0, 430.0);
+  final heroMax = screenHeight - fixedBottomContent - minLyricsPreview;
+  final hero = heroIdeal > heroMax ? heroMax : heroIdeal;
+  final lyricsPreview =
+      (screenHeight - hero - fixedBottomContent).clamp(minLyricsPreview, 118.0);
+  return _PosterLayoutHeights(
+    hero: hero,
+    headerPad: headerPad,
+    bottomPad: bottomPad,
+    lyricsPreview: lyricsPreview,
+  );
 }
 
 class _PosterPlayerLayout extends StatelessWidget {
@@ -397,6 +426,10 @@ class _PosterPlayerLayout extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final mq = MediaQuery.of(context);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final heights = _posterLayoutHeights(
+      screenHeight: mq.size.height,
+      bottomInset: bottomInset,
+    );
     return Watch.builder(
       builder: (context) {
         final song = player.currentSongSignal.value;
@@ -417,9 +450,9 @@ class _PosterPlayerLayout extends StatelessWidget {
                 width: double.infinity,
                 padding: EdgeInsets.fromLTRB(
                   24,
-                  mq.size.height < 760 ? 12 : 18,
+                  heights.headerPad,
                   24,
-                  bottomInset > 20 ? bottomInset + 8 : 18,
+                  heights.bottomPad,
                 ),
                 // Transparent so the cover-color + 流光 background shows through,
                 // matching the lyrics page (no solid white panel).
@@ -455,7 +488,7 @@ class _PosterPlayerLayout extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 18),
-                          _PosterLyricsPreview(),
+                          _PosterLyricsPreview(height: heights.lyricsPreview),
                         ],
                       ),
                     ),
@@ -484,13 +517,16 @@ class _PosterArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.sizeOf(context).height;
-    final heroHeight = (screenHeight * 0.46).clamp(270.0, 430.0);
+    // 与 _PosterPlayerLayout 共用同一套高度计算，保证封面与底部内容恰好拼满屏幕。
+    final heights = _posterLayoutHeights(
+      screenHeight: MediaQuery.sizeOf(context).height,
+      bottomInset: MediaQuery.paddingOf(context).bottom,
+    );
     return Watch.builder(
       builder: (context) {
         final song = songSignal.value;
         return SizedBox(
-          height: heroHeight,
+          height: heights.hero,
           width: double.infinity,
           // Fade the cover's bottom to transparent so it dissolves into the
           // cover-color + 流光 background below (instead of a hard edge / white).
@@ -570,7 +606,10 @@ class _PosterArtwork extends StatelessWidget {
 }
 
 class _PosterLyricsPreview extends StatelessWidget {
-  const _PosterLyricsPreview();
+  /// 预览区高度；由外层按可用空间计算，矮屏机型会小于 118，防止底部溢出。
+  final double height;
+
+  const _PosterLyricsPreview({this.height = 118});
 
   @override
   Widget build(BuildContext context) {
@@ -603,7 +642,7 @@ class _PosterLyricsPreview extends StatelessWidget {
         // 复用歌词页的 LyricView 渲染管线（AnimationController 驱动 +
         // CustomPainter 高亮），保证与歌词页一致的流畅逐字动画。
         return LyricPreview(
-          height: 118,
+          height: height,
           textAlign: TextAlign.start,
           contentAlignment: CrossAxisAlignment.start,
           showTranslation: true,
@@ -994,12 +1033,17 @@ class _PlayerArtwork extends StatelessWidget {
                 padding: EdgeInsets.symmetric(horizontal: spec.horizontalInset),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final size = constraints.maxWidth;
-                    final boxSize = size < maxSize ? size : maxSize;
+                    // 矮屏/大字体机型：可用高度可能比宽度小，封面按高度收缩，
+                    // 避免把下方控制区挤出屏幕（原布局固定 Spacer 会在溢出时
+                    // 塌缩成 0，导致封面贴顶、居中失效、底栏消失）。
+                    final width = constraints.maxWidth;
+                    final boxSize = width < maxSize ? width : maxSize;
+                    final size =
+                        boxSize < constraints.maxHeight ? boxSize : constraints.maxHeight;
                     return Center(
                       child: SizedBox(
-                        width: boxSize,
-                        height: boxSize,
+                        width: size,
+                        height: size,
                         child: _ArtworkShadowContainer(
                           border: border,
                           child: _ArtworkPlaceholder(border: border, label: ''),
@@ -1014,12 +1058,16 @@ class _PlayerArtwork extends StatelessWidget {
               padding: EdgeInsets.symmetric(horizontal: spec.horizontalInset),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final size = constraints.maxWidth;
-                  final boxSize = size < maxSize ? size : maxSize;
+                  final width = constraints.maxWidth;
+                  final boxSize = width < maxSize ? width : maxSize;
+                  final size =
+                      boxSize < constraints.maxHeight ? boxSize : constraints.maxHeight;
+                  final borderRadius =
+                      PlayerBackgroundSettings.roundCover.value ? size / 2 : 12.0;
                   return Center(
                     child: SizedBox(
-                      width: boxSize,
-                      height: boxSize,
+                      width: size,
+                      height: size,
                       child: _ArtworkShadowContainer(
                         border: border,
                         child: PlayerBackgroundSettings.rotateCover.value
@@ -1027,11 +1075,8 @@ class _PlayerArtwork extends StatelessWidget {
                                 playing: PlayerService.instance.isPlaying.value,
                                 child: ArtworkWidget(
                                   song: song,
-                                  size: boxSize,
-                                  borderRadius:
-                                      PlayerBackgroundSettings.roundCover.value
-                                      ? boxSize / 2
-                                      : 12,
+                                  size: size,
+                                  borderRadius: borderRadius,
                                   preferOriginal: true,
                                   keepPreviousUntilLoaded: true,
                                   placeholder: _ArtworkPlaceholder(
@@ -1042,11 +1087,8 @@ class _PlayerArtwork extends StatelessWidget {
                               )
                             : ArtworkWidget(
                                 song: song,
-                                size: boxSize,
-                                borderRadius:
-                                    PlayerBackgroundSettings.roundCover.value
-                                    ? boxSize / 2
-                                    : 12,
+                                size: size,
+                                borderRadius: borderRadius,
                                 preferOriginal: true,
                                 keepPreviousUntilLoaded: true,
                                 placeholder: _ArtworkPlaceholder(

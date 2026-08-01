@@ -19,49 +19,60 @@ void main() {
       fnId: 'myid',
       params: _params(),
       order: kDefaultConnectionOrder,
-      preferHttps: true,
     );
 
     final addresses = specs.map((s) => s.address).toList();
     expect(addresses, [
-      // 内网 HTTPS → HTTP
-      'https://192.168.1.10:5667',
+      // 内网 IP：HTTP 优先（避开自签名证书校验），HTTPS 兜底
       'http://192.168.1.10:5666',
-      // 公网 IPv6 HTTPS → HTTP
-      'https://[2409::1]:5667',
+      'https://192.168.1.10:5667',
+      // 公网 IPv6：HTTP 优先 → HTTPS
       'http://[2409::1]:5666',
-      // 公网 IPv4 HTTPS → HTTP
-      'https://1.2.3.4:5667',
+      'https://[2409::1]:5667',
+      // 公网 IPv4：HTTP 优先 → HTTPS
       'http://1.2.3.4:5666',
-      // 中继（仅 HTTPS）
+      'https://1.2.3.4:5667',
+      // 中继（域名，仅 HTTPS）
       'https://myid.5ddd.com',
     ]);
     expect(specs.last.group, ProbeCandidateGroup.relay);
     expect(specs.last.relayMode, true);
   });
 
-  test('preferHttps false puts HTTP before HTTPS within each group', () {
+  test('IP groups HTTP first, HTTPS fallback; relay stays HTTPS-only', () {
     final specs = buildProbeCandidateSpecs(
       fnId: 'myid',
       params: _params(),
       order: kDefaultConnectionOrder,
-      preferHttps: false,
     );
 
     final addresses = specs.map((s) => s.address).toList();
     expect(addresses, [
-      // 内网 HTTP → HTTPS
+      // 内网 IP：HTTP 优先 → HTTPS 兜底
       'http://192.168.1.10:5666',
       'https://192.168.1.10:5667',
-      // 公网 IPv6 HTTP → HTTPS
+      // 公网 IPv6：HTTP 优先 → HTTPS
       'http://[2409::1]:5666',
       'https://[2409::1]:5667',
-      // 公网 IPv4 HTTP → HTTPS
+      // 公网 IPv4：HTTP 优先 → HTTPS
       'http://1.2.3.4:5666',
       'https://1.2.3.4:5667',
-      // 中继（始终 HTTPS）
+      // 中继（域名，始终 HTTPS）
       'https://myid.5ddd.com',
     ]);
+    // 每个 IP 组都是 HTTP 在前
+    for (final group in [ProbeCandidateGroup.internal, ProbeCandidateGroup.publicIPv6, ProbeCandidateGroup.publicIPv4]) {
+      final groupSpecs = specs.where((s) => s.group == group).toList();
+      expect(groupSpecs.length, 2, reason: '$group 应生成 HTTP + HTTPS 两条');
+      expect(groupSpecs[0].address.startsWith('http://'), isTrue,
+          reason: '$group 应 HTTP 优先');
+      expect(groupSpecs[1].address.startsWith('https://'), isTrue,
+          reason: '$group 应 HTTPS 兜底');
+    }
+    // 中继仅 HTTPS
+    final relay = specs.where((s) => s.group == ProbeCandidateGroup.relay).toList();
+    expect(relay.length, 1);
+    expect(relay.single.address.startsWith('https://'), isTrue);
   });
 
   test('custom order controls group sequence', () {
@@ -69,7 +80,6 @@ void main() {
       fnId: 'myid',
       params: _params(),
       order: [ProbeCandidateGroup.relay, ProbeCandidateGroup.internal],
-      preferHttps: true,
     );
 
     final groups = specs.map((s) => s.group).toList();
@@ -94,7 +104,6 @@ void main() {
       fnId: 'myid',
       params: params,
       order: kDefaultConnectionOrder,
-      preferHttps: true,
     );
 
     expect(specs.length, 1);

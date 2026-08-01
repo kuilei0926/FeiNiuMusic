@@ -11,7 +11,6 @@ import '../services/feiniu/fn_models.dart';
 /// - SharedPreferences 持久化用户选择
 class AppFnConnectionSettings {
   static const String _prefsConnectionOrder = 'fn_connection_order';
-  static const String _prefsPreferHttps = 'fn_connection_prefer_https';
   static const String _prefsConnectionPreference = 'fn_connection_preference';
   static const String _prefsLastFnId = 'fn_last_fnid';
   static const String _prefsConnectionUrl = 'fn_connection_url';
@@ -26,9 +25,6 @@ class AppFnConnectionSettings {
   /// 当前连接优先级顺序（可拖拽自定义）
   static final ValueNotifier<List<ProbeCandidateGroup>> connectionOrder =
       ValueNotifier(List.of(kDefaultConnectionOrder));
-
-  /// 直连组内是否优先 HTTPS
-  static final ValueNotifier<bool> preferHttps = ValueNotifier(true);
 
   /// 上次使用的 FNID（用于启动时自动探测）
   static String? lastFnId;
@@ -75,7 +71,6 @@ class AppFnConnectionSettings {
   static void resetForTest() {
     _loading = null;
     connectionOrder.value = List.of(kDefaultConnectionOrder);
-    preferHttps.value = true;
     accessCode = null;
   }
 
@@ -105,9 +100,6 @@ class AppFnConnectionSettings {
       );
       await prefs.remove(_prefsConnectionPreference);
     }
-
-    // HTTPS 优先
-    preferHttps.value = prefs.getBool(_prefsPreferHttps) ?? true;
 
     // 上次 FNID
     lastFnId = prefs.getString(_prefsLastFnId);
@@ -139,17 +131,6 @@ class AppFnConnectionSettings {
     );
     connectionOrder.value = normalized;
     onOrderChanged?.call();
-  }
-
-  /// 设置直连是否优先 HTTPS 并持久化
-  static Future<void> setPreferHttps(
-    bool value, {
-    VoidCallback? onChanged,
-  }) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsPreferHttps, value);
-    preferHttps.value = value;
-    onChanged?.call();
   }
 
   /// 清洗连接优先级顺序：丢弃未知分组、去重、追加缺失的默认分组

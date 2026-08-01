@@ -53,7 +53,7 @@ class FeiNiuApiClient {
 
   static final FeiNiuApiClient instance = FeiNiuApiClient._();
 
-  final Dio _dio = Dio(
+  Dio _dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 30),
@@ -67,6 +67,9 @@ class FeiNiuApiClient {
   String _baseUrl = '';
   String _token = '';
   bool _relayMode = false;
+
+  @visibleForTesting
+  void setDioForTest(Dio dio) => _dio = dio;
 
   /// 网络失败监听回调列表（用于自动重连）
   final List<void Function(DioException)> _reconnectMonitors = [];
@@ -449,6 +452,76 @@ class FeiNiuApiClient {
   /// 构造音频流 URL
   String streamUrl(String guid) {
     return _url('/track/stream?guid=$guid');
+  }
+
+  /// 查询曲目元数据（含 audioSpec.format，用于判断是否需要转码）。
+  ///
+  /// 返回响应 `data` 段（`{audioSpec, track, ...}`）；异常时抛 DioException。
+  Future<Map<String, dynamic>?> trackMetadata(String guid) async {
+    final data = await _get('/track/metadata?guid=$guid');
+    return data['data'] is Map<String, dynamic>
+        ? data['data'] as Map<String, dynamic>
+        : null;
+  }
+
+  /// 请求服务器转码，返回 HLS 播放地址（`data.url`，通常为相对路径）。
+  ///
+  /// 默认请求 FLAC（无损）；FLAC 帧超过解码器能力时由上层降级为
+  /// `codec: 'mp3'` 重新请求。转码失败 / 服务器未返回地址时返回 null。
+  Future<String?> trackTranscode(String guid, {String codec = 'flac'}) async {
+    final data = await _post(
+      '/track/transcode',
+      data: {
+        'guid': guid,
+        'output': {'codec': codec, 'bitrate': 320, 'channel': 2},
+      },
+    );
+    final body = data['data'];
+    if (body is Map<String, dynamic>) {
+      final url = body['url'];
+      if (url is String && url.isNotEmpty) return url;
+    }
+    return null;
+  }
+
+  /// 拼接 HLS 绝对地址：服务器返回相对路径（以 /music/api/v1 开头）时
+  /// 拼上 baseUrl，绝对地址原样返回。
+  String resolveHlsUrl(String rel) {
+    if (rel.startsWith('http://') || rel.startsWith('https://')) return rel;
+    return '$_baseUrl${rel.startsWith('/') ? rel : '/$rel'}';
+  }
+
+  /// 抓取 m3u8 播放列表文本（携带资源认证头，与 ExoPlayer 播放请求一致）。
+  ///
+  /// 用于探测转码 FLAC 流的 fMP4 分片、判断单帧大小是否超出解码器能力。
+  /// 返回 null 表示请求失败 / 非 2xx（此时调用方保持 FLAC 并走崩溃兜底）。
+  Future<String?> fetchM3u8Text(String url) async {
+    final response = await _dio.get(
+      url,
+      options: Options(
+        headers: FeiNiuApiClient.imageAuthHeaders(),
+        responseType: ResponseType.plain,
+        validateStatus: (code) => code != null && code >= 200 && code < 300,
+      ),
+    );
+    final data = response.data;
+    return data is String ? data : null;
+  }
+
+  /// 抓取二进制资源（音频分片等）原始字节。
+  ///
+  /// 返回 null 表示请求失败 / 非 2xx / 响应非字节流。
+  Future<Uint8List?> fetchBytes(String url) async {
+    final response = await _dio.get(
+      url,
+      options: Options(
+        headers: FeiNiuApiClient.imageAuthHeaders(),
+        responseType: ResponseType.bytes,
+        validateStatus: (code) => code != null && code >= 200 && code < 300,
+      ),
+    );
+    final data = response.data;
+    return data is Uint8List ? data : null;
   }
 
   // endregion
