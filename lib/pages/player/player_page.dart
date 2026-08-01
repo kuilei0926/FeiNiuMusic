@@ -827,8 +827,9 @@ class _PosterSeekBarState extends State<_PosterSeekBar> with SignalsMixin {
                       children: [
                         Positioned.fill(
                           child: Padding(
+                            // horizontal: 12 与 Slider 轨道两端内缩（overlayRadius=12）对齐
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 0,
+                              horizontal: 12,
                               vertical: 10,
                             ),
                             child: ClipRRect(

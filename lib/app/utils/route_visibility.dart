@@ -46,17 +46,28 @@ mixin AppRouteVisibilityMixin<T extends StatefulWidget>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _subscribeToRoute();
+  }
+
+  /// 在 didChangeDependencies 里缓存路由引用（dispose 阶段不能再查祖先）。
+  ModalRoute<void>? _subscribedRoute;
+
+  void _subscribeToRoute() {
     final route = ModalRoute.of(context);
-    if (route != null) {
-      appRouteObserver.subscribe(this, route);
+    if (route == null || identical(route, _subscribedRoute)) return;
+    if (_subscribedRoute != null) {
+      appRouteObserver.unsubscribe(this);
     }
+    _subscribedRoute = route;
+    appRouteObserver.subscribe(this, route);
   }
 
   @override
   void dispose() {
-    final route = ModalRoute.of(context);
+    final route = _subscribedRoute;
     if (route != null) {
       appRouteObserver.unsubscribe(this);
+      _subscribedRoute = null;
     }
     super.dispose();
   }

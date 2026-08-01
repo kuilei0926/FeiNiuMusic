@@ -47,35 +47,30 @@ class _HomeCacheData {
       (recentTracks == null || recentTracks!.isEmpty);
 
   Map<String, dynamic> toJson() => {
-        'favorites':
-            favorites?.map((s) => s.toMap()).toList(),
-        'recentSongs':
-            recentSongs?.map((s) => s.toMap()).toList(),
-        'recentAlbums':
-            recentAlbums?.map((a) => a.toJson()).toList(),
-        'playlists':
-            playlists?.map((p) => p.toJson()).toList(),
-        'recentTracks':
-            recentTracks?.map((s) => s.toMap()).toList(),
-      };
+    'favorites': favorites?.map((s) => s.toMap()).toList(),
+    'recentSongs': recentSongs?.map((s) => s.toMap()).toList(),
+    'recentAlbums': recentAlbums?.map((a) => a.toJson()).toList(),
+    'playlists': playlists?.map((p) => p.toJson()).toList(),
+    'recentTracks': recentTracks?.map((s) => s.toMap()).toList(),
+  };
 
   static _HomeCacheData fromJson(Map<String, dynamic> json) => _HomeCacheData(
-        favorites: (json['favorites'] as List?)
-            ?.map((e) => SongEntity.fromMap(e as Map<String, dynamic>))
-            .toList(),
-        recentSongs: (json['recentSongs'] as List?)
-            ?.map((e) => SongEntity.fromMap(e as Map<String, dynamic>))
-            .toList(),
-        recentAlbums: (json['recentAlbums'] as List?)
-            ?.map((e) => FeiNiuAlbum.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        playlists: (json['playlists'] as List?)
-            ?.map((e) => FeiNiuPlaylist.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        recentTracks: (json['recentTracks'] as List?)
-            ?.map((e) => SongEntity.fromMap(e as Map<String, dynamic>))
-            .toList(),
-      );
+    favorites: (json['favorites'] as List?)
+        ?.map((e) => SongEntity.fromMap(e as Map<String, dynamic>))
+        .toList(),
+    recentSongs: (json['recentSongs'] as List?)
+        ?.map((e) => SongEntity.fromMap(e as Map<String, dynamic>))
+        .toList(),
+    recentAlbums: (json['recentAlbums'] as List?)
+        ?.map((e) => FeiNiuAlbum.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    playlists: (json['playlists'] as List?)
+        ?.map((e) => FeiNiuPlaylist.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    recentTracks: (json['recentTracks'] as List?)
+        ?.map((e) => SongEntity.fromMap(e as Map<String, dynamic>))
+        .toList(),
+  );
 }
 
 /// 飞牛首页 — 云端音乐仪表板
@@ -92,10 +87,8 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
   final FeiNiuApiClient _api = FeiNiuApiClient.instance;
   final FeiNiuRoamService _roam = FeiNiuRoamService.instance;
   final FeiNiuTrackService _trackService = FeiNiuTrackService.instance;
-  final FeiNiuPlaylistService _playlistService =
-      FeiNiuPlaylistService.instance;
-  final FeiNiuFavoriteService _favoriteService =
-      FeiNiuFavoriteService.instance;
+  final FeiNiuPlaylistService _playlistService = FeiNiuPlaylistService.instance;
+  final FeiNiuFavoriteService _favoriteService = FeiNiuFavoriteService.instance;
   final PlayerService _player = PlayerService.instance;
   final GlobalKey<AppPageScaffoldState> _scaffoldKey =
       GlobalKey<AppPageScaffoldState>();
@@ -122,18 +115,24 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
     const homeCacheKey = 'dashboard';
 
     // 先尝试加载缓存
-    final cachedJson = await ApiCacheManager.instance
-        .getPersisted(homeCacheScope, homeCacheKey);
+    final cachedJson = await ApiCacheManager.instance.getPersisted(
+      homeCacheScope,
+      homeCacheKey,
+    );
     if (cachedJson != null && mounted) {
       try {
         final cached = _HomeCacheData.fromJson(
-            jsonDecode(cachedJson) as Map<String, dynamic>);
+          jsonDecode(cachedJson) as Map<String, dynamic>,
+        );
         if (!mounted) return;
         if (cached.favorites != null) _favoriteSongs.value = cached.favorites!;
-        if (cached.recentSongs != null) _recentSongs.value = cached.recentSongs!;
-        if (cached.recentAlbums != null) _recentAlbums.value = cached.recentAlbums!;
+        if (cached.recentSongs != null)
+          _recentSongs.value = cached.recentSongs!;
+        if (cached.recentAlbums != null)
+          _recentAlbums.value = cached.recentAlbums!;
         if (cached.playlists != null) _playlists.value = cached.playlists!;
-        if (cached.recentTracks != null) _recentTracks.value = cached.recentTracks!;
+        if (cached.recentTracks != null)
+          _recentTracks.value = cached.recentTracks!;
         _loading.value = false;
         _preloadHomeCovers();
       } catch (e, stack) {
@@ -206,17 +205,19 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
       // 专辑封面 — FeiNiuAlbum 无 updatedAt
       for (final a in _recentAlbums.value.take(10))
         if (a.coverId != null && a.coverId!.isNotEmpty)
-          api.coverUrl(a.coverId!, size: 120),
+          api.coverUrl(a.coverId!, size: 300),
       // 歌单封面
       for (final p in _playlists.value.take(10))
         if (p.coverId != null && p.coverId!.isNotEmpty)
-          api.coverUrl(p.coverId!, size: 120, updatedAt: p.updatedAt),
+          api.coverUrl(p.coverId!, size: 300, updatedAt: p.updatedAt),
     ];
     for (final url in coverUrls) {
-      unawaited(precacheImage(
-        CachedNetworkImageProvider(url, headers: headers),
-        context,
-      ));
+      unawaited(
+        precacheImage(
+          CachedNetworkImageProvider(url, headers: headers),
+          context,
+        ),
+      );
     }
   }
 
@@ -231,9 +232,9 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
       // 把起始曲和下一曲都加到漫游队列
       final queue = <SongEntity>[track];
       if (response.next != null) {
-        queue.add(_trackService.trackToSongEntity(
-          response.next!.track.toJson(),
-        ));
+        queue.add(
+          _trackService.trackToSongEntity(response.next!.track.toJson()),
+        );
       }
       if (mounted) {
         _roamId.value = roamId;
@@ -271,8 +272,11 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
 
   Future<void> _loadRecentAlbums() async {
     try {
-      final pageData =
-          await _api.getAlbumList(page: 1, size: 10, sort: 'newTrackAddedAt,desc');
+      final pageData = await _api.getAlbumList(
+        page: 1,
+        size: 10,
+        sort: 'newTrackAddedAt,desc',
+      );
       if (mounted) _recentAlbums.value = pageData.list;
     } catch (e, stack) {
       debugPrint('[HomePage] albums error: $e\n$stack');
@@ -290,8 +294,11 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
 
   Future<void> _loadRecentTracks() async {
     try {
-      final pageData =
-          await _api.getTrackList(page: 1, size: 10, sort: 'createdAt,desc');
+      final pageData = await _api.getTrackList(
+        page: 1,
+        size: 10,
+        sort: 'createdAt,desc',
+      );
       final songs = pageData.list
           .map((t) => _trackService.trackToSongEntity(t.toJson()))
           .toList();
@@ -327,7 +334,9 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
       // 更新 roamId 以便下一次扩展
       _roamId.value = response.next!.roamId;
 
-      final song = _trackService.trackToSongEntity(response.next!.track.toJson());
+      final song = _trackService.trackToSongEntity(
+        response.next!.track.toJson(),
+      );
       return [song];
     } catch (e) {
       debugPrint('[HomePage] roam extend error: $e');
@@ -344,9 +353,9 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
       _player.roamId = response.current.roamId;
       final songs = <SongEntity>[first];
       if (response.next != null) {
-        songs.add(_trackService.trackToSongEntity(
-          response.next!.track.toJson(),
-        ));
+        songs.add(
+          _trackService.trackToSongEntity(response.next!.track.toJson()),
+        );
       }
       if (mounted) {
         // 必须在 playQueue 之后设置扩展器，因为 playQueue 会清除它
@@ -459,8 +468,7 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
                       title: '最近添加歌曲',
                       child: _SongGridList(
                         songs: _recentTracks.value,
-                        onTap: (song) =>
-                            _playSong(song, _recentTracks.value),
+                        onTap: (song) => _playSong(song, _recentTracks.value),
                       ),
                     ),
                   const SizedBox(height: 16),
@@ -520,8 +528,10 @@ class _HomeSectionCard extends StatelessWidget {
           padding: const EdgeInsets.only(left: 6, right: 2, bottom: 10),
           child: Text(
             title,
-            style: theme.textTheme.titleLarge
-                ?.copyWith(fontSize: 18, fontWeight: FontWeight.w700),
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         Container(
@@ -663,7 +673,7 @@ class _AlbumHorizontalList extends StatelessWidget {
         itemBuilder: (context, i) {
           final album = albums[i];
           final coverUrl = album.coverId != null
-              ? FeiNiuApiClient.instance.coverUrl(album.coverId!, size: 120)
+              ? FeiNiuApiClient.instance.coverUrl(album.coverId!, size: 300)
               : null;
           return SizedBox(
             width: 100,
@@ -687,11 +697,11 @@ class _AlbumHorizontalList extends StatelessWidget {
                               httpHeaders: _authHeaders(),
                               width: 100,
                               height: 100,
-                              memCacheWidth: 100,
-                              memCacheHeight: 100,
                               fit: BoxFit.cover,
-                              placeholder: (_, __) => _albumPlaceholder(theme, album.name),
-                              errorWidget: (_, __, ___) => _albumPlaceholder(theme, album.name),
+                              placeholder: (_, __) =>
+                                  _albumPlaceholder(theme, album.name),
+                              errorWidget: (_, __, ___) =>
+                                  _albumPlaceholder(theme, album.name),
                             ),
                           )
                         : _albumPlaceholder(theme, album.name),
@@ -741,8 +751,7 @@ class _PlaylistHorizontalList extends StatelessWidget {
   final List<FeiNiuPlaylist> playlists;
   final ValueChanged<FeiNiuPlaylist> onTap;
 
-  const _PlaylistHorizontalList(
-      {required this.playlists, required this.onTap});
+  const _PlaylistHorizontalList({required this.playlists, required this.onTap});
 
   Map<String, String> _authHeaders() => FeiNiuApiClient.imageAuthHeaders();
 
@@ -759,8 +768,11 @@ class _PlaylistHorizontalList extends StatelessWidget {
         itemBuilder: (context, i) {
           final playlist = playlists[i];
           final coverUrl = playlist.coverId != null
-              ? FeiNiuApiClient.instance
-                  .coverUrl(playlist.coverId!, size: 120, updatedAt: playlist.updatedAt)
+              ? FeiNiuApiClient.instance.coverUrl(
+                  playlist.coverId!,
+                  size: 300,
+                  updatedAt: playlist.updatedAt,
+                )
               : null;
           return SizedBox(
             width: 100,
@@ -784,11 +796,11 @@ class _PlaylistHorizontalList extends StatelessWidget {
                               httpHeaders: _authHeaders(),
                               width: 100,
                               height: 100,
-                              memCacheWidth: 100,
-                              memCacheHeight: 100,
                               fit: BoxFit.cover,
-                              placeholder: (_, __) => _playlistPlaceholder(theme),
-                              errorWidget: (_, __, ___) => _playlistPlaceholder(theme),
+                              placeholder: (_, __) =>
+                                  _playlistPlaceholder(theme),
+                              errorWidget: (_, __, ___) =>
+                                  _playlistPlaceholder(theme),
                             ),
                           )
                         : _playlistPlaceholder(theme),
@@ -806,13 +818,13 @@ class _PlaylistHorizontalList extends StatelessWidget {
                   if (playlist.trackCount > 0)
                     Text(
                       '${playlist.trackCount} 首',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: theme.colorScheme.onSurfaceVariant,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -824,7 +836,11 @@ class _PlaylistHorizontalList extends StatelessWidget {
 
   Widget _playlistPlaceholder(ThemeData theme) {
     return Center(
-      child: Icon(Icons.queue_music_rounded, color: theme.colorScheme.primary, size: 40),
+      child: Icon(
+        Icons.queue_music_rounded,
+        color: theme.colorScheme.primary,
+        size: 40,
+      ),
     );
   }
 }
@@ -846,11 +862,7 @@ class _RoamCard extends StatelessWidget {
         children: [
           Stack(
             children: [
-              ArtworkWidget(
-                song: song,
-                size: 64,
-                borderRadius: 12,
-              ),
+              ArtworkWidget(song: song, size: 64, borderRadius: 12),
               Positioned(
                 right: 2,
                 bottom: 2,

@@ -119,22 +119,25 @@ class SongDao {
 
   // region API 缓存
 
-  Future<void> cacheApiResponse(String key, String json, {int ttlMs = 300000}) async {
+  Future<void> cacheApiResponse(
+    String key,
+    String json, {
+    int ttlMs = 300000,
+  }) async {
     final db = await DbHelper.instance.database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    await db.insert(
-      DbConstants.tableApiCache,
-      {
-        'cache_key': key,
-        'json_data': json,
-        'cached_at_ms': now,
-        'ttl_ms': ttlMs,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert(DbConstants.tableApiCache, {
+      'cache_key': key,
+      'json_data': json,
+      'cached_at_ms': now,
+      'ttl_ms': ttlMs,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<String?> getCachedApiResponse(String key, {bool ignoreTtl = false}) async {
+  Future<String?> getCachedApiResponse(
+    String key, {
+    bool ignoreTtl = false,
+  }) async {
     final db = await DbHelper.instance.database;
     if (ignoreTtl) {
       final rows = await db.query(
@@ -165,6 +168,21 @@ class SongDao {
       where: '(cached_at_ms + ttl_ms) < ?',
       whereArgs: [now],
     );
+  }
+
+  /// 清空全部 API 响应缓存（设置页「清理缓存」入口）
+  Future<void> clearApiCache() async {
+    final db = await DbHelper.instance.database;
+    await db.delete(DbConstants.tableApiCache);
+  }
+
+  /// API 缓存条目数（设置页展示占用）
+  Future<int> apiCacheCount() async {
+    final db = await DbHelper.instance.database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM ${DbConstants.tableApiCache}',
+    );
+    return rows.isEmpty ? 0 : (rows.first['c'] as int?) ?? 0;
   }
 
   // endregion

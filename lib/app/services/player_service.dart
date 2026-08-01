@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signals/signals.dart';
 
 import 'db/dao/song_dao.dart';
+import 'audio/stream_cache_service.dart';
 import 'feiniu/api_client.dart';
 import 'feiniu/auth_service.dart';
 import 'feiniu/track_service.dart';
@@ -86,6 +87,7 @@ class PlayerService with WidgetsBindingObserver {
   final Map<String, int> _durationPersistedMs = {};
   final Map<String, _ResolvedRemoteSource> _resolvedRemoteSources = {};
   final Map<String, Future<Uri>> _sourceResolveInflight = {};
+  final Set<String> _precacheChainInFlight = {};
   bool _restoringState = false;
   bool _isSeeking = false;
   Duration? _seekTarget;
@@ -270,6 +272,7 @@ class PlayerService with WidgetsBindingObserver {
         final previousSongId = currentSong.value?.id;
         final songChanged = previousSongId != song.id;
         currentSong.value = song;
+        StreamCacheService.instance.currentSongId = song.id;
         if (songChanged) {
           final restoredPosition = _restoreSessionForSong(song)?.position;
           position.value = restoredPosition ?? Duration.zero;
@@ -285,6 +288,9 @@ class PlayerService with WidgetsBindingObserver {
           unawaited(FeiNiuApiClient.instance.reportTrackPlay(song.id));
         }
         _warmupPlaybackSources(song, nextSong: _nextSongForIndex(list, idx));
+        if (songChanged && StreamCacheService.instance.isEnabled) {
+          unawaited(_precacheNextChained(song, list, idx));
+        }
         if (songChanged && song.coverId != null && song.coverId!.isNotEmpty) {
           unawaited(
             precacheImage(
@@ -521,6 +527,30 @@ class PlayerService with WidgetsBindingObserver {
           WidgetsBinding.instance.rootElement!,
         ),
       );
+    }
+  }
+
+  /// 链式预缓存下一首：当前歌曲缓存下载完成后才自动缓存下一首（非时间触发）。
+  ///
+  /// shuffle 模式下下一首由 roam API 决定，无法预知，跳过。
+  Future<void> _precacheNextChained(
+    SongEntity current,
+    List<SongEntity> list,
+    int index,
+  ) async {
+    if (!AppCacheSettings.precacheNextSong.value) return;
+    if (!_precacheChainInFlight.add(current.id)) return; // 去重
+    try {
+      if (playbackMode.value == PlaybackMode.shuffle) return;
+      // 链式节点：等待当前歌缓存下载完成（已完整则立即返回）
+      await StreamCacheService.instance.waitForComplete(current.id);
+      if (!AppCacheSettings.precacheNextSong.value) return; // 等待中开关被关
+      if (playbackMode.value == PlaybackMode.shuffle) return; // 等待中模式被切
+      final next = _nextSongForIndex(list, index);
+      if (next == null || next.id == current.id) return; // 队列尾/防御
+      StreamCacheService.instance.precacheSong(next);
+    } finally {
+      _precacheChainInFlight.remove(current.id);
     }
   }
 
@@ -1955,6 +1985,21 @@ class PlayerService with WidgetsBindingObserver {
   }) async {
     final api = FeiNiuApiClient.instance;
     if (api.baseUrl.isNotEmpty) {
+      // 播放出错重试时删除损坏/过期的缓存，强制走远端
+      if (forceRefresh) {
+        await StreamCacheService.instance.invalidate(song.id);
+      }
+      if (StreamCacheService.instance.isEnabled) {
+        // 缓存命中 → 直接用本地文件（拖动进度条秒播）
+        final complete = await StreamCacheService.instance.completeFileFor(
+          song.id,
+        );
+        if (complete != null) {
+          return AudioSource.file(complete.path);
+        }
+        // 未缓存 → 缓存源（播放时边播边下载，缓存命中后次次秒播）
+        return StreamCacheService.instance.sourceForSong(song);
+      }
       final streamUrl = api.streamUrl(song.id);
       final headers = FeiNiuApiClient.imageAuthHeaders();
       return AudioSource.uri(Uri.parse(streamUrl), headers: headers);

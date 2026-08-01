@@ -101,12 +101,15 @@ class _MiniLyricsPreviewState extends State<_MiniLyricsPreview>
 
   @override
   Widget build(BuildContext context) {
+    // Theme 在 Watch.builder 外捕获：signals 的 computed 在元素卸载后仍可能因
+    // 歌词/播放状态更新而重算 builder，此时 context 已 deactivated，
+    // 在 builder 内调 Theme.of 会抛 "Looking up a deactivated widget's ancestor"。
+    final scheme = Theme.of(context).colorScheme;
     return Watch.builder(
       builder: (context) {
         if (!_enabled.value) {
           return const SizedBox.shrink();
         }
-        final scheme = Theme.of(context).colorScheme;
         final lyrics = LyricsService.instance;
         final snap = lyrics.snapshotSignal.value;
         final model = lyrics.lyricModelSignal.value;
@@ -223,11 +226,15 @@ class _PlayerSeekBarState extends State<_PlayerSeekBar> with SignalsMixin {
 
   @override
   Widget build(BuildContext context) {
+    // Theme 在 Watch.builder 外捕获：signals 的 computed 在元素卸载后仍可能因
+    // position/buffered 更新而重算 builder，此时 context 已 deactivated，
+    // 在 builder 内调 Theme.of 会抛 "Looking up a deactivated widget's ancestor"。
+    final scheme = Theme.of(context).colorScheme;
     return Watch.builder(
       builder: (context) {
         final position = widget.player.positionSignal.value;
         final duration = widget.player.durationSignal.value;
-        final scheme = Theme.of(context).colorScheme;
+        final buffered = widget.player.bufferedPositionSignal.value;
         final trackHeight = switch (widget.stylePreset) {
           PlayerStylePreset.poster => 4.0,
           PlayerStylePreset.classic => 2.0,
@@ -236,40 +243,73 @@ class _PlayerSeekBarState extends State<_PlayerSeekBar> with SignalsMixin {
         final max = totalMs <= 0 ? 1.0 : totalMs.toDouble();
         final currentMs = position.inMilliseconds.clamp(0, max.toInt()).toInt();
         final sliderValue = _dragValue.value ?? currentMs.toDouble();
+        final bufferedRatio = totalMs > 0
+            ? (buffered.inMilliseconds / totalMs).clamp(0.0, 1.0)
+            : 0.0;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Column(
             children: [
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: trackHeight,
-                  thumbShape: const RoundSliderThumbShape(
-                    enabledThumbRadius: 6,
-                  ),
-                  overlayShape: const RoundSliderOverlayShape(
-                    overlayRadius: 12,
-                  ),
-                  activeTrackColor: scheme.onSurface,
-                  inactiveTrackColor: scheme.onSurfaceVariant.withValues(
-                    alpha: 0.25,
-                  ),
-                  thumbColor: scheme.onSurface,
-                ),
-                child: Slider(
-                  value: sliderValue.clamp(0, max).toDouble(),
-                  min: 0,
-                  max: max,
-                  onChanged: totalMs <= 0
-                      ? null
-                      : (value) => _dragValue.value = value,
-                  onChangeEnd: totalMs <= 0
-                      ? null
-                      : (value) {
-                          _dragValue.value = null;
-                          widget.player.seek(
-                            Duration(milliseconds: value.round()),
-                          );
-                        },
+              SizedBox(
+                height: 24,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // 缓冲进度（轨道下层半透明条）
+                    // horizontal: 12 与 Slider 轨道两端内缩（overlayRadius=12）对齐
+                    Positioned.fill(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10.5,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: bufferedRatio,
+                            backgroundColor: Colors.transparent,
+                            valueColor: AlwaysStoppedAnimation(
+                              scheme.onSurface.withValues(alpha: 0.18),
+                            ),
+                            minHeight: 3,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 播放进度滑块
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: trackHeight,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 12,
+                        ),
+                        activeTrackColor: scheme.onSurface,
+                        inactiveTrackColor: scheme.onSurfaceVariant.withValues(
+                          alpha: 0.25,
+                        ),
+                        thumbColor: scheme.onSurface,
+                      ),
+                      child: Slider(
+                        value: sliderValue.clamp(0, max).toDouble(),
+                        min: 0,
+                        max: max,
+                        onChanged: totalMs <= 0
+                            ? null
+                            : (value) => _dragValue.value = value,
+                        onChangeEnd: totalMs <= 0
+                            ? null
+                            : (value) {
+                                _dragValue.value = null;
+                                widget.player.seek(
+                                  Duration(milliseconds: value.round()),
+                                );
+                              },
+                      ),
+                    ),
+                  ],
                 ),
               ),
               Padding(
