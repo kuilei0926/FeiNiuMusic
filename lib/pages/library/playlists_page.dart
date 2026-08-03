@@ -538,7 +538,7 @@ class _PlaylistsPageState extends State<PlaylistsPage>
             : SideMenu(
                 onCloseDrawer: () => _scaffoldKey.currentState?.closeDrawer(),
               ),
-        bottomNavIndex: useBottomNavigation ? 1 : null,
+        bottomNavIndex: useBottomNavigation ? 2 : null,
         onBottomNavTap: useBottomNavigation
             ? (index) => navigateToPrimaryDestination(context, index)
             : null,
@@ -1199,7 +1199,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage>
                   );
           },
         ),
-        bottomNavIndex: useBottomNavigation ? 1 : null,
+        bottomNavIndex: useBottomNavigation ? 2 : null,
         onBottomNavTap: useBottomNavigation
             ? (index) => navigateToPrimaryDestination(context, index)
             : null,

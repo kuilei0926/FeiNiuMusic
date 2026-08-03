@@ -131,7 +131,8 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bottomPadding = AppPageScaffold.scrollableBottomPadding(context);
+    final bottomPadding =
+        AppPageScaffold.scrollableBottomPadding(context, showMiniPlayer: false);
 
     return AppPageScaffold(
       extendBodyBehindAppBar: true,
@@ -140,6 +141,7 @@ class _FnConnectSettingsPageState extends State<FnConnectSettingsPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
+      showMiniPlayer: false,
       body: ListView(
         padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
         children: [

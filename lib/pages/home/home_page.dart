@@ -255,6 +255,10 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
           _trackService.trackToSongEntity(response.next!.track.toJson()),
         );
       }
+      debugPrint(
+        '[HomePage] loadRoam roamId=$roamId current=${track.id} '
+        'queue=[${queue.map((s) => s.id).join(',')}]',
+      );
       if (mounted) {
         _roamId.value = roamId;
         _roamSong.value = track;
@@ -417,31 +421,42 @@ class _HomePageState extends State<HomePage> with SignalsMixin {
 
   Future<void> _extendAndPlay(SongEntity first) async {
     try {
-      final deviceId = await AuthService.instance.ensureDeviceId();
-      final response = await _api.getRoamStart(deviceId);
-      // 更新 roamId 供队列扩展器和 PlayerService 随机模式使用
-      _roamId.value = response.current.roamId;
-      _player.roamId = response.current.roamId;
-      final songs = <SongEntity>[first];
-      if (response.next != null) {
-        songs.add(
-          _trackService.trackToSongEntity(response.next!.track.toJson()),
-        );
+      // 直接用 banner 当前漫游链：_loadRoam 已用 getRoamStart 拿到
+      // current（显示歌）+ next，并存于 _roamQueue / _roamId。用这套队列
+      // 播放既保证播的是 banner 显示的歌，又保证队列、roamId 同一条链，
+      // 点下一曲不会新开队列。
+      var songs = _roamQueue.value;
+      if (songs.isEmpty) {
+        songs = [first];
       }
+      final roamId = _roamId.value;
       if (mounted) {
-        // 必须在 playQueue 之后设置扩展器，因为 playQueue 会清除它
-        await _player.playQueue(songs, 0);
-        // playQueue 会清空 roamId，恢复它
-        _player.roamId = response.current.roamId;
-        // 切换到随机播放模式，后续走 _appendRoamAndPlay 逻辑
-        await _player.setPlaybackMode(PlaybackMode.shuffle);
+        // mode: shuffle + roamId 直接传入 playQueue：playQueue 内部会清空
+        // 再恢复 roamId，消除「返回后手动恢复」的时序窗口，确保点下一曲时
+        // _appendRoamAndPlay 走 roam-next 追加分支而非 getRoamStart 新开队列。
+        debugPrint(
+          '[HomePage] extendAndPlay queue=${songs.map((s) => s.title).join(',')} '
+          'roamId=$roamId',
+        );
+        await _player.playQueue(
+          songs,
+          0,
+          mode: PlaybackMode.shuffle,
+          roamChainId: roamId,
+        );
+        debugPrint('[HomePage] extendAndPlay done, roamId=$roamId');
+        // 后续走 _appendRoamAndPlay 逻辑（随机模式下播完拉下一首）
         _player.queueExtender = _roamQueueExtender;
       }
     } catch (e) {
       debugPrint('[HomePage] roam play error: $e');
-      await _player.playQueue([first], 0);
+      await _player.playQueue(
+        [first],
+        0,
+        mode: PlaybackMode.shuffle,
+        roamChainId: _roamId.value,
+      );
       _player.queueExtender = _roamQueueExtender;
-      await _player.setPlaybackMode(PlaybackMode.shuffle);
     }
   }
 

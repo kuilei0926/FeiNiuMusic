@@ -106,7 +106,8 @@ class _VersionInfoPageState extends State<VersionInfoPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = AppPageScaffold.scrollableBottomPadding(context);
+    final bottomPadding =
+        AppPageScaffold.scrollableBottomPadding(context, showMiniPlayer: false);
     return AppPageScaffold(
       extendBodyBehindAppBar: true,
       appBar: const AppTopBar(
@@ -114,6 +115,7 @@ class _VersionInfoPageState extends State<VersionInfoPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
+      showMiniPlayer: false,
       body: ListView(
         padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
         children: [

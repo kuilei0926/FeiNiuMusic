@@ -133,16 +133,9 @@ class _PlayerAppearanceSettingsPageState
                   preset: preset,
                   selected: preset == selected,
                   onTap: () {
+                    // 仅切换样式，不触碰「圆形封面」设置：海报模式下该开关被隐藏，
+                    // 切回默认时保留切换前的圆形/方形状态。
                     PlayerStyleSettings.setStylePreset(preset);
-                    // 海报歌词为整幅大封面，与圆形封面互斥；
-                    // 切到海报时自动关闭圆形封面（连带关闭旋转封面）。
-                    if (preset == PlayerStylePreset.poster) {
-                      PlayerBackgroundSettings.setRoundCover(false);
-                    } else {
-                      // 切回默认布局时自动恢复圆形封面 + 旋转封面（默认值）
-                      PlayerBackgroundSettings.setRoundCover(true);
-                      PlayerBackgroundSettings.setRotateCover(true);
-                    }
                   },
                 ),
               );
@@ -155,7 +148,8 @@ class _PlayerAppearanceSettingsPageState
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = AppPageScaffold.scrollableBottomPadding(context);
+    final bottomPadding =
+        AppPageScaffold.scrollableBottomPadding(context, showMiniPlayer: false);
     return AppPageScaffold(
       extendBodyBehindAppBar: true,
       appBar: const AppTopBar(
@@ -163,6 +157,7 @@ class _PlayerAppearanceSettingsPageState
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
+      showMiniPlayer: false,
       body: ListView(
         padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
         children: [
@@ -228,37 +223,52 @@ class _PlayerAppearanceSettingsPageState
                   );
                 },
               ),
-              ValueListenableBuilder<bool>(
-                valueListenable: PlayerBackgroundSettings.roundCover,
-                builder: (context, enabled, _) {
-                  return AppSettingSwitchTile(
-                    title: '圆形封面',
-                    subtitle: '播放页封面以圆形显示',
-                    value: enabled,
-                    onChanged: (value) {
-                      PlayerBackgroundSettings.setRoundCover(value);
-                    },
-                  );
-                },
-              ),
-              ValueListenableBuilder<bool>(
-                valueListenable: PlayerBackgroundSettings.roundCover,
-                builder: (context, roundEnabled, _) {
-                  if (!roundEnabled) {
+              // 海报模式为大封面全屏布局，与圆形/旋转封面互斥：隐藏这两个
+              // 开关（保留其存储值），切回默认模式时原样恢复。
+              ValueListenableBuilder<PlayerStylePreset>(
+                valueListenable: PlayerStyleSettings.stylePreset,
+                builder: (context, preset, _) {
+                  if (preset == PlayerStylePreset.poster) {
                     return const SizedBox.shrink();
                   }
-                  return ValueListenableBuilder<bool>(
-                    valueListenable: PlayerBackgroundSettings.rotateCover,
-                    builder: (context, enabled, _) {
-                      return AppSettingSwitchTile(
-                        title: '旋转封面',
-                        subtitle: '播放时封面缓慢旋转',
-                        value: enabled,
-                        onChanged: (value) {
-                          PlayerBackgroundSettings.setRotateCover(value);
+                  return Column(
+                    children: [
+                      ValueListenableBuilder<bool>(
+                        valueListenable: PlayerBackgroundSettings.roundCover,
+                        builder: (context, enabled, _) {
+                          return AppSettingSwitchTile(
+                            title: '圆形封面',
+                            subtitle: '播放页封面以圆形显示',
+                            value: enabled,
+                            onChanged: (value) {
+                              PlayerBackgroundSettings.setRoundCover(value);
+                            },
+                          );
                         },
-                      );
-                    },
+                      ),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: PlayerBackgroundSettings.roundCover,
+                        builder: (context, roundEnabled, _) {
+                          if (!roundEnabled) {
+                            return const SizedBox.shrink();
+                          }
+                          return ValueListenableBuilder<bool>(
+                            valueListenable:
+                                PlayerBackgroundSettings.rotateCover,
+                            builder: (context, enabled, _) {
+                              return AppSettingSwitchTile(
+                                title: '旋转封面',
+                                subtitle: '播放时封面缓慢旋转',
+                                value: enabled,
+                                onChanged: (value) {
+                                  PlayerBackgroundSettings.setRotateCover(value);
+                                },
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ],
                   );
                 },
               ),

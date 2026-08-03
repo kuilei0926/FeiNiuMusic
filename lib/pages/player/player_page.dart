@@ -535,27 +535,21 @@ class _PosterArtwork extends StatelessWidget {
                               label: '',
                             ),
                           )
-                        : _RotatingArtwork(
+                        : ArtworkWidget(
                             song: song,
-                            buildArtwork: (context, onCoverAvailable) =>
-                                ArtworkWidget(
-                                  song: song,
-                                  size: boxSize,
-                                  borderRadius:
-                                      PlayerBackgroundSettings.roundCover.value
-                                      ? boxSize / 2
-                                      : 0,
-                                  preferOriginal: true,
-                                  keepPreviousUntilLoaded: true,
-                                  onCoverAvailableChanged: onCoverAvailable,
-                                  placeholder: Skeletonizer(
-                                    enabled: true,
-                                    child: _ArtworkPlaceholder(
-                                      border: BorderRadius.zero,
-                                      label: song.title,
-                                    ),
-                                  ),
-                                ),
+                            size: boxSize,
+                            // 海报模式为大封面全屏布局：无论「圆形封面」开关如何
+                            // 均整幅方形铺满、不旋转（旋转仅对圆形封面有意义）。
+                            borderRadius: 0,
+                            preferOriginal: true,
+                            keepPreviousUntilLoaded: true,
+                            placeholder: Skeletonizer(
+                              enabled: true,
+                              child: _ArtworkPlaceholder(
+                                border: BorderRadius.zero,
+                                label: song.title,
+                              ),
+                            ),
                           );
                     return ClipRect(
                       child: OverflowBox(

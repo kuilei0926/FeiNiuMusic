@@ -88,6 +88,7 @@ class _LyricsSettingsPageState extends State<LyricsSettingsPage>
             backgroundColor: Colors.transparent,
             elevation: 0,
           ),
+          showMiniPlayer: false,
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [

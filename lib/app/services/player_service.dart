@@ -13,6 +13,7 @@ import 'package:signals/signals.dart';
 import 'db/dao/song_dao.dart';
 import 'audio/stream_cache_service.dart';
 import 'feiniu/api_client.dart';
+import 'feiniu/api_models.dart';
 import 'feiniu/auth_service.dart';
 import 'feiniu/track_service.dart';
 import 'feiniu/transcode_service.dart';
@@ -133,6 +134,7 @@ class PlayerService with WidgetsBindingObserver {
   static const String _prefsModeKey = 'playback_mode_v1';
   static const String _prefsWasPlayingKey = 'playback_was_playing_v1';
   static const String _prefsSongIdKey = 'playback_song_id_v1';
+  static const String _prefsRoamIdKey = 'playback_roam_id_v1';
 
   bool get hasLoadedAudioSource => _player.audioSource != null;
 
@@ -143,8 +145,13 @@ class PlayerService with WidgetsBindingObserver {
 
   PlayerService._internal() {
     WidgetsBinding.instance.addObserver(this);
-    _init();
+    _initFuture = _init();
   }
+
+  /// 初始化（含恢复旧播放会话）完成的 Future。所有播放操作先 await 它，
+  /// 避免在初始化完成前被调用导致与恢复流程的 setAudioSources 并发交错、
+  /// 播放器物理 loop/shuffle 状态被覆盖。
+  late final Future<void> _initFuture;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -198,8 +205,14 @@ class PlayerService with WidgetsBindingObserver {
     _becomingNoisySub = session.becomingNoisyEventStream.listen((_) {
       unawaited(_pausePlayback());
     });
-    await _player.setLoopMode(LoopMode.all);
-    playbackMode.value = PlaybackMode.loop;
+    // 首次启动的默认播放模式。若用户已在初始化完成前点了首页漫游
+    // （playQueue 已递增 _queueGeneration），跳过此默认值，避免把用户
+    // 刚设好的随机模式改回列表循环。
+    if (_queueGeneration == 0) {
+      await _player.setLoopMode(LoopMode.all);
+      playbackMode.value = PlaybackMode.loop;
+      _debugLog('init default mode -> loop (gen=0)');
+    }
     _positionSub = _player.positionStream.listen((value) {
       if (_isSeeking) {
         // End the seek freeze early once the player reports a position near the
@@ -329,10 +342,21 @@ class PlayerService with WidgetsBindingObserver {
     });
     _loopModeSub = _player.loopModeStream.listen((loopMode) {
       if (_isApplyingPlaybackMode) return;
-      if (playbackMode.value == PlaybackMode.shuffle) return;
+      // 随机模式下物理 LoopMode 必须是 one：播完当前曲发 autoAdvance 断点
+      // 才触发 _appendRoamAndPlay 拉下一首随机。首次点漫游时 setAudioSources
+      // 替换恢复的旧队列会触发 ExoPlayer 异步重建，把 loop 重置回 all（顺序播
+      // 队列）。这里在流里兜底：随机模式下检测到物理不是 one 就立即纠正。
+      if (playbackMode.value == PlaybackMode.shuffle) {
+        if (loopMode != LoopMode.one) {
+          _debugLog('shuffle loop reset to one (was ${loopMode.name})');
+          _player.setLoopMode(LoopMode.one);
+        }
+        return;
+      }
       playbackMode.value = loopMode == LoopMode.one
           ? PlaybackMode.single
           : PlaybackMode.loop;
+      _debugLog('loopModeStream -> ${playbackMode.value.name}');
       _schedulePersistPlaybackState();
     });
     _shuffleSub = _player.shuffleModeEnabledStream.listen((enabled) {
@@ -354,10 +378,14 @@ class PlayerService with WidgetsBindingObserver {
             ? PlaybackMode.single
             : PlaybackMode.loop;
       }
+      _debugLog('shuffleStream -> ${playbackMode.value.name}');
       _schedulePersistPlaybackState();
     });
     AppPlaybackVolumeSettings.volume.addListener(_handleAppVolumeChanged);
     await _applyAppVolume(AppPlaybackVolumeSettings.volume.value);
+    // 用户可能在播放器初始化完成前就点了首页漫游（playQueue 递增
+    // _queueGeneration）。_restorePlaybackState 内部按 generation 判断，
+    // 一旦用户已开始新播放就跳过恢复，避免覆盖用户刚选的漫游队列/模式。
     try {
       await _restorePlaybackState();
     } finally {
@@ -379,13 +407,33 @@ class PlayerService with WidgetsBindingObserver {
     }
   }
 
-  Future<void> playQueue(List<SongEntity> songs, int startIndex) async {
+  Future<void> playQueue(
+    List<SongEntity> songs,
+    int startIndex, {
+    PlaybackMode? mode,
+    String? roamChainId,
+  }) async {
+    // 等待初始化（含旧播放会话恢复）完成，避免 setAudioSources 与恢复流程
+    // 并发交错导致播放器物理 loop/shuffle 状态被覆盖。
+    await _initFuture;
     _clearRestoreSession();
     _queueGeneration++;
     queueExtender = null;
     _isExtendingQueue = false;
-    roamId = null;
+    // 注意：显式用 this.roamId 强调这是成员字段赋值。历史上参数 roamId 曾
+    // 遮蔽成员字段，导致 this.roamId 无法被正确恢复（roamId 永远清空），
+    // 漫游续链时用错 roamId。参数现在命名 roamChainId 以彻底避免遮蔽，
+    // 此处保留 this. 作为防御与文档。
+    // ignore: unnecessary_this
+    this.roamId = null;
     _roamTransitionPending = false;
+    // 调用方传入漫游链时（如首页漫游点 banner），在清空后立即恢复，
+    // 消除「playQueue 返回后手动恢复」的时序窗口：期间若有 _appendRoamAndPlay
+    // 触发（播完/自动），roamId 非空走追加分支，不会 getRoamStart 新开队列。
+    if (roamChainId != null && roamChainId.isNotEmpty) {
+      // ignore: unnecessary_this
+      this.roamId = roamChainId;
+    }
     final playable = songs
         .where((s) => (s.uri ?? '').trim().isNotEmpty)
         .toList();
@@ -469,8 +517,12 @@ class PlayerService with WidgetsBindingObserver {
       return;
     }
 
-    if (playbackMode.value != PlaybackMode.loop) {
-      await setPlaybackMode(PlaybackMode.loop);
+    // 目标模式：调用方传入（如漫游 shuffle）则用传入值，否则默认 loop。
+    // 在 setAudioSources 之后立即设置物理状态，避免「playQueue 返回后再调
+    // setPlaybackMode」的窗口里播完自动顺序切歌（表现为列表循环而非随机）。
+    final targetMode = mode ?? PlaybackMode.loop;
+    if (playbackMode.value != targetMode || mode != null) {
+      await setPlaybackMode(targetMode);
     }
 
     try {
@@ -635,6 +687,7 @@ class PlayerService with WidgetsBindingObserver {
     _clearRestoreSession();
     queueExtender = null;
     _isExtendingQueue = false;
+    roamId = null;
     _stopBackgroundAudioKeepAlive();
     _statsFlushTimer?.cancel();
     await _statsService.flush();
@@ -800,6 +853,10 @@ class PlayerService with WidgetsBindingObserver {
     _clearRestoreSession();
     if (playbackMode.value == PlaybackMode.shuffle) {
       _roamTransitionPending = false;
+      // 随机模式：调 _appendRoamAndPlay。roamId 非空时走追加分支——
+      // 保留旧队列，roam-next 返回 current+next，追加到队尾、定位到 current
+      // 播放、并推进 roamId。这样切到下一首的同时就请求到再下一首填充，
+      // 不会出现「队尾空转/切歌后没有下一首」。
       await _appendRoamAndPlay();
       return;
     }
@@ -826,10 +883,15 @@ class PlayerService with WidgetsBindingObserver {
       final deviceId = await AuthService.instance.ensureDeviceId();
 
       final isFirst = roamId == null || roamId!.isEmpty;
+      _debugLog(
+        'appendRoamAndPlay isFirst=$isFirst roamId=${roamId ?? 'null'} '
+        'gen=$gen queueGen=$_queueGeneration',
+      );
 
       String newRoamId;
       dynamic roamTrackData;
       SongEntity? nextTrack;
+
       if (isFirst) {
         final startResponse = await FeiNiuApiClient.instance.getRoamStart(
           deviceId,
@@ -842,17 +904,38 @@ class PlayerService with WidgetsBindingObserver {
           );
         }
       } else {
-        final response = await FeiNiuApiClient.instance.getRoamNext(
-          deviceId,
-          roamId!,
-        );
-        if (response.current == null) return;
-        newRoamId = response.current!.roamId;
-        roamTrackData = response.current!;
-        if (response.next != null) {
-          nextTrack = FeiNiuTrackService.instance.trackToSongEntity(
-            response.next!.track.toJson(),
+        FeiNiuRoamNextResponse? response;
+        try {
+          response = await FeiNiuApiClient.instance.getRoamNext(
+            deviceId,
+            roamId!,
           );
+        } catch (e) {
+          // 重启后持久化的漫游链可能已在服务端过期（roam-next 返回非 0 code
+          // 抛异常）。记录后走退化逻辑，避免随机模式下播完/点下一曲卡住。
+          if (kDebugMode) {
+            debugPrint('PlayerService roam-next expired, restart chain: $e');
+          }
+        }
+        if (response == null || response.current == null) {
+          final startResponse = await FeiNiuApiClient.instance.getRoamStart(
+            deviceId,
+          );
+          newRoamId = startResponse.current.roamId;
+          roamTrackData = startResponse.current;
+          if (startResponse.next != null) {
+            nextTrack = FeiNiuTrackService.instance.trackToSongEntity(
+              startResponse.next!.track.toJson(),
+            );
+          }
+        } else {
+          newRoamId = response.current!.roamId;
+          roamTrackData = response.current!;
+          if (response.next != null) {
+            nextTrack = FeiNiuTrackService.instance.trackToSongEntity(
+              response.next!.track.toJson(),
+            );
+          }
         }
       }
 
@@ -867,19 +950,44 @@ class PlayerService with WidgetsBindingObserver {
         roamTrackData.track.toJson(),
       );
 
-      // 首次清空旧队列，后续保留旧队列只追加
-      // roam-next 返回的 current 是上一轮的 next，和 baseQueue.last 相同时跳过
+      // 首次清空旧队列，后续保留旧队列只追加。
+      // roam-next 返回的 current 可能是上一轮的 next（已在队列里），也可能是
+      // 全新的歌。正确做法：
+      // - current 已在队列 → 复用其位置（避免重复），只追加 next；
+      // - current 不在队列 → 追加 current + next。
+      // 不能无条件把 current 从队尾去掉——那会在「播第一首切到第二首」时把
+      // 第二首删掉，导致跳过第二首直接播第三首。
       final baseQueue = isFirst ? <SongEntity>[] : queue.value;
-      final dedupedBase = baseQueue.isNotEmpty && track.id == baseQueue.last.id
-          ? baseQueue.sublist(0, baseQueue.length - 1)
-          : baseQueue;
-      final newQueue = nextTrack != null
-          ? [...dedupedBase, track, nextTrack]
-          : [...dedupedBase, track];
-      final appendedIndex = dedupedBase.length;
+      final currentIndexInBase = track.id.isEmpty
+          ? -1
+          : baseQueue.indexWhere((s) => s.id == track.id);
+      final List<SongEntity> newQueue;
+      final int appendedIndex;
+      if (currentIndexInBase >= 0) {
+        // current 已在队列：保留原位，追加 next（若有）。
+        newQueue = [
+          ...baseQueue,
+          if (nextTrack != null && nextTrack.id != track.id) nextTrack,
+        ];
+        appendedIndex = currentIndexInBase;
+      } else {
+        // current 不在队列：追加 current + next。
+        newQueue = [
+          ...baseQueue,
+          track,
+          if (nextTrack != null && nextTrack.id != track.id) nextTrack,
+        ];
+        appendedIndex = baseQueue.length;
+      }
 
       // 用 _applyLogicalQueue 统一更新所有状态，只触发一次 UI 重建
       _suppressIndexSync = false;
+      _debugLog(
+        'appendRoamAndPlay build: baseQueue=[${baseQueue.map((s) => s.id).join(',')}] '
+        'track=${track.id} currentIdxInBase=$currentIndexInBase '
+        'nextTrack=${nextTrack?.id} newQueue=[${newQueue.map((s) => s.id).join(',')}] '
+        'appendedIndex=$appendedIndex',
+      );
       _applyLogicalQueue(newQueue, appendedIndex);
 
       final allSources = await Future.wait(
@@ -891,7 +999,15 @@ class PlayerService with WidgetsBindingObserver {
         initialPosition: Duration.zero,
         preload: true,
       );
-      await _player.setLoopMode(LoopMode.all);
+      // 随机模式下物理 LoopMode 必须保持 one：播完当前曲发 autoAdvance 断点
+      // 才触发 _appendRoamAndPlay 拉下一首随机。若设成 all，播完会顺序播放
+      // 队列里的下一首（表现为列表循环而非随机）。setAudioSources 后需重设，
+      // 因为加载新源可能重置播放器的 loop 状态。
+      await _player.setLoopMode(
+        playbackMode.value == PlaybackMode.shuffle
+            ? LoopMode.one
+            : LoopMode.all,
+      );
       await _player.play();
 
       _maybeProbeSong(track);
@@ -920,6 +1036,30 @@ class PlayerService with WidgetsBindingObserver {
   Future<void> previous() async {
     _clearRestoreSession();
     _roamTransitionPending = false;
+    if (playbackMode.value == PlaybackMode.shuffle) {
+      // 随机模式下 seekToPrevious 在物理 LoopMode.one 下切不动，同 next()，
+      // 用 setAudioSources 重建定位到上一首。
+      final list = queue.value;
+      final idx = currentIndex.value;
+      if (list.isNotEmpty && idx > 0) {
+        _debugLog('previous(): shuffle reload index ${idx - 1}');
+        final wasPlaying = _player.playing;
+        final allSources = await Future.wait(
+          list.map((s) => _sourceForSong(s)),
+        );
+        await _player.setAudioSources(
+          allSources,
+          initialIndex: idx - 1,
+          initialPosition: Duration.zero,
+          preload: true,
+        );
+        await _player.setLoopMode(LoopMode.one);
+        if (wasPlaying && !_player.playing) {
+          await _player.play();
+        }
+        return;
+      }
+    }
     final wasPlaying = _player.playing;
     await _player.seekToPrevious();
     if (!wasPlaying) {
@@ -1081,11 +1221,13 @@ class PlayerService with WidgetsBindingObserver {
         );
       }
 
-      await playQueue(songs, 0);
-      // playQueue 内部会把模式切回列表循环，这里再切回随机播放
-      roamId = response.current.roamId;
-      await setPlaybackMode(PlaybackMode.shuffle);
-      // 播完自动拉下一首随机
+      await playQueue(
+        songs,
+        0,
+        mode: PlaybackMode.shuffle,
+        roamChainId: response.current.roamId,
+      );
+      // playQueue 已按传入 mode 设置随机模式、恢复 roamId，播完自动拉下一首随机
       queueExtender = _defaultRoamQueueExtender;
     } catch (e) {
       _debugLog('startRoamPlayback error: $e');
@@ -1146,23 +1288,25 @@ class PlayerService with WidgetsBindingObserver {
   }
 
   Future<void> setPlaybackMode(PlaybackMode mode) async {
+    await _initFuture;
     _isApplyingPlaybackMode = true;
+    // 先写状态再同步播放器：playbackMode 是唯一真源，
+    // 播放器异步调用即使挂起/失败也不影响 UI 状态与漫游逻辑。
+    _roamTransitionPending = mode == PlaybackMode.shuffle;
+    playbackMode.value = mode;
+    _debugLog('setPlaybackMode -> ${mode.name}');
+    _schedulePersistPlaybackState();
     try {
-      // Switch to shuffle: just mark the mode, keep the current queue and
-      // playing song unchanged. The next "next" call will fetch a random
-      // track from the server via roam-next.
       if (mode == PlaybackMode.shuffle) {
-        // 进入随机模式：保持当前曲目继续播放，标记过渡
-        // 用 LoopMode.one 阻止 just_audio 自动切歌，让我们自己控制
+        // 进入随机模式：保持当前曲目继续播放。用 LoopMode.one 阻止
+        // just_audio 自动切歌，播完由 _appendRoamAndPlay 接管。
         await _player.setShuffleModeEnabled(false);
         await _player.setLoopMode(LoopMode.one);
-        _roamTransitionPending = true;
       } else {
         await _applyPlaybackMode(mode);
       }
-      // 最后再写入目标模式，避免异步监听把模式改回 loop/single
-      playbackMode.value = mode;
-      _schedulePersistPlaybackState();
+    } catch (e) {
+      if (kDebugMode) debugPrint('setPlaybackMode(${mode.name}) error: $e');
     } finally {
       _isApplyingPlaybackMode = false;
     }
@@ -1343,6 +1487,9 @@ class PlayerService with WidgetsBindingObserver {
   Future<void> _restorePlaybackState() async {
     final session = await _readPersistedPlaybackState();
     if (session == null) return;
+    // 读取持久化状态期间用户可能已开始新的播放（playQueue 递增 _queueGeneration），
+    // 放弃恢复，避免用旧队列覆盖用户刚选的队列与播放模式。
+    if (_queueGeneration != 0) return;
     _debugLog('restorePlaybackState queue=${session.queue.length}');
 
     final shouldAutoPlayOnLaunch =
@@ -1393,6 +1540,7 @@ class PlayerService with WidgetsBindingObserver {
     final savedPositionMs = prefs.getInt(_prefsPositionKey) ?? 0;
     final savedMode = prefs.getString(_prefsModeKey);
     final savedSongId = prefs.getString(_prefsSongIdKey);
+    final savedRoamId = prefs.getString(_prefsRoamIdKey);
     final mode = _playbackModeFromString(savedMode) ?? PlaybackMode.loop;
     var actualIndex = savedIndex;
     if (savedSongId != null && savedSongId.isNotEmpty) {
@@ -1413,13 +1561,17 @@ class PlayerService with WidgetsBindingObserver {
       ),
       mode: mode,
       wasPlaying: prefs.getBool(_prefsWasPlayingKey) ?? false,
+      roamId: savedRoamId,
     );
   }
 
   void _restorePlaybackUiState(_PlaybackRestoreState session) {
     _restoreSession = session;
+    // 恢复漫游链：随机模式重启后下一曲仍沿用同一个随机队列，而不是重新 roam-start
+    roamId = session.roamId;
     _applyLogicalQueue(session.queue, session.index);
     playbackMode.value = session.mode;
+    _debugLog('restoreUiState -> mode=${session.mode.name}');
     position.value = session.position;
     bufferedPosition.value = Duration.zero;
     final song = session.currentSong;
@@ -1435,6 +1587,12 @@ class PlayerService with WidgetsBindingObserver {
   ) async {
     try {
       final sourceQueue = await _buildPlaybackSourceQueue(session.queue);
+      // 构建源期间用户可能已开始新的播放：放弃 apply，避免 setAudioSources
+      // 覆盖用户刚选的队列、触发 index 流把播放模式改回 loop/single。
+      if (_queueGeneration != 0) {
+        session.prepareFailed = true;
+        return;
+      }
       await _loadPlaybackSourceQueue(
         sourceQueue,
         initialIndex: session.index,
@@ -1443,6 +1601,13 @@ class PlayerService with WidgetsBindingObserver {
       );
       if (session.position > Duration.zero) {
         await _seekRestoredPosition(session.position);
+      }
+      // 加载源期间用户可能已点漫游开始播放（_queueGeneration 已递增）：
+      // 放弃把旧会话的物理 loop/shuffle 状态应用到播放器，否则会把漫游
+      // 设好的 LoopMode.one 改回 LoopMode.all，表现为列表循环而非随机。
+      if (_queueGeneration != 0) {
+        session.prepareFailed = true;
+        return;
       }
       await _applyPlaybackMode(session.mode);
       session
@@ -1721,6 +1886,13 @@ class PlayerService with WidgetsBindingObserver {
     );
     await prefs.setString(_prefsModeKey, playbackMode.value.name);
     await prefs.setBool(_prefsWasPlayingKey, isPlaying.value);
+    // 持久化漫游链 ID：随机模式重启后 next/播完沿用同一个随机队列
+    final roam = roamId;
+    if (roam == null || roam.isEmpty) {
+      await prefs.remove(_prefsRoamIdKey);
+    } else {
+      await prefs.setString(_prefsRoamIdKey, roam);
+    }
     final songId = currentSong.value?.id;
     if (songId == null || songId.isEmpty) {
       await prefs.remove(_prefsSongIdKey);
@@ -1746,6 +1918,7 @@ class PlayerService with WidgetsBindingObserver {
     await prefs.remove(_prefsModeKey);
     await prefs.remove(_prefsWasPlayingKey);
     await prefs.remove(_prefsSongIdKey);
+    await prefs.remove(_prefsRoamIdKey);
   }
 
   Map<String, String>? _headersFromSong(SongEntity song) {
@@ -1843,7 +2016,12 @@ class PlayerService with WidgetsBindingObserver {
         preload: true,
       );
 
-      if (_player.shuffleModeEnabled) {
+      // setAudioSources 会重置播放器 loop 状态。随机模式下必须锁回 one：
+      // 播完当前曲发 autoAdvance 断点才触发 _appendRoamAndPlay 拉下一首随机，
+      // 否则播完会顺序播放队列里的下一首（表现为列表循环）。
+      if (playbackMode.value == PlaybackMode.shuffle) {
+        await _player.setLoopMode(LoopMode.one);
+      } else if (_player.shuffleModeEnabled) {
         await _player.setShuffleModeEnabled(true);
       }
 
@@ -2152,6 +2330,7 @@ class _PlaybackRestoreState {
   final Duration position;
   final PlaybackMode mode;
   final bool wasPlaying;
+  final String? roamId;
   bool sourcePrepared;
   bool seekApplied;
   bool prepareFailed;
@@ -2163,6 +2342,7 @@ class _PlaybackRestoreState {
     required this.position,
     required this.mode,
     required this.wasPlaying,
+    required this.roamId,
   }) : sourcePrepared = false,
        seekApplied = false,
        prepareFailed = false;

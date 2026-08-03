@@ -179,7 +179,8 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = AppPageScaffold.scrollableBottomPadding(context);
+    final bottomPadding =
+        AppPageScaffold.scrollableBottomPadding(context, showMiniPlayer: false);
     return AppPageScaffold(
       extendBodyBehindAppBar: true,
       appBar: const AppTopBar(
@@ -187,6 +188,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
+      showMiniPlayer: false,
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(

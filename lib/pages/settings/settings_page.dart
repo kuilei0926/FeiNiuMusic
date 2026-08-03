@@ -31,6 +31,7 @@ class _SettingsPageState extends State<SettingsPage> {
         final bottomPadding = AppPageScaffold.scrollableBottomPadding(
           context,
           hasBottomNav: useBottomNavigation,
+          showMiniPlayer: false,
         );
         return AppPageScaffold(
           extendBodyBehindAppBar: true,
@@ -175,6 +176,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
           bottomNavIndex: null,
+          showMiniPlayer: false,
         );
       },
     );

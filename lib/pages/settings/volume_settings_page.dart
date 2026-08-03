@@ -20,7 +20,8 @@ class _VolumeSettingsPageState extends State<VolumeSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = AppPageScaffold.scrollableBottomPadding(context);
+    final bottomPadding =
+        AppPageScaffold.scrollableBottomPadding(context, showMiniPlayer: false);
     return AppPageScaffold(
       extendBodyBehindAppBar: true,
       appBar: const AppTopBar(
@@ -28,6 +29,7 @@ class _VolumeSettingsPageState extends State<VolumeSettingsPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
+      showMiniPlayer: false,
       body: ListView(
         padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
         children: [
