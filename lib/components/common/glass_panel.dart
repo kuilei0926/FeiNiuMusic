@@ -27,6 +27,14 @@ class GlassPanel extends StatelessWidget {
   final double? blurSigma;
   final VoidCallback? onTap;
   final double? height;
+  /// 是否允许本面板使用背景高斯模糊。
+  ///
+  /// - null（默认）= 跟随全局「面板模糊」总开关与强度
+  /// - false = 强制不用背景模糊，渲染纯色半透明面板
+  ///
+  /// 滚动列表内的面板（如设置分组）必须显式传 false：滚动时背景逐帧变化，
+  /// BackdropFilter 会每帧重采样整块区域，是滚动掉帧的主因。
+  final bool? backdropBlur;
 
   const GlassPanel({
     super.key,
@@ -40,6 +48,7 @@ class GlassPanel extends StatelessWidget {
     this.blurSigma,
     this.onTap,
     this.height,
+    this.backdropBlur,
   });
 
   BorderRadius get _resolvedBorderRadius {
@@ -50,6 +59,11 @@ class GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 显式关闭背景模糊：直接渲染纯色半透明面板，不订阅两个全局
+    // ValueNotifier，也不包 BackdropFilter（避免滚动列表内逐帧重采样掉帧）。
+    if (backdropBlur == false) {
+      return _buildPanel(context, 0.0);
+    }
     // Listen to panelBlurStrength + panelBlurEnabled so dragging the
     // "高斯模糊强度" slider or toggling the master switch updates every panel
     // instantly, without needing to leave and re-enter the page.
@@ -70,7 +84,11 @@ class GlassPanel extends StatelessWidget {
 
   Widget _buildPanel(BuildContext context, double blurStrength) {
     final theme = Theme.of(context);
-    final resolvedColor = color ?? theme.appPanelColor;
+    final hasBlur = blurStrength > 0;
+    // 本面板实际是否模糊决定底色：模糊时近透明（靠 BackdropFilter），
+    // 不模糊时用不透明半透明实色，避免「无模糊却近透明」导致面板看不见。
+    final resolvedColor = color ??
+        (hasBlur ? theme.appPanelColor : theme.appPanelColorSolid);
     final resolvedBorderColor = borderColor ?? theme.appPanelBorderColor;
     final resolvedShadowColor = shadowColor ?? theme.appPanelShadowColor;
     final isInvisible = resolvedColor.a <= 0;

@@ -41,7 +41,7 @@ class _SongsPageState extends State<SongsPage>
   static const String _prefsSortKey = 'songs_sort_key';
   static const String _prefsSortAsc = 'songs_sort_asc';
   static const double _itemExtent = 64;
-  static const int _pageSize = 80;
+  static const int _pageSize = 100;
 
   @override
   List<SongEntity> get multiSelectSongs => _songs.value;
@@ -328,7 +328,22 @@ class _SongsPageState extends State<SongsPage>
   void _playSong(int index) {
     final songs = _songs.value;
     if (songs.isEmpty) return;
-    _player.playQueue(songs, index);
+    // 已加载数据不足队列上限时，自动分页拉取后续歌曲填充到上限
+    _player.playQueueFilledToLimit(
+      songs,
+      index,
+      fetchMore: (page) async {
+        final sort = _apiSortParam();
+        final pageData = await _api.getTrackList(
+          page: _currentPage + page,
+          size: _pageSize,
+          sort: sort,
+        );
+        return pageData.list
+            .map((t) => _trackService.trackToSongEntity(t.toJson()))
+            .toList();
+      },
+    );
   }
 
   void _showSortSheet() {

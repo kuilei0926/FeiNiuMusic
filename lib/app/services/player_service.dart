@@ -539,6 +539,36 @@ class PlayerService with WidgetsBindingObserver {
     }
   }
 
+  /// 按队列上限自动填充后播放。
+  ///
+  /// 已加载 [initialSongs]（可能只有一页）时，若队列未达上限且 [fetchMore]
+  /// 能取到更多数据，自动分页拉取直到填满上限或数据取尽。
+  /// [fetchMore] 返回「第 (已加载页数 + page) 页」的歌曲列表（空列表表示
+  /// 没有更多）。调用方把 [page] 理解为已加载页数之后的第几页，闭包内写
+  /// `已加载页数 + page` 即可，且不应修改页面自身的分页状态。
+  /// 注意：填充拉取的数据只用于队列，不会回写页面列表。
+  Future<void> playQueueFilledToLimit(
+    List<SongEntity> initialSongs,
+    int startIndex, {
+    PlaybackMode? mode,
+    String? roamChainId,
+    Future<List<SongEntity>> Function(int page)? fetchMore,
+  }) async {
+    var songs = List<SongEntity>.from(initialSongs);
+    final cap = _queueCap;
+    if (fetchMore != null && songs.length < cap) {
+      var page = 1;
+      while (songs.length < cap) {
+        final next = await fetchMore(page++);
+        if (next.isEmpty) break;
+        songs.addAll(next);
+      }
+      if (songs.length > cap) songs = songs.sublist(0, cap);
+    }
+    final idx = startIndex >= 0 && startIndex < songs.length ? startIndex : 0;
+    await playQueue(songs, idx, mode: mode, roamChainId: roamChainId);
+  }
+
   void _maybePrefetchByRemaining(Duration positionValue) {
     if (!WebDavPlaybackSettings.prefetchEnabled.value) return;
     final total = duration.value;

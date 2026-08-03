@@ -90,7 +90,13 @@ extension AppThemeSurfaceX on ThemeData {
           ? Colors.black.withValues(alpha: 0.06)
           : Colors.white.withValues(alpha: 0.06);
     }
-    // 无模糊时保持原有半透明面板
+    return appPanelColorSolid;
+  }
+
+  /// 不透明半透明面板色（~85%），用于「无背景模糊」的面板（如设置分组）。
+  /// 与 [appPanelColor] 的模糊分支互补：模糊时靠 BackdropFilter，
+  /// 不模糊时用接近实色的半透明底，避免面板不可见。
+  Color get appPanelColorSolid {
     final isDark = brightness == Brightness.dark;
     final base = isDark
         ? Color.alphaBlend(

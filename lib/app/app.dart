@@ -285,6 +285,10 @@ class _AppStartupGateState extends State<_AppStartupGate> {
                     navigatorKey: navKey,
                     child: Navigator(
                       key: navKey,
+                      // 挂载 appRouteObserver：应用内所有路由都在此嵌套 Navigator
+                      // 上，注册后 AppRouteVisibilityMixin（didPushNext/didPopNext）
+                      // 才能按文档生效，播放页/流光预览的路由可见性暂停才有意义。
+                      observers: [appRouteObserver],
                       initialRoute: AppRouter.initialRoute,
                       onGenerateRoute: widget.onGenerateRoute,
                     ),

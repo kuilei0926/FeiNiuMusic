@@ -18,8 +18,10 @@ class _GradientSettingsPageState extends State<GradientSettingsPage>
     with SignalsMixin {
   late final _saturation = createSignal(1.2);
   late final _hueShift = createSignal(0.0);
-  late final _loading = createSignal(true);
-  late final _coverColor = createSignal<Color?>(null);
+  // 一次性加载态与封面色用 State 字段（setState），避免整页 Watch.builder
+  // 在滑块拖动时连带重建预览与脚手架。
+  bool _loading = true;
+  Color? _coverColor;
 
   @override
   void initState() {
@@ -33,10 +35,12 @@ class _GradientSettingsPageState extends State<GradientSettingsPage>
       PlayerStylePreview.sampleCoverAsset,
     );
     if (!mounted) return;
-    _saturation.value = PlayerBackgroundSettings.saturation.value;
-    _hueShift.value = PlayerBackgroundSettings.hueShift.value;
-    _coverColor.value = coverColor;
-    _loading.value = false;
+    setState(() {
+      _saturation.value = PlayerBackgroundSettings.saturation.value;
+      _hueShift.value = PlayerBackgroundSettings.hueShift.value;
+      _coverColor = coverColor;
+      _loading = false;
+    });
   }
 
   void _updateSaturation(double value) {
@@ -51,61 +55,61 @@ class _GradientSettingsPageState extends State<GradientSettingsPage>
 
   @override
   Widget build(BuildContext context) {
-    return Watch.builder(
-      builder: (context) {
-        if (_loading.value) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
+    if (_loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
-        final coverColor = _coverColor.value;
-        return AppPageScaffold(
-          extendBodyBehindAppBar: true,
-          appBar: const AppTopBar(
-            title: '流光设置',
-            backgroundColor: Colors.transparent,
-            elevation: 0,
+    final coverColor = _coverColor;
+    return AppPageScaffold(
+      extendBodyBehindAppBar: true,
+      appBar: const AppTopBar(
+        title: '流光设置',
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      showMiniPlayer: false,
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          ValueListenableBuilder<PlayerStylePreset>(
+            valueListenable: PlayerStyleSettings.stylePreset,
+            builder: (context, preset, _) =>
+                _GradientPreview(preset: preset, coverColor: coverColor),
           ),
-          showMiniPlayer: false,
-          body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            children: [
-              ValueListenableBuilder<PlayerStylePreset>(
-                valueListenable: PlayerStyleSettings.stylePreset,
-                builder: (context, preset, _) =>
-                    _GradientPreview(preset: preset, coverColor: coverColor),
-              ),
-              const SizedBox(height: 16),
-              AppSettingSection(
-                title: '参数配置',
-                children: [
-                  AppSettingSlider(
-                    title: '色彩饱和度',
-                    value: _saturation.value,
-                    min: 0.0,
-                    max: 2.0,
-                    divisions: 20,
-                    valueText: '${(_saturation.value * 100).toInt()}%',
-                    description: '数值越大越鲜艳，越小越灰淡',
-                    onChanged: _updateSaturation,
-                  ),
-                  AppSettingSlider(
-                    title: '色彩变幻度',
-                    value: _hueShift.value,
-                    min: 0.0,
-                    max: 180.0,
-                    divisions: 18,
-                    valueText: '${_hueShift.value.toInt()}°',
-                    description: '数值越大变化更强，越小更稳定',
-                    onChanged: _updateHueShift,
-                  ),
-                ],
-              ),
-            ],
+          const SizedBox(height: 16),
+          // 仅滑块区块订阅 _saturation/_hueShift：拖动时只重建这一小块，
+          // 不重建上方动态预览与脚手架（预览内部会因 setSaturation 自动更新）。
+          Watch.builder(
+            builder: (context) => AppSettingSection(
+              title: '参数配置',
+              children: [
+                AppSettingSlider(
+                  title: '色彩饱和度',
+                  value: _saturation.value,
+                  min: 0.0,
+                  max: 2.0,
+                  divisions: 20,
+                  valueText: '${(_saturation.value * 100).toInt()}%',
+                  description: '数值越大越鲜艳，越小越灰淡',
+                  onChanged: _updateSaturation,
+                ),
+                AppSettingSlider(
+                  title: '色彩变幻度',
+                  value: _hueShift.value,
+                  min: 0.0,
+                  max: 180.0,
+                  divisions: 18,
+                  valueText: '${_hueShift.value.toInt()}°',
+                  description: '数值越大变化更强，越小更稳定',
+                  onChanged: _updateHueShift,
+                ),
+              ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }

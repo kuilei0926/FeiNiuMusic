@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/services/app_update_service.dart';
 import '../../app/services/debug_log_service.dart';
@@ -20,6 +21,7 @@ class VersionInfoPage extends StatefulWidget {
 class _VersionInfoPageState extends State<VersionInfoPage> {
   static const String _appName = '飞牛音乐';
   static const String _iconAsset = 'assets/icon/app_icon.png';
+  static const String _projectUrl = 'https://github.com/kuilei0926/FeiNiuMusic';
 
   final DebugLogService _debugLogs = DebugLogService.instance;
 
@@ -81,6 +83,18 @@ class _VersionInfoPageState extends State<VersionInfoPage> {
     AppToast.show(context, '日志已复制');
   }
 
+  Future<void> _openProjectUrl() async {
+    final uri = Uri.parse(_projectUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (mounted) {
+      await Clipboard.setData(ClipboardData(text: _projectUrl));
+      if (mounted) {
+        AppToast.show(context, '无法打开浏览器，地址已复制');
+      }
+    }
+  }
+
   Future<void> _exportLogs() async {
     await _debugLogs.ensureLoaded();
     final text = _debugLogs.exportText();
@@ -139,6 +153,13 @@ class _VersionInfoPageState extends State<VersionInfoPage> {
                 title: '当前版本',
                 subtitle: _version,
                 leading: const Icon(Icons.info_outline_rounded),
+              ),
+              AppSettingTile(
+                title: '项目地址',
+                subtitle: 'GitHub 开源仓库，欢迎 Star',
+                leading: const Icon(Icons.link_rounded),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: _openProjectUrl,
               ),
               AppSettingTile(
                 title: '检查更新',

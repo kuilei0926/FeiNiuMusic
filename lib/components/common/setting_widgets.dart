@@ -48,6 +48,9 @@ class AppSettingSection extends StatelessWidget {
             ),
           ),
         GlassPanel(
+          // 设置分组在滚动列表内：背景逐帧变化，BackdropFilter 每帧重采样
+          // 是滚动掉帧主因。显式关闭，改用纯色半透明面板（appPanelColorSolid）。
+          backdropBlur: false,
           borderRadius: BorderRadius.circular(miuix ? 24 : 16),
           blurSigma: miuix ? 0.2 : 0.8,
           boxShadow: miuix ? const [] : null,

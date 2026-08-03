@@ -591,6 +591,26 @@ class _GenreDetailPageState extends State<GenreDetailPage>
     if (mounted) _loading.value = false;
   }
 
+  /// 拉取「已加载页之后」的第 [page] 页流派歌曲（供填充播放使用）。
+  Future<List<SongEntity>> _fetchGenrePage(int page) async {
+    final pageData = await _api.getGenreTracks(
+      genreGUID: widget.genre.guid,
+      page: _currentPage + page,
+      size: _pageSize,
+      sort: _apiSortParam(),
+    );
+    return pageData.list
+        .map((t) => _trackService.trackToSongEntity(t))
+        .toList();
+  }
+
+  /// 播放该流派歌曲：已加载数据不足队列上限时，自动分页拉取填充到上限。
+  void _playSong(int index) {
+    final songs = _songs.value;
+    if (songs.isEmpty) return;
+    _player.playQueueFilledToLimit(songs, index, fetchMore: _fetchGenrePage);
+  }
+
   void _showSortSheet() {
     showModalBottomSheet(
       context: context,
@@ -695,7 +715,7 @@ class _GenreDetailPageState extends State<GenreDetailPage>
                 return InkWell(
                   onTap: () => isMultiSelecting
                       ? toggleSongSelection(song.id)
-                      : _player.playQueue(songs, index),
+                      : _playSong(index),
                   onLongPress: isMultiSelecting
                       ? null
                       : () {

@@ -5,6 +5,7 @@ import '../../components/index.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
+import '../../app/state/settings_playback_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/theme/app_styles.dart';
 import '../library/library_detail_pages.dart';
@@ -125,7 +126,51 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
   void _playSong(int index) {
     final songs = _songs.value;
     if (songs.isEmpty) return;
-    _player.playQueue(songs, index);
+    // 已加载数据不足队列上限时，自动分页拉取后续历史填充到上限。
+    // 搜索激活时过滤后的子集与服务端分页顺序不对应，无法可靠续取，跳过填充。
+    _player.playQueueFilledToLimit(
+      songs,
+      index,
+      fetchMore: _searchQuery.isNotEmpty ? null : _fetchHistoryPage,
+    );
+  }
+
+  /// 拉取「已加载页之后」的第 [page] 页历史（供 playQueueFilledToLimit 的
+  /// fetchMore 使用，每次只返回一页，填充循环由 PlayerService 驱动）。
+  Future<List<SongEntity>> _fetchHistoryPage(int page) async {
+    final pageData = await _api.getPlayHistory(
+      page: _currentPage + page,
+      size: _pageSize,
+    );
+    return pageData.list
+        .map((t) => _trackService.trackToSongEntity(t.toJson()))
+        .toList();
+  }
+
+  /// 随机播放全部历史：先按队列上限循环拉满，再本地乱序。
+  /// 搜索激活时跳过填充（过滤子集无法分页续取）。
+  Future<void> _playShuffleFilled() async {
+    if (_searchQuery.isNotEmpty) {
+      _player.playShuffle(_songs.value);
+      return;
+    }
+    final full = List<SongEntity>.from(_songs.value);
+    final cap = AppPlaybackQueueSettings.maxQueueLength.value.clamp(10, 1000);
+    var page = 1;
+    while (full.length < cap) {
+      final pageData = await _api.getPlayHistory(
+        page: _currentPage + page,
+        size: _pageSize,
+      );
+      final songs = pageData.list
+          .map((t) => _trackService.trackToSongEntity(t.toJson()))
+          .toList();
+      if (songs.isEmpty) break;
+      full.addAll(songs);
+      page++;
+    }
+    if (full.length > cap) full.removeRange(cap, full.length);
+    _player.playShuffle(full);
   }
 
   /// 长按歌曲 → 弹出与歌曲页同款的长按面板，并附带「移出最近播放」。
@@ -328,7 +373,7 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
                             children: [
                               InkWell(
                                 borderRadius: BorderRadius.circular(16),
-                                onTap: () => _player.playShuffle(_songs.value),
+                                onTap: () => _playShuffleFilled(),
                                 child: Padding(
                                   padding: const EdgeInsets.only(right: 8),
                                   child: Icon(

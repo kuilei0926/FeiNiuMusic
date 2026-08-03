@@ -106,6 +106,32 @@ class _SearchPageState extends State<SearchPage> {
 
   bool _hasResults() => _songs.isNotEmpty || _albums.isNotEmpty || _artists.isNotEmpty;
 
+  /// 拉取「已加载页之后」的第 [page] 页搜索结果（供填充播放使用）。
+  /// 当前 _songs 已是第 1 页，填充从第 2 页起。
+  Future<List<SongEntity>> _fetchSearchPage(int page) async {
+    final pageData = await _api.searchTrack(
+      query: _query,
+      page: page + 1,
+      size: 50,
+    );
+    return pageData.list.map((t) {
+      final entity = _trackService.trackToSongEntity(t);
+      final streamUrl =
+          '${_api.baseUrl}/music/api/v1/track/stream?guid=${entity.id}';
+      return entity.copyWith(uri: streamUrl);
+    }).toList();
+  }
+
+  /// 播放搜索结果：首屏 50 首不足队列上限时，自动分页拉取更多搜索结果填充。
+  void _playSong(int index) {
+    if (_songs.isEmpty) return;
+    _player.playQueueFilledToLimit(
+      _songs,
+      index,
+      fetchMore: _fetchSearchPage,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -252,7 +278,7 @@ class _SearchPageState extends State<SearchPage> {
                   leading: ArtworkWidget(song: song, size: 48, borderRadius: 6),
                   title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text(_artistNames(song.artist), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  onTap: () => _player.playQueue(_songs, i),
+                  onTap: () => _playSong(i),
                   onLongPress: () {
                     showModalBottomSheet<void>(
                       context: context,

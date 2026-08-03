@@ -16,6 +16,7 @@ import '../../app/services/feiniu/playlist_service.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/router/app_page_route.dart';
+import '../../app/state/settings_playback_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/deferred_page_init_mixin.dart';
@@ -871,6 +872,32 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage>
     }
   }
 
+  /// 拉取「已加载页之后」的第 [page] 页歌单歌曲（供填充播放使用）。
+  Future<List<SongEntity>> _fetchPlaylistPage(int page) async {
+    final pageData = await _api.getPlaylistTracks(
+      playlistGUID: widget.playlistId,
+      page: _currentPage + page,
+      size: _pageSize,
+    );
+    return pageData.list
+        .map((t) => _trackService.trackToSongEntity(t))
+        .toList();
+  }
+
+  /// 按队列上限循环拉满整个歌单（供 header 顺序/随机播放共用）。
+  Future<List<SongEntity>> _fetchFilledSongs() async {
+    final full = List<SongEntity>.from(_songs.value);
+    final cap = AppPlaybackQueueSettings.maxQueueLength.value.clamp(10, 1000);
+    var page = 1;
+    while (full.length < cap) {
+      final songs = await _fetchPlaylistPage(page++);
+      if (songs.isEmpty) break;
+      full.addAll(songs);
+    }
+    if (full.length > cap) full.removeRange(cap, full.length);
+    return full;
+  }
+
   Future<void> _load() async {
     _loading.value = true;
     try {
@@ -1044,7 +1071,9 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage>
                         onToggleSelectAll: _toggleSelectAll,
                         onPlay: () async {
                           if (_songs.value.isEmpty) return;
-                          final queue = List<SongEntity>.from(_songs.value);
+                          // 按队列上限拉满整个歌单再播放（顺序或随机）
+                          final full = await _fetchFilledSongs();
+                          final queue = List<SongEntity>.from(full);
                           if (!_isSequentialPlay.value) {
                             queue.shuffle();
                           }
@@ -1262,7 +1291,11 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage>
               _selectedIds.value = next;
               return;
             }
-            await player.playQueue(_songs.value, index);
+            await player.playQueueFilledToLimit(
+              _songs.value,
+              index,
+              fetchMore: _fetchPlaylistPage,
+            );
           },
           onLongPress: () {
             showModalBottomSheet<void>(

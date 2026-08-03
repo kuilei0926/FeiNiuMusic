@@ -9,6 +9,7 @@ import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
 
+import '../../app/state/settings_playback_state.dart';
 import '../../app/state/song_state.dart';
 import '../../components/index.dart';
 import '../songs/song_detail_sheet.dart';
@@ -128,10 +129,39 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
   late final _representative = createSignal<SongEntity?>(null);
   late final _isRefreshing = createSignal(false);
 
+  /// 已加载页数：首拉 page:1 size:200 一次拿完，后续填充从已加载页之后起。
+  final int _loadedPages = 1;
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  /// 拉取「已加载页之后」的第 [page] 页歌曲（供填充播放使用）。
+  Future<List<SongEntity>> _fetchDetailPage(int page) async {
+    final pageData = await _apiClient.getArtistTracks(
+      artistGUID: widget.artistGuid!,
+      page: _loadedPages + page,
+      size: 200,
+    );
+    return pageData.list
+        .map((t) => _trackService.trackToSongEntity(t))
+        .toList();
+  }
+
+  /// 按队列上限循环拉满该歌手的歌曲（供播放/随机按钮使用）。
+  Future<List<SongEntity>> _fetchFilledSongs() async {
+    final full = List<SongEntity>.from(_songs.value);
+    final cap = AppPlaybackQueueSettings.maxQueueLength.value.clamp(10, 1000);
+    var page = 1;
+    while (full.length < cap) {
+      final songs = await _fetchDetailPage(page++);
+      if (songs.isEmpty) break;
+      full.addAll(songs);
+    }
+    if (full.length > cap) full.removeRange(cap, full.length);
+    return full;
   }
 
   Future<void> _load() async {
@@ -317,7 +347,9 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
                         onPressed: songs.isEmpty
                             ? null
                             : () async {
-                                final shuffled = List<SongEntity>.from(songs)
+                                // 按队列上限拉满再随机
+                                final full = await _fetchFilledSongs();
+                                final shuffled = List<SongEntity>.from(full)
                                   ..shuffle();
                                 await player.playQueue(shuffled, 0);
                               },
@@ -329,7 +361,8 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
                         onPressed: songs.isEmpty
                             ? null
                             : () async {
-                                await player.playQueue(songs, 0);
+                                final full = await _fetchFilledSongs();
+                                await player.playQueue(full, 0);
                               },
                       ),
                     ],
@@ -398,7 +431,11 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
                             toggleSongSelection(song.id);
                             return;
                           }
-                          await player.playQueue(songs, index);
+                          await player.playQueueFilledToLimit(
+                            songs,
+                            index,
+                            fetchMore: _fetchDetailPage,
+                          );
                         },
                         onLongPress: isMultiSelecting
                             ? null
@@ -543,10 +580,39 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
   late final _sortKey = createSignal('trackNumber');
   late final _sortAscending = createSignal(true);
 
+  /// 已加载页数：首拉 page:1 size:200 一次拿完，后续填充从已加载页之后起。
+  final int _loadedPages = 1;
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  /// 拉取「已加载页之后」的第 [page] 页专辑歌曲（供填充播放使用）。
+  Future<List<SongEntity>> _fetchDetailPage(int page) async {
+    final pageData = await _apiClient.getAlbumTracks(
+      albumGUID: widget.albumGuid!,
+      page: _loadedPages + page,
+      size: 200,
+    );
+    return pageData.list
+        .map((t) => _trackService.trackToSongEntity(t))
+        .toList();
+  }
+
+  /// 按队列上限循环拉满该专辑的歌曲（供播放/随机按钮使用）。
+  Future<List<SongEntity>> _fetchFilledSongs() async {
+    final full = List<SongEntity>.from(_songs.value);
+    final cap = AppPlaybackQueueSettings.maxQueueLength.value.clamp(10, 1000);
+    var page = 1;
+    while (full.length < cap) {
+      final songs = await _fetchDetailPage(page++);
+      if (songs.isEmpty) break;
+      full.addAll(songs);
+    }
+    if (full.length > cap) full.removeRange(cap, full.length);
+    return full;
   }
 
   Future<void> _load() async {
@@ -800,7 +866,9 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
                         onPressed: songs.isEmpty
                             ? null
                             : () async {
-                                final shuffled = List<SongEntity>.from(songs)
+                                // 按队列上限拉满再随机
+                                final full = await _fetchFilledSongs();
+                                final shuffled = List<SongEntity>.from(full)
                                   ..shuffle();
                                 await player.playQueue(shuffled, 0);
                               },
@@ -812,7 +880,8 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
                         onPressed: songs.isEmpty
                             ? null
                             : () async {
-                                await player.playQueue(songs, 0);
+                                final full = await _fetchFilledSongs();
+                                await player.playQueue(full, 0);
                               },
                       ),
                     ],
@@ -886,7 +955,11 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
                             toggleSongSelection(song.id);
                             return;
                           }
-                          await player.playQueue(songs, index);
+                          await player.playQueueFilledToLimit(
+                            songs,
+                            index,
+                            fetchMore: _fetchDetailPage,
+                          );
                         },
                         onLongPress: isMultiSelecting
                             ? null

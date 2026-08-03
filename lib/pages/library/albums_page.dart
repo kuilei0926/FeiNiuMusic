@@ -79,7 +79,7 @@ class _AlbumsPageState extends State<AlbumsPage>
   int _currentPage = 1;
   bool _hasMore = true;
   int _total = 0;
-  static const int _pageSize = 50;
+  static const int _pageSize = 100;
 
   late final _indexPreviewLetter = createSignal<String?>(null);
   late final _indexPreviewVisible = createSignal(false);

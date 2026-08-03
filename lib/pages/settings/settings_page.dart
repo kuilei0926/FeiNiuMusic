@@ -156,13 +156,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 title: '应用',
                 children: [
                   AppSettingTile(
-                    title: '版本信息',
-                    subtitle: '版本号、检查更新与调试日志',
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () =>
-                        Navigator.pushNamed(context, AppRoutes.versionInfo),
-                  ),
-                  AppSettingTile(
                     title: '账号管理',
                     subtitle: '切换、重命名或添加已保存的账号',
                     trailing: const Icon(Icons.chevron_right_rounded),
@@ -170,6 +163,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       context,
                       rootNavigator: true,
                     ).pushNamed(AppRoutes.accounts),
+                  ),
+                  AppSettingTile(
+                    title: '版本信息',
+                    subtitle: '版本号、检查更新与调试日志',
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () =>
+                        Navigator.pushNamed(context, AppRoutes.versionInfo),
                   ),
                 ],
               ),
