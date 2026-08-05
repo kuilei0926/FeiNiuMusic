@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,10 +11,14 @@ import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/auth_service.dart';
 import '../../app/services/feiniu/fn_connection_probe_service.dart';
 import '../../app/services/feiniu/fn_models.dart';
-import '../../app/state/settings_fn_state.dart';
+import '../../app/services/login_pair_server.dart';
+import '../../app/state/settings_state.dart';
 import '../../app/router/app_router.dart';
 import '../../components/feedback/probe_overlay.dart';
 import '../../components/dialog/access_code_dialog.dart';
+import '../../components/focus/tv_text_field_focus_node.dart';
+import '../../components/feedback/app_toast.dart';
+import 'widgets/login_qr_card.dart';
 
 class LoginPage extends StatefulWidget {
   /// 是否为「添加新账号」模式：从账号切换页进入，登录成功后返回上一页
@@ -38,8 +44,25 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   String? _errorMessage;
 
+  /// TV 模式输入框焦点节点：空输入框时方向键用于移出输入框。
+  /// 非 TV 模式不拦截任何按键，行为与普通 TextField 完全一致。
+  final TvTextFieldFocusNode _serverUrlFocus =
+      TvTextFieldFocusNode(debugLabel: 'serverUrl');
+  final TvTextFieldFocusNode _usernameFocus =
+      TvTextFieldFocusNode(debugLabel: 'username');
+  final TvTextFieldFocusNode _passwordFocus =
+      TvTextFieldFocusNode(debugLabel: 'password');
+  final TvTextFieldFocusNode _nameFocus =
+      TvTextFieldFocusNode(debugLabel: 'name');
+
   /// 已保存账号下拉当前选中值（填充表单后复位，避免误以为仍是选中状态）
   String? _selectedAccountId;
+
+  /// TV 模式：首次返回显示「再按一次退出」提示并武装，2 秒内再按才退出。
+  /// 登录页是门控根页面（不经 _RootBackHandler），需自己拦截返回，
+  /// 否则 TV 遥控器按返回会直接退掉整个 App。
+  bool _armedToExit = false;
+  Timer? _exitResetTimer;
 
   OverlayEntry? _probeOverlay;
 
@@ -50,6 +73,11 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
+    // TV 焦点节点绑定 controller：空输入框时方向键可移出。
+    _serverUrlFocus.bindTo(_serverUrlController);
+    _usernameFocus.bindTo(_usernameController);
+    _passwordFocus.bindTo(_passwordController);
+    _nameFocus.bindTo(_nameController);
     // 编辑账号模式：预填该账号的字段
     if (widget.editAccount != null) {
       final acc = widget.editAccount!;
@@ -135,10 +163,15 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    _exitResetTimer?.cancel();
     _serverUrlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     _nameController.dispose();
+    _serverUrlFocus.dispose();
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
+    _nameFocus.dispose();
     super.dispose();
   }
 
@@ -352,6 +385,30 @@ class _LoginPageState extends State<LoginPage> {
         !FnConnectionProbeService.instance.isProbing.value;
   }
 
+  /// 手机扫码提交的凭据 → 填充表单并自动登录（与手输一致）。
+  Future<void> _handleQrCredentials(LoginCredentials creds) async {
+    if (!mounted) return;
+    setState(() {
+      _serverUrlController.text = creds.serverInput;
+      _usernameController.text = creds.username;
+      _passwordController.text = creds.password;
+      _nameController.text = creds.name;
+      _errorMessage = null;
+    });
+    // 网页表单自带安全码 → 直接写入本地，登录时不再询问。
+    if (creds.accessCode != null && creds.accessCode!.isNotEmpty) {
+      await AppFnConnectionSettings.setAccessCode(creds.accessCode);
+    }
+    if (!mounted) return;
+    if (_isFnId(creds.serverInput)) {
+      await _fnLogin(creds.serverInput, creds.username, creds.password,
+          name: creds.name);
+    } else {
+      await _performLogin(creds.serverInput, creds.username, creds.password,
+          name: creds.name);
+    }
+  }
+
   /// 预填某个已保存账号的凭据到输入框，供直接登录
   void _fillAccount(AccountEntry account) {
     // FNID 账号预填 FNID（触发探测流程），否则预填服务器地址
@@ -496,8 +553,11 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final isTv = AppLayoutSettings.tvMode.value;
 
-    return Scaffold(
+    // TV 模式：登录页是门控根页面，返回键需「按两次才退出」，与主界面一致。
+    // 手机端不经此拦截，行为不变。
+    final Widget page = Scaffold(
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -558,6 +618,9 @@ class _LoginPageState extends State<LoginPage> {
                   // 服务器地址 / FNID
                   TextFormField(
                     controller: _serverUrlController,
+                    focusNode: _serverUrlFocus,
+                    // TV 模式自动聚焦首个输入框，遥控器可直接输入。
+                    autofocus: AppLayoutSettings.tvMode.value,
                     decoration: InputDecoration(
                       labelText: '服务器地址或 FNID',
                       hintText: 'https://ip:port 或输入 FNID',
@@ -595,6 +658,7 @@ class _LoginPageState extends State<LoginPage> {
                   // 用户名
                   TextFormField(
                     controller: _usernameController,
+                    focusNode: _usernameFocus,
                     decoration: InputDecoration(
                       labelText: '用户名',
                       prefixIcon: const Icon(Icons.person_outline),
@@ -614,6 +678,7 @@ class _LoginPageState extends State<LoginPage> {
                   // 密码
                   TextFormField(
                     controller: _passwordController,
+                    focusNode: _passwordFocus,
                     obscureText: _obscurePassword,
                     decoration: InputDecoration(
                       labelText: '密码',
@@ -645,6 +710,7 @@ class _LoginPageState extends State<LoginPage> {
                   // 备注名称（可选，仅用于已保存账号列表的展示）
                   TextFormField(
                     controller: _nameController,
+                    focusNode: _nameFocus,
                     decoration: InputDecoration(
                       labelText: '备注名称（可选）',
                       hintText: '如：客厅 NAS、公司服务器',
@@ -701,6 +767,38 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
       ),
+    );
+
+    if (!isTv) return page;
+    // TV 模式：左码右表单双栏（扫码配对 + 原登录表单），拦截返回键
+    // 「再按一次退出」逻辑保持不变。page 本身是带 Center+滚动 的 Scaffold，
+    // 直接并列放入 Row（不再套滚动），避免嵌套滚动冲突。
+    final Widget tvPage = SafeArea(
+      child: Center(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            LoginQrCard(onCredentials: _handleQrCredentials),
+            const SizedBox(width: 40),
+            Flexible(child: page),
+          ],
+        ),
+      ),
+    );
+    return PopScope(
+      canPop: _armedToExit,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_armedToExit) return; // canPop 已放行，这里不会到
+        _exitResetTimer?.cancel();
+        _exitResetTimer = Timer(const Duration(seconds: 2), () {
+          if (mounted) setState(() => _armedToExit = false);
+        });
+        AppToast.show(context, '再按一次退出');
+        setState(() => _armedToExit = true);
+      },
+      child: tvPage,
     );
   }
 }
