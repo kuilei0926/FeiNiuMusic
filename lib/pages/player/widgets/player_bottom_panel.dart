@@ -25,6 +25,7 @@ class PlayerBottomPanel extends StatelessWidget {
   final PlayerStylePreset stylePreset;
   final VoidCallback onTapLyrics;
   final bool showMiniLyrics;
+  final FocusNode? bottomPanelFocus;
 
   const PlayerBottomPanel({
     super.key,
@@ -32,6 +33,7 @@ class PlayerBottomPanel extends StatelessWidget {
     required this.stylePreset,
     required this.onTapLyrics,
     this.showMiniLyrics = true,
+    this.bottomPanelFocus,
   });
 
   @override
@@ -39,17 +41,24 @@ class PlayerBottomPanel extends StatelessWidget {
     PlayerBottomActionSettings.ensureLoaded();
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final bottomSpacing = bottomInset > 20 ? bottomInset + 16.0 : 30.0;
-    return Column(
-      children: [
-        if (showMiniLyrics)
-          _MiniLyricsPreview(onTap: onTapLyrics, stylePreset: stylePreset),
-        _PlayerSeekBar(player: player, stylePreset: stylePreset),
-        const SizedBox(height: 20),
-        PlayerControls(player: player, stylePreset: stylePreset),
-        const SizedBox(height: 30),
-        BottomActions(player: player, stylePreset: stylePreset),
-        SizedBox(height: bottomSpacing),
-      ],
+    // 包一层 Focus 作为 TV 遥控下键的落点句柄：自身不可聚焦/不可遍历，
+    // 只用于 TvPlayerFocusScope 找底部操作栏第一个按钮。
+    return Focus(
+      focusNode: bottomPanelFocus,
+      canRequestFocus: false,
+      skipTraversal: true,
+      child: Column(
+        children: [
+          if (showMiniLyrics)
+            _MiniLyricsPreview(onTap: onTapLyrics, stylePreset: stylePreset),
+          _PlayerSeekBar(player: player, stylePreset: stylePreset),
+          const SizedBox(height: 20),
+          PlayerControls(player: player, stylePreset: stylePreset),
+          const SizedBox(height: 30),
+          BottomActions(player: player, stylePreset: stylePreset),
+          SizedBox(height: bottomSpacing),
+        ],
+      ),
     );
   }
 }
@@ -357,11 +366,12 @@ class PlayerControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final isTv = AppLayoutSettings.tvMode.value;
     final iconColor = scheme.primary.withValues(alpha: 0.86);
     final buttonBg = scheme.primaryContainer.withValues(alpha: 0.92);
     final mainButtonSize = switch (stylePreset) {
-      PlayerStylePreset.poster => 72.0,
-      PlayerStylePreset.classic => 64.0,
+      PlayerStylePreset.poster => isTv ? 88.0 : 72.0,
+      PlayerStylePreset.classic => isTv ? 80.0 : 64.0,
     };
     return Watch.builder(
       builder: (context) {
@@ -371,11 +381,11 @@ class PlayerControls extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             IconButton(
-              iconSize: 48,
+              iconSize: isTv ? 64 : 48,
               icon: Icon(Icons.skip_previous_rounded, color: iconColor),
               onPressed: player.previous,
             ),
-            const SizedBox(width: 20),
+            SizedBox(width: isTv ? 28 : 20),
             Container(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
@@ -383,6 +393,8 @@ class PlayerControls extends StatelessWidget {
               ),
               child: IconButton(
                 iconSize: mainButtonSize,
+                // TV 模式进播放页默认聚焦播放按钮：OK 即暂停，下键走自然遍历。
+                autofocus: AppLayoutSettings.tvMode.value,
                 icon: loading
                     ? SizedBox(
                         width: mainButtonSize,
@@ -403,7 +415,7 @@ class PlayerControls extends StatelessWidget {
             ),
             const SizedBox(width: 20),
             IconButton(
-              iconSize: 48,
+              iconSize: isTv ? 64 : 48,
               icon: Icon(Icons.skip_next_rounded, color: iconColor),
               onPressed: player.next,
             ),
