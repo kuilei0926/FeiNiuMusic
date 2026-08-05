@@ -989,10 +989,15 @@ class _PlayerArtwork extends StatelessWidget {
         final isTabletLayout =
             effectiveTabletMode &&
             MediaQuery.sizeOf(context).width >= 720;
+        final isTv = AppLayoutSettings.tvMode.value;
         return Watch.builder(
           builder: (context) {
             final song = songSignal.value;
-            final spec = _ArtworkSpec.fromPreset(stylePreset, isTabletLayout);
+            final spec = _ArtworkSpec.fromPreset(
+              stylePreset,
+              isTabletLayout,
+              isTv,
+            );
             final border = BorderRadius.circular(spec.borderRadius);
             final maxSize = spec.maxSize;
             if (song == null) {
@@ -1077,19 +1082,24 @@ class _ArtworkSpec {
     required this.maxSize,
   });
 
-  factory _ArtworkSpec.fromPreset(PlayerStylePreset preset, bool isTablet) {
+  factory _ArtworkSpec.fromPreset(
+    PlayerStylePreset preset,
+    bool isTablet, [
+    bool isTv = false,
+  ]) {
     switch (preset) {
       case PlayerStylePreset.poster:
+        // TV 大屏放开封面上限，让封面用满可用空间（横向布局下高度充足）。
         return _ArtworkSpec(
           borderRadius: 0,
           horizontalInset: 0,
-          maxSize: isTablet ? 360 : double.infinity,
+          maxSize: isTv ? 640 : (isTablet ? 360 : double.infinity),
         );
       case PlayerStylePreset.classic:
         return _ArtworkSpec(
           borderRadius: 12,
           horizontalInset: 32,
-          maxSize: isTablet ? 320 : double.infinity,
+          maxSize: isTv ? 560 : (isTablet ? 320 : double.infinity),
         );
     }
   }
