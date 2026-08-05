@@ -53,6 +53,7 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.5
   shelf: ^1.4.1
+  qr_flutter: ^4.1.0
   file_picker: ^10.3.10
   image_cropper: ^9.0.0
   audio_service: ^0.18.18
