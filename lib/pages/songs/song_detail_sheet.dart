@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/favorite_service.dart';
+import '../../app/services/player/player_engine.dart';
 import '../../app/services/player_service.dart';
 import '../../app/state/settings_state.dart';
 import '../../app/state/song_state.dart';
@@ -263,6 +264,12 @@ class _SongDetailSheetState extends State<SongDetailSheet> {
                 leading: const Icon(Icons.info_outline),
                 title: '音频规格',
                 subtitle: song.audioSpec,
+                trailing: ValueListenableBuilder<EngineKind>(
+                  valueListenable: PlayerService.instance.decoderEngine,
+                  builder: (context, engine, _) => _DecoderTag(
+                    engine: engine,
+                  ),
+                ),
                 onTap: () {
                   final nav = Navigator.of(context);
                   nav.pop();
@@ -391,6 +398,36 @@ class _AppVolumeControl extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 解码引擎标签：显示当前歌曲由哪个播放器解码。
+class _DecoderTag extends StatelessWidget {
+  final EngineKind engine;
+  const _DecoderTag({required this.engine});
+
+  @override
+  Widget build(BuildContext context) {
+    final isMediaKit = engine == EngineKind.mediaKit;
+    final color = isMediaKit
+        ? const Color(0xFF6750A4) // 紫：FFmpeg 软解
+        : const Color(0xFF00897B); // 青绿：系统解码器
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        isMediaKit ? 'FFmpeg' : '系统解码',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
       ),
     );
   }

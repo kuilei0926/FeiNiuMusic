@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:feiniu_music/app/services/feiniu/fmp4_flac_probe.dart';
-import 'package:feiniu_music/app/services/feiniu/transcode_service.dart';
 
 /// 拼一个带 [type] 的 MP4 box：8 字节头 + payload。
 Uint8List _box(String type, Uint8List payload) {
@@ -93,7 +92,6 @@ void main() {
   });
 
   group('firstMediaSegment', () {
-    final svc = FeiNiuTranscodeService.instance;
     final m3u8Url = 'https://nas.example.com/music/api/v1/track/hls/x/preset.m3u8';
 
     test('跳过 init.mp4 段，取第一个真实分片', () {
@@ -104,7 +102,7 @@ void main() {
           '#EXTINF:4.0,\n'
           'seg1.mp4\n';
       expect(
-        svc.firstMediaSegment(m3u8, m3u8Url),
+        firstMediaSegment(m3u8, m3u8Url),
         'https://nas.example.com/music/api/v1/track/hls/x/seg0.mp4',
       );
     });
@@ -115,14 +113,14 @@ void main() {
           '#EXTINF:4.0,\n'
           'seg0.mp4\n';
       expect(
-        svc.firstMediaSegment(m3u8, m3u8Url),
+        firstMediaSegment(m3u8, m3u8Url),
         'https://nas.example.com/music/api/v1/track/hls/x/seg0.mp4',
       );
     });
 
     test('无媒体分片 → null', () {
       const m3u8 = '#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n';
-      expect(svc.firstMediaSegment(m3u8, m3u8Url), isNull);
+      expect(firstMediaSegment(m3u8, m3u8Url), isNull);
     });
   });
 }

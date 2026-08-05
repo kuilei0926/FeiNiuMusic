@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app/app.dart';
@@ -23,6 +24,13 @@ Future<void> main() async {
   }
 
   WidgetsFlutterBinding.ensureInitialized();
+  // 初始化 media_kit（加载 libmpv 原生库）。必须在任何 Player() 构造前调用；
+  // 放在认证恢复之前，不依赖网络/账号状态。
+  try {
+    MediaKit.ensureInitialized();
+  } catch (e) {
+    debugPrint('MediaKit.ensureInitialized failed: $e');
+  }
   await DebugLogService.instance.ensureLoaded();
   await FlutterDisplayMode.setHighRefreshRate();
   // 必须先恢复认证信息（token / 服务器地址）再初始化播放相关服务：

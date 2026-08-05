@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:signals/signals.dart';
 import 'song_state.dart';
+import '../services/player/player_engine.dart';
 
 enum PlaybackMode {
   shuffle,
@@ -67,6 +68,11 @@ class AppPlayerState {
   final ValueNotifier<String?> sleepTimerDisplayText = ValueNotifier(null);
   final ValueNotifier<bool> sleepUntilSongEnd = ValueNotifier(false);
 
+  /// 当前歌曲使用的解码引擎（just_audio / media_kit）。
+  /// UI 在"更多面板"展示当前解码方式。
+  final ValueNotifier<EngineKind> decoderEngine =
+      ValueNotifier(EngineKind.justAudio);
+
   // Signals (for reactive state management)
   final positionSignal = signal(Duration.zero);
   final durationSignal = signal<Duration?>(null);
@@ -80,6 +86,7 @@ class AppPlayerState {
   final playbackModeSignal = signal(PlaybackMode.loop);
   final sleepTimerDisplayTextSignal = signal<String?>(null);
   final sleepUntilSongEndSignal = signal(false);
+  final decoderEngineSignal = signal(EngineKind.justAudio);
 
   void _initListeners() {
     position.addListener(() => positionSignal.value = position.value);
@@ -104,6 +111,9 @@ class AppPlayerState {
     sleepUntilSongEnd.addListener(
       () => sleepUntilSongEndSignal.value = sleepUntilSongEnd.value,
     );
+    decoderEngine.addListener(() {
+      decoderEngineSignal.value = decoderEngine.value;
+    });
   }
   
   void dispose() {
@@ -119,5 +129,6 @@ class AppPlayerState {
     playbackMode.dispose();
     sleepTimerDisplayText.dispose();
     sleepUntilSongEnd.dispose();
+    decoderEngine.dispose();
   }
 }

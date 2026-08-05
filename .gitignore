@@ -21,6 +21,7 @@ Thumbs.db
 .atom/
 .svn/
 .vscode/
+.codegraph
 
 # ============================================================
 # Flutter / Dart
@@ -57,6 +58,7 @@ local.properties
 key.properties
 **/*.keystore
 **/*.jks
+/android/build/
 
 /android/app/debug
 /android/app/profile

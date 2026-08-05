@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -9,8 +7,7 @@ import 'package:feiniu_music/app/state/song_state.dart';
 
 /// 构造一个用拦截器短路返回指定响应体的 Dio（不真正发网络请求）。
 ///
-/// [respond] 返回任意响应体：JSON Map（transcode 响应）、String（m3u8）、
-/// Uint8List（音频分片字节）。
+/// [respond] 返回任意响应体：JSON Map（transcode 响应）。
 Dio _mockDio(
   dynamic Function(RequestOptions options) respond, {
   DioException Function(RequestOptions options)? error,
@@ -36,41 +33,6 @@ Dio _mockDio(
   );
   return dio;
 }
-
-/// 拼一个 fMP4 分片：moof(traf(trun(sample sizes))) + mdat。
-/// 用于让 fetchBytes 的拦截器返回一个带指定 sample 大小表的分片。
-Uint8List _fmp4Segment(List<int> sampleSizes) {
-  final trunPayload = ByteData(8 + sampleSizes.length * 4);
-  trunPayload.setUint32(0, 0x000200); // version=0, sample_size 位
-  trunPayload.setUint32(4, sampleSizes.length);
-  for (var i = 0; i < sampleSizes.length; i++) {
-    trunPayload.setUint32(8 + i * 4, sampleSizes[i]);
-  }
-  final trun = _box('trun', trunPayload.buffer.asUint8List());
-  final traf = _box('traf', trun);
-  final moof = _box('moof', traf);
-  final mdat = _box('mdat', Uint8List(16));
-  final all = Uint8List(moof.length + mdat.length);
-  all.setAll(0, moof);
-  all.setAll(moof.length, mdat);
-  return all;
-}
-
-Uint8List _box(String type, Uint8List payload) {
-  final data = Uint8List(8 + payload.length);
-  final bd = ByteData.sublistView(data);
-  bd.setUint32(0, data.length);
-  for (var i = 0; i < 4; i++) {
-    bd.setUint8(4 + i, type.codeUnitAt(i));
-  }
-  data.setAll(8, payload);
-  return data;
-}
-
-const _m3u8 = '#EXTM3U\n'
-    '#EXT-X-MAP:URI="init.mp4"\n'
-    '#EXTINF:4.0,\n'
-    'seg0.mp4\n';
 
 SongEntity _song(String id, {String? format}) {
   return SongEntity(id: id, title: 't', artist: '[{"name":"a"}]', format: format);
@@ -116,23 +78,72 @@ void main() {
     });
   });
 
-  group('hlsUrlFor', () {
-    test('metadata 确认是 dsf → 请求转码并返回绝对 URL', () async {
+  group('isMediaKitFormat', () {
+    test('黑名单格式返回 true', () {
+      for (final f in ['dsf', 'DSF', 'ape', 'wma', 'dts', 'aiff']) {
+        expect(FeiNiuTranscodeService.isMediaKitFormat(f), isTrue,
+            reason: '$f 应交给 media_kit');
+      }
+    });
+
+    test('FLAC 与常见格式返回 false（just_audio 直连）', () {
+      for (final f in ['flac', 'FLAC', 'mp3', 'ogg', 'wav', 'm4a', 'aac', 'opus']) {
+        expect(FeiNiuTranscodeService.isMediaKitFormat(f), isFalse,
+            reason: '$f 应留在 just_audio');
+      }
+    });
+  });
+
+  group('hlsUrlForFlac', () {
+    test('metadata 确认是 dsf → 请求转码并返回绝对 URL（FLAC）', () async {
       final api = FeiNiuApiClient.instance;
       final meta = await api.trackMetadata('id-1');
       expect(meta, isNotNull);
       expect(meta!['audioSpec'], isNotNull);
 
-      final url = await FeiNiuTranscodeService.instance.hlsUrlFor(
+      final url = await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-1', format: 'dsf'),
       );
-      // 转码未走 trackTranscode（mock 拦截器未实现），此处验证逻辑能到 transcode 调用
       expect(url, isNotNull);
     });
 
-    test('无需转码的格式 → null，不调用网络', () async {
-      final url = await FeiNiuTranscodeService.instance.hlsUrlFor(
+    test('普通 FLAC → null（just_audio 直连，不走转码）', () async {
+      final url = await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-2', format: 'flac'),
+      );
+      expect(url, isNull);
+    });
+
+    test('force=true 时普通 FLAC 也强制转码（升级 media_kit）', () async {
+      String? requestedCodec;
+      FeiNiuApiClient.instance.setDioForTest(
+        _mockDio((o) {
+          if (o.path.contains('transcode')) {
+            final data = o.data as Map<String, dynamic>;
+            final output = data['output'] as Map<String, dynamic>;
+            requestedCodec = output['codec'] as String?;
+          }
+          return {
+            'code': 0,
+            'data': {
+              'audioSpec': {'format': 'flac'},
+              'url': '/music/api/v1/track/hls/id-2/preset.m3u8',
+            },
+          };
+        }),
+      );
+      FeiNiuApiClient.instance.setBaseUrl('https://nas.example.com');
+      final url = await FeiNiuTranscodeService.instance.hlsUrlForFlac(
+        _song('id-2', format: 'flac'),
+        force: true,
+      );
+      expect(url, 'https://nas.example.com/music/api/v1/track/hls/id-2/preset.m3u8');
+      expect(requestedCodec, 'flac');
+    });
+
+    test('非 media_kit 格式（mp3）→ null，不调用网络', () async {
+      final url = await FeiNiuTranscodeService.instance.hlsUrlForFlac(
+        _song('id-2', format: 'mp3'),
       );
       expect(url, isNull);
     });
@@ -152,7 +163,7 @@ void main() {
         }),
       );
       FeiNiuApiClient.instance.setBaseUrl('https://nas.example.com');
-      final url = await FeiNiuTranscodeService.instance.hlsUrlFor(
+      final url = await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-2a', format: ''), // 列表接口未返回 audioSpec
       );
       expect(url, 'https://nas.example.com/music/api/v1/track/hls/id-2a/preset.m3u8');
@@ -166,23 +177,8 @@ void main() {
           error: (o) => DioException(requestOptions: o, type: DioExceptionType.connectionError),
         ),
       );
-      final url = await FeiNiuTranscodeService.instance.hlsUrlFor(
+      final url = await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-2b', format: ''),
-      );
-      expect(url, isNull);
-    });
-
-    test('metadata 格式为 flac → 返回 null（不转码）', () async {
-      FeiNiuApiClient.instance.setDioForTest(
-        _mockDio((o) => {
-          'code': 0,
-          'data': {
-            'audioSpec': {'format': 'flac'},
-          },
-        }),
-      );
-      final url = await FeiNiuTranscodeService.instance.hlsUrlFor(
-        _song('id-3', format: 'dsf'),
       );
       expect(url, isNull);
     });
@@ -202,10 +198,10 @@ void main() {
         }),
       );
 
-      final first = await FeiNiuTranscodeService.instance.hlsUrlFor(
+      final first = await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-4', format: 'dsf'),
       );
-      final second = await FeiNiuTranscodeService.instance.hlsUrlFor(
+      final second = await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-4', format: 'dsf'),
       );
       expect(first, second);
@@ -227,17 +223,17 @@ void main() {
         }),
       );
 
-      await FeiNiuTranscodeService.instance.hlsUrlFor(
+      await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-5', format: 'dsf'),
       );
       FeiNiuTranscodeService.instance.invalidate('id-5');
-      await FeiNiuTranscodeService.instance.hlsUrlFor(
+      await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-5', format: 'dsf'),
       );
       expect(transcodeCalls, 2, reason: 'invalidate 后应重新请求');
     });
 
-    test('trackTranscode 返回 null → hlsUrlFor 返回 null', () async {
+    test('trackTranscode 返回 null → hlsUrlForFlac 返回 null', () async {
       FeiNiuApiClient.instance.setDioForTest(
         _mockDio((o) => {
           'code': 0,
@@ -246,7 +242,7 @@ void main() {
           },
         }),
       );
-      final url = await FeiNiuTranscodeService.instance.hlsUrlFor(
+      final url = await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-6', format: 'dsf'),
       );
       expect(url, isNull);
@@ -270,167 +266,10 @@ void main() {
           };
         }),
       );
-      await FeiNiuTranscodeService.instance.hlsUrlFor(
+      await FeiNiuTranscodeService.instance.hlsUrlForFlac(
         _song('id-8', format: 'dsf'),
       );
       expect(requestedCodec, 'flac', reason: '默认应请求无损 FLAC');
-    });
-
-    test('degradeToMp3 后请求 MP3，且 invalidate 不恢复 FLAC', () async {
-      final codecs = <String>[];
-      FeiNiuApiClient.instance.setDioForTest(
-        _mockDio((o) {
-          if (o.path.contains('transcode')) {
-            final data = o.data as Map<String, dynamic>;
-            final output = data['output'] as Map<String, dynamic>;
-            codecs.add(output['codec'] as String);
-          }
-          return {
-            'code': 0,
-            'data': {
-              'audioSpec': {'format': 'dsf'},
-              'url': '/music/api/v1/track/hls/id-9/preset.m3u8',
-            },
-          };
-        }),
-      );
-      FeiNiuApiClient.instance.setBaseUrl('https://nas.example.com');
-
-      final svc = FeiNiuTranscodeService.instance;
-      await svc.hlsUrlFor(_song('id-9', format: 'dsf'));
-      expect(svc.isDegradedToMp3('id-9'), isFalse);
-
-      svc.degradeToMp3('id-9');
-      expect(svc.isDegradedToMp3('id-9'), isTrue, reason: '应标记为已降级');
-
-      // 降级应清掉已缓存的 FLAC 地址，并重新请求 MP3
-      svc.invalidate('id-9');
-      await svc.hlsUrlFor(_song('id-9', format: 'dsf'));
-      expect(codecs, ['flac', 'mp3'], reason: '降级后应请求 MP3');
-
-      // 重复降级不重复重建：MP3 地址已缓存，缓存命中的是 mp3 请求的地址
-      expect(svc.isDegradedToMp3('id-9'), isTrue);
-      svc.degradeToMp3('id-9'); // 重复标记是 no-op
-      await svc.hlsUrlFor(_song('id-9', format: 'dsf'));
-      expect(codecs, ['flac', 'mp3'], reason: 'MP3 结果命中缓存，不再重复请求');
-    });
-
-    test('FLAC 单帧远离上限 → 保持 FLAC，不降级', () async {
-      final codecs = <String>[];
-      FeiNiuApiClient.instance.setDioForTest(
-        _mockDio((o) {
-          if (o.path.contains('transcode')) {
-            final output = (o.data as Map<String, dynamic>)['output']
-                as Map<String, dynamic>;
-            codecs.add(output['codec'] as String);
-          }
-          if (o.path.endsWith('preset.m3u8')) return _m3u8;
-          if (o.path.endsWith('seg0.mp4')) return _fmp4Segment([4096, 8192]);
-          return {
-            'code': 0,
-            'data': {
-              'audioSpec': {'format': 'dsf'},
-              'url': '/music/api/v1/track/hls/id-10/preset.m3u8',
-            },
-          };
-        }),
-      );
-      FeiNiuApiClient.instance.setBaseUrl('https://nas.example.com');
-
-      final svc = FeiNiuTranscodeService.instance;
-      final url = await svc.hlsUrlFor(_song('id-10', format: 'dsf'));
-      expect(url, 'https://nas.example.com/music/api/v1/track/hls/id-10/preset.m3u8');
-      expect(codecs, ['flac'], reason: '单帧远离上限应保持无损 FLAC');
-      expect(svc.isDegradedToMp3('id-10'), isFalse);
-    });
-
-    test('FLAC 单帧超硬上限 → 当场降级 MP3，不缓存 FLAC', () async {
-      final codecs = <String>[];
-      FeiNiuApiClient.instance.setDioForTest(
-        _mockDio((o) {
-          if (o.path.contains('transcode')) {
-            final output = (o.data as Map<String, dynamic>)['output']
-                as Map<String, dynamic>;
-            codecs.add(output['codec'] as String);
-          }
-          if (o.path.endsWith('preset.m3u8')) return _m3u8;
-          if (o.path.endsWith('seg0.mp4')) return _fmp4Segment([94376]);
-          return {
-            'code': 0,
-            'data': {
-              'audioSpec': {'format': 'dsf'},
-              'url': '/music/api/v1/track/hls/id-11/preset.m3u8',
-            },
-          };
-        }),
-      );
-      FeiNiuApiClient.instance.setBaseUrl('https://nas.example.com');
-
-      final svc = FeiNiuTranscodeService.instance;
-      await svc.hlsUrlFor(_song('id-11', format: 'dsf'));
-      expect(codecs, ['flac', 'mp3'], reason: '探测到超限应降级请求 MP3');
-      expect(svc.isDegradedToMp3('id-11'), isTrue);
-      // 降级后第二次直接请求 MP3（不再探测 FLAC）
-      await svc.hlsUrlFor(_song('id-11', format: 'dsf'));
-      expect(codecs, ['flac', 'mp3'], reason: '已降级直接走 MP3，命中缓存');
-    });
-
-    test('FLAC 单帧接近上限（<32KB 但 ≥阈值）→ 提前降级，防后续分片超限', () async {
-      final codecs = <String>[];
-      // 阈值 = 32KB * 0.80 = 26214；用 30000（硬上限内，但已接近）验证提前降级
-      FeiNiuApiClient.instance.setDioForTest(
-        _mockDio((o) {
-          if (o.path.contains('transcode')) {
-            final output = (o.data as Map<String, dynamic>)['output']
-                as Map<String, dynamic>;
-            codecs.add(output['codec'] as String);
-          }
-          if (o.path.endsWith('preset.m3u8')) return _m3u8;
-          if (o.path.endsWith('seg0.mp4')) return _fmp4Segment([30000]);
-          return {
-            'code': 0,
-            'data': {
-              'audioSpec': {'format': 'dsf'},
-              'url': '/music/api/v1/track/hls/id-13/preset.m3u8',
-            },
-          };
-        }),
-      );
-      FeiNiuApiClient.instance.setBaseUrl('https://nas.example.com');
-
-      final svc = FeiNiuTranscodeService.instance;
-      await svc.hlsUrlFor(_song('id-13', format: 'dsf'));
-      expect(codecs, ['flac', 'mp3'], reason: '接近上限也应提前降级');
-      expect(svc.isDegradedToMp3('id-13'), isTrue);
-    });
-
-    test('探测失败（分片抓取失败）→ 保持 FLAC 交给解码兜底', () async {
-      final codecs = <String>[];
-      FeiNiuApiClient.instance.setDioForTest(
-        _mockDio((o) {
-          if (o.path.contains('transcode')) {
-            final output = (o.data as Map<String, dynamic>)['output']
-                as Map<String, dynamic>;
-            codecs.add(output['codec'] as String);
-          }
-          if (o.path.endsWith('preset.m3u8')) return _m3u8;
-          if (o.path.endsWith('seg0.mp4')) return 'not-bytes'; // 探测失败
-          return {
-            'code': 0,
-            'data': {
-              'audioSpec': {'format': 'dsf'},
-              'url': '/music/api/v1/track/hls/id-12/preset.m3u8',
-            },
-          };
-        }),
-      );
-      FeiNiuApiClient.instance.setBaseUrl('https://nas.example.com');
-
-      final svc = FeiNiuTranscodeService.instance;
-      final url = await svc.hlsUrlFor(_song('id-12', format: 'dsf'));
-      expect(url, 'https://nas.example.com/music/api/v1/track/hls/id-12/preset.m3u8');
-      expect(codecs, ['flac'], reason: '探测失败不降级，保持 FLAC');
-      expect(svc.isDegradedToMp3('id-12'), isFalse);
     });
 
     test('网络异常 → 抛 DioException（调用方回退直连）', () async {
@@ -441,7 +280,7 @@ void main() {
         ),
       );
       expect(
-        () => FeiNiuTranscodeService.instance.hlsUrlFor(
+        () => FeiNiuTranscodeService.instance.hlsUrlForFlac(
           _song('id-7', format: 'dsf'),
         ),
         throwsA(isA<DioException>()),

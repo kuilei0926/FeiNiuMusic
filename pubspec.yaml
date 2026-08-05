@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.2.6+1
+version: 1.2.7+1
 
 environment:
   sdk: ^3.10.8
@@ -42,6 +42,15 @@ dependencies:
   signals_flutter: ^6.3.0
   just_audio: ^0.10.5
   audio_session: ^0.2.2
+  # 第二播放引擎：libmpv + FFmpeg，解码 ExoPlayer 受限的 FLAC（32KB 帧缓冲
+  # 上限）与 DSF/DSD/APE/WMA 等格式。仅引入 audio 库（裁剪版 libmpv.so，
+  # 约 6MB/ABI），不混用 media_kit_libs_video。
+  # media_kit_native_event_loop：必须显式引入，提供 libmedia_kit_native_
+  # event_loop.so（原生事件循环）。media_kit 1.x 不自动依赖它，缺失会导致
+  # 首次创建 Player() 时闪退。
+  media_kit: ^1.2.6
+  media_kit_libs_audio: ^1.0.7
+  media_kit_native_event_loop: ^1.0.9
   permission_handler: ^12.0.1
   photo_manager: ^3.2.0
   flutter_lyric:

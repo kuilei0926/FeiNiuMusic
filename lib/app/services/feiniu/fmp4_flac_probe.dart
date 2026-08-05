@@ -6,9 +6,32 @@
 /// FLAC 帧大小——用它判断该流是否超出 Android FLAC 解码器输入缓冲上限。
 ///
 /// 同时兼容 `stsz`（完整/非分片 MP4 的 sample 表），见 [fmp4SampleSizes]。
+///
+/// **现状**：双引擎架构（media_kit 接管 FLAC/DSF）后，生产代码不再调用
+/// 本文件——FLAC 由 FFmpeg 解码，无 32KB 帧缓冲限制，不再需要探测帧大小。
+/// 保留纯函数与测试（`test/fmp4_flac_probe_test.dart`）以备未来诊断/
+/// 复用它检测其他播放器限制。
 library;
 
 import 'dart:typed_data';
+
+/// 从 m3u8 文本提取第一个媒体分片地址。
+///
+/// 跳过 `#EXT-X-MAP`（init.mp4，无音频 sample 大小信息）与 `#EXTINF`
+/// 时长为 0 的占位段。相对地址按 m3u8 所在地址解析。
+String? firstMediaSegment(String m3u8, String m3u8Url) {
+  final lines = m3u8.split('\n').map((l) => l.trim()).toList();
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    if (line.isEmpty || line.startsWith('#EXTINF') || line.startsWith('#EXT-X-MAP')) {
+      continue;
+    }
+    if (line.startsWith('#')) continue;
+    if (line == '.mp4' || line == 'init.mp4') continue;
+    return Uri.parse(m3u8Url).resolve(line).toString();
+  }
+  return null;
+}
 
 /// 已知容器 box（payload 内部嵌套子 box），递归进入；其余按叶子处理。
 /// `mdat` 等载荷为原始字节的 box 不递归，避免把音频数据当 box 头解析。

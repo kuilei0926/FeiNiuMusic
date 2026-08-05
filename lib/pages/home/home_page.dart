@@ -408,10 +408,16 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  /// 漫游播放 — 播放首页当前显示的漫游歌曲，播完后自动下一首随机
+  /// 漫游播放 — 播放首页当前显示的漫游歌曲，播完后自动下一首随机。
+  ///
+  /// 用 [_heroSong] 兜底：漫游歌未加载时（接口失败/卡住），Banner 显示的是
+  /// 收藏/最近兜底歌，点击播放必须与其一致，否则「显示歌 ≠ 实际播放」。
   void _playRoam() {
-    final song = _roamSong.value;
-    if (song == null) return;
+    final song = _heroSong;
+    if (song == null) {
+      debugPrint('[HomePage] playRoam: no song available');
+      return;
+    }
     unawaited(_extendAndPlay(song));
   }
 

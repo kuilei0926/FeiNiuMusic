@@ -5,6 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:feiniu_music/app/services/audio/stream_cache_service.dart';
 import 'package:feiniu_music/app/state/settings_cache_state.dart';
+import 'package:feiniu_music/app/state/song_state.dart';
+
+SongEntity _song(String id, {String? format}) => SongEntity(
+      id: id,
+      title: id,
+      artist: '[{"name":"t"}]',
+      format: format,
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -93,7 +101,8 @@ void main() {
       await StreamCacheService.instance.setDirectoryForTest(tmp);
       AppCacheSettings.cacheLimitMb.value = 1024; // 开启缓存
 
-      final missing = await StreamCacheService.instance.completeFileFor('s1');
+      final missing = await StreamCacheService.instance
+          .completeFileFor('s1', song: _song('s1'));
       expect(missing, isNull);
 
       final file = File(
@@ -101,9 +110,67 @@ void main() {
       );
       await file.writeAsBytes([1, 2, 3]);
 
-      final found = await StreamCacheService.instance.completeFileFor('s1');
+      final found = await StreamCacheService.instance
+          .completeFileFor('s1', song: _song('s1'));
       expect(found, isNotNull);
       expect(found!.path, file.path);
+    });
+
+    test('cache file extension follows song format (flac → .flac)', () async {
+      final tmp = await Directory.systemTemp.createTemp('stream_cache_test_');
+      addTearDown(() => tmp.delete(recursive: true));
+      await StreamCacheService.instance.setDirectoryForTest(tmp);
+      AppCacheSettings.cacheLimitMb.value = 1024;
+
+      // format 已知：无需出网，直接落 .flac
+      final flacFile = await StreamCacheService.instance.completeFileFor(
+        's1',
+        song: _song('s1', format: 'flac'),
+      );
+      expect(flacFile, isNull);
+
+      final flac = File(
+        '${tmp.path}${Platform.pathSeparator}${StreamCacheService.safeCacheName('s1')}.flac',
+      );
+      await flac.writeAsBytes([1, 2, 3]);
+      final found = await StreamCacheService.instance.completeFileFor(
+        's1',
+        song: _song('s1', format: 'flac'),
+      );
+      expect(found, isNotNull);
+      expect(found!.path, flac.path);
+
+      // 历史 `.mp3` 后缀缓存兼容命中
+      final legacyMp3 = File(
+        '${tmp.path}${Platform.pathSeparator}${StreamCacheService.safeCacheName('s2')}.mp3',
+      );
+      await legacyMp3.writeAsBytes([1]);
+      final viaLegacy = await StreamCacheService.instance.completeFileFor(
+        's2',
+        song: _song('s2', format: 'flac'),
+      );
+      expect(viaLegacy, isNotNull);
+      expect(viaLegacy!.path, legacyMp3.path);
+    });
+
+    test('extensionForSongSync uses format when present', () {
+      expect(
+        StreamCacheService.instance.extensionForSongSync(_song('a', format: 'FLAC')),
+        'flac',
+      );
+      expect(
+        StreamCacheService.instance.extensionForSongSync(_song('b', format: 'mp3')),
+        'mp3',
+      );
+      expect(
+        StreamCacheService.instance.extensionForSongSync(_song('c', format: 'dsf')),
+        'dsf',
+      );
+      // 未知格式 → null（走运行时 MIME/默认兜底）
+      expect(
+        StreamCacheService.instance.extensionForSongSync(_song('d', format: 'lossless')),
+        isNull,
+      );
     });
 
     test('evictIfNeeded deletes oldest complete files, protects active', () async {

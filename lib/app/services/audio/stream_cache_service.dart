@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../feiniu/api_client.dart';
+import '../feiniu/transcode_service.dart';
 import '../../state/settings_cache_state.dart';
 import '../../state/song_state.dart';
 import 'cache_source.dart';
@@ -22,6 +23,12 @@ class StreamCacheService {
   static final StreamCacheService instance = StreamCacheService._internal();
 
   static const String dirName = 'stream_cache';
+
+  /// 兜底扩展名（无法确认格式时的默认后缀）。
+  static const String defaultExtension = 'mp3';
+
+  /// 会话内已确认的格式 → 扩展名缓存（避免反复解析格式）。
+  final Map<String, String> _formatExtensions = {};
 
   final Map<String, StreamAudioCacheSource> _sources = {};
   Directory? _dir;
@@ -79,6 +86,7 @@ class StreamCacheService {
   @visibleForTesting
   void resetForTest() {
     _sources.clear();
+    _formatExtensions.clear();
     _dir = null;
     _initFuture = null;
     currentSongId = null;
@@ -91,10 +99,102 @@ class StreamCacheService {
     return cleaned.isEmpty ? 'song' : cleaned;
   }
 
-  File _cacheFileFor(String songId) {
-    // 生产环境用 _dir（_ensureDir 已解析）；测试环境 _dir 也被 setDirectoryForTest 注入
+  /// 缓存文件后缀：随歌曲实际格式（避免 ExoPlayer/mpv 按 `.mp3` 扩展名
+  /// 误判 FLAC/DSF 内容为 MP3 而无法识别）。
+  ///
+  /// 优先读歌曲自带的 `format`；为空时查会话内已解析缓存；仍为空则按
+  /// MIME 映射；最终兜底 [defaultExtension]。
+  Future<String> extensionForSong(SongEntity song) async {
+    final cached = _formatExtensions[song.id];
+    if (cached != null) return cached;
+
+    var ext = _extensionForFormat(song.format);
+    if (ext == null) {
+      final fmt = await FeiNiuTranscodeService.instance.resolvedFormatFor(song);
+      if (fmt != null && fmt.trim().isNotEmpty) {
+        ext = _extensionForFormat(fmt);
+      }
+    }
+
+    // 仍无法确认格式：按下载时记录的 Content-Type 回退映射（轻量，不出网）。
+    final extFinal = ext ?? await _extensionFromMime(song.id);
+    _formatExtensions[song.id] = extFinal;
+    return extFinal;
+  }
+
+  /// 同步读缓存文件后缀（不解析格式/不出网；未知返回 null）。
+  String? extensionForSongSync(SongEntity song) {
+    final cached = _formatExtensions[song.id];
+    if (cached != null) return cached;
+    final ext = _extensionForFormat(song.format) ?? _extensionForFormat(
+      FeiNiuTranscodeService.instance.resolvedFormatForSync(song),
+    );
+    if (ext != null) _formatExtensions[song.id] = ext;
+    return ext;
+  }
+
+  static String? _extensionForFormat(String? format) {
+    final f = format?.trim().toLowerCase();
+    if (f == null || f.isEmpty) return null;
+    // 已知容器格式 → 对应扩展名；未知格式（如 "lossless"/"hires"）→ null
+    const map = <String, String>{
+      'mp3': 'mp3',
+      'mpeg': 'mp3',
+      'm4a': 'm4a',
+      'aac': 'aac',
+      'ogg': 'ogg',
+      'oga': 'ogg',
+      'opus': 'ogg',
+      'flac': 'flac',
+      'wav': 'wav',
+      'dsf': 'dsf',
+      'dff': 'dff',
+      'dsd': 'dsf',
+      'ape': 'ape',
+      'wma': 'wma',
+      'aiff': 'aiff',
+      'aif': 'aiff',
+      'dts': 'dts',
+    };
+    return map[f];
+  }
+
+  static String? _extensionForMime(String mime) {
+    final m = mime.trim().toLowerCase();
+    if (m.contains('flac')) return 'flac';
+    if (m.contains('mp3') || m.contains('mpeg')) return 'mp3';
+    if (m.contains('m4a') || m.contains('aac') || m.contains('mp4')) return 'm4a';
+    if (m.contains('ogg')) return 'ogg';
+    if (m.contains('wav') || m.contains('wave')) return 'wav';
+    if (m.contains('dsd') || m.contains('dsf')) return 'dsf';
+    if (m.contains('wma')) return 'wma';
+    if (m.contains('ape')) return 'ape';
+    return null;
+  }
+
+  Future<String> _extensionFromMime(String songId) async {
+    try {
+      await _resolveDir();
+      final mimeFile = File('${_cacheFileBaseFor(songId)}.mime');
+      if (await mimeFile.exists()) {
+        final mime = await mimeFile.readAsString();
+        final ext = _extensionForMime(mime);
+        if (ext != null) return ext;
+      }
+    } catch (_) {}
+    return defaultExtension;
+  }
+
+  /// 缓存文件主名（`${safeCacheName}.<ext>`）。
+  File _cacheFileFor(String songId, String ext) {
     final base = _dir?.path ?? '';
-    return File(p.join(base, '${safeCacheName(songId)}.mp3'));
+    return File(p.join(base, '${safeCacheName(songId)}.$ext'));
+  }
+
+  /// 无后缀的基础路径（用于 .part/.mime 等旁路文件）。
+  String _cacheFileBaseFor(String songId) {
+    final base = _dir?.path ?? '';
+    return p.join(base, '${safeCacheName(songId)}.mp3');
   }
 
   /// 完整缓存文件（存在则返回，供播放走 `AudioSource.file` 秒播）。
@@ -102,11 +202,25 @@ class StreamCacheService {
   /// 轻量路径：先解析目录（不扫描/不淘汰），直接查 `existsSync()`——
   /// 缓存命中是启动秒播的关键路径，避免每次构建源都全量 `evictIfNeeded`
   /// 拖慢首音。目录扫描/淘汰由 [_ensureDir] 在首次真实下载/写入前执行。
-  Future<File?> completeFileFor(String songId) async {
+  ///
+  /// [ext] 指定扩展名（默认按歌曲格式动态解析）；历史缓存为 `.mp3` 后缀
+  /// 时自动兼容（新下载统一按实际格式后缀命名）。
+  Future<File?> completeFileFor(
+    String songId, {
+    SongEntity? song,
+    String? ext,
+  }) async {
     if (!isEnabled) return null;
     await _resolveDir();
-    final file = _cacheFileFor(songId);
+    final resolved = ext ??
+        (song != null ? await extensionForSong(song) : defaultExtension);
+    final file = _cacheFileFor(songId, resolved);
     if (await file.exists()) return file;
+    // 兼容历史 `.mp3` 后缀缓存（改名前的旧文件）
+    if (resolved != 'mp3') {
+      final legacy = _cacheFileFor(songId, 'mp3');
+      if (await legacy.exists()) return legacy;
+    }
     return null;
   }
 
@@ -116,11 +230,12 @@ class StreamCacheService {
     if (existing != null) return existing;
 
     await _ensureDir();
+    final ext = await extensionForSong(song);
     final source = StreamAudioCacheSource(
       songId: song.id,
       uri: Uri.parse(FeiNiuApiClient.instance.streamUrl(song.id)),
       headers: FeiNiuApiClient.imageAuthHeaders(),
-      cacheFile: _cacheFileFor(song.id),
+      cacheFile: _cacheFileFor(song.id, ext),
     );
     _sources[song.id] = source;
     // 下载完成（无论成败）后移出注册表并尝试淘汰
@@ -140,8 +255,18 @@ class StreamCacheService {
   Future<void> invalidate(String songId) async {
     await _ensureDir();
     _sources.remove(songId);
-    final file = _cacheFileFor(songId);
-    for (final f in [file, File('${file.path}.part'), File('${file.path}.mime')]) {
+    final base = _cacheFileBaseFor(songId);
+    final candidates = <File>[
+      File(base),
+      File('$base.part'),
+      File('$base.mime'),
+    ];
+    // 历史/其它后缀的完整文件也一并清除
+    for (final ext in ['mp3', 'flac', 'm4a', 'ogg', 'wav', 'dsf', 'dff', 'ape', 'wma', 'aiff', 'dts']) {
+      final f = File(_cacheFileFor(songId, ext).path);
+      if (!candidates.contains(f)) candidates.add(f);
+    }
+    for (final f in candidates) {
       try {
         if (await f.exists()) await f.delete();
       } catch (_) {}
@@ -167,9 +292,12 @@ class StreamCacheService {
 
   /// 链式预缓存的等待节点：等待某首歌缓存下载完成。
   /// 已完整 → 立即返回；有在途下载 → join；无下载 → 返回（链不启动）。
-  Future<void> waitForComplete(String songId) async {
+  Future<void> waitForComplete(
+    String songId, {
+    SongEntity? song,
+  }) async {
     if (!isEnabled) return;
-    if (await completeFileFor(songId) != null) return;
+    if (await completeFileFor(songId, song: song) != null) return;
     final source = _sources[songId];
     if (source == null) return;
     try {
@@ -194,6 +322,7 @@ class StreamCacheService {
       for (final id in protectedSongIds ?? const <String>{}) safeCacheName(id),
     };
 
+    // 非完整缓存（.part/.mime 旁路文件）不参与上限统计
     final entries = <File>[];
     int total = 0;
     try {
@@ -206,7 +335,7 @@ class StreamCacheService {
         } catch (_) {
           continue;
         }
-        final stem = name.substring(0, name.length - 4); // 去 .mp3
+        final stem = _stemFromCacheName(name); // 去扩展名
         if (protected.contains(stem)) continue;
         entries.add(entity);
       }
@@ -228,7 +357,7 @@ class StreamCacheService {
 
     for (final file in entries) {
       if (total <= limitBytes) break;
-      final stem = p.basename(file.path).replaceFirst(RegExp(r'\.mp3$'), '');
+      final stem = _stemFromCacheName(p.basename(file.path));
       try {
         total -= await file.length();
         await file.delete();
@@ -242,6 +371,13 @@ class StreamCacheService {
         // Windows 打开中的文件删除会失败，静默跳过
       }
     }
+  }
+
+  /// 从缓存文件名剥离扩展名，得到 songId 净化名（`<name>.mp3`/`<name>.flac`…）。
+  /// 兼容未知后缀（截掉最后一个 `.` 之后部分）。
+  static String _stemFromCacheName(String name) {
+    final dot = name.lastIndexOf('.');
+    return dot > 0 ? name.substring(0, dot) : name;
   }
 
   void _onLimitChanged() {
