@@ -72,7 +72,7 @@ void main() {
   });
 
   testWidgets('下键：焦点在中性区 → 移到底部操作栏内第一个可聚焦项', (tester) async {
-    final bottomFocus = FocusNode();
+    final bottomFocus = FocusNode(debugLabel: 'bottomContainer');
     addTearDown(bottomFocus.dispose);
     await tester.pumpWidget(
       MaterialApp(
@@ -82,10 +82,14 @@ void main() {
             body: Column(
               children: [
                 Expanded(
-                  child: Focus(autofocus: true, child: Text('封面区')),
+                  child: Focus(autofocus: true, debugLabel: 'neutral', child: Text('封面区')),
                 ),
                 Focus(
                   focusNode: bottomFocus,
+                  // 容器只是「找第一个按钮」的句柄：自身不可聚焦/不可遍历，
+                  // 让方向键跳过它直接落到里面的按钮。
+                  canRequestFocus: false,
+                  skipTraversal: true,
                   child: Row(
                     children: [
                       IconButton(
@@ -108,15 +112,13 @@ void main() {
     );
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-    // 焦点应进入底部操作栏区域（bottomFocus 或其子孙）
+    // 焦点应落在底部操作栏内第一个可聚焦按钮（shuffle 的 IconButton）。
     final primary = FocusManager.instance.primaryFocus;
     expect(primary, isNotNull);
     expect(
-      identical(primary, bottomFocus) ||
-          bottomFocus.descendants.contains(primary),
+      bottomFocus.descendants.contains(primary),
       isTrue,
-      reason: '下键应聚焦到底部操作栏：实际 $primary',
+      reason: '下键应聚焦到底部操作栏内按钮：实际 $primary',
     );
   });
 }

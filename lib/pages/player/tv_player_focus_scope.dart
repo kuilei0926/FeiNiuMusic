@@ -85,19 +85,24 @@ class _TvPlayerFocusScopeState extends State<TvPlayerFocusScope> {
       final primary = FocusManager.instance.primaryFocus;
       if (_inBottomPanel(primary)) return KeyEventResult.ignored;
       final moved = primary?.focusInDirection(TraversalDirection.down) ?? false;
-      if (!moved) {
-        final bottom = widget.bottomActionsFocusNode;
-        if (bottom != null) {
-          bottom.requestFocus();
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            FocusManager.instance.primaryFocus
-                ?.focusInDirection(TraversalDirection.down);
-          });
-        }
-      }
+      if (!moved) _focusFirstBottomAction();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
+  }
+
+  /// 聚焦底部操作栏第一个可聚焦按钮（随机/定时等），确保下键有明确落点。
+  void _focusFirstBottomAction() {
+    final bottom = widget.bottomActionsFocusNode;
+    if (bottom == null) return;
+    FocusNode? first;
+    for (final n in bottom.descendants) {
+      if (n.canRequestFocus && !n.skipTraversal) {
+        first = n;
+        break;
+      }
+    }
+    (first ?? bottom).requestFocus();
   }
 
   @override
@@ -106,6 +111,9 @@ class _TvPlayerFocusScopeState extends State<TvPlayerFocusScope> {
       policy: ReadingOrderTraversalPolicy(),
       child: Focus(
         focusNode: _node,
+        // 纯按键处理祖先：自身不是焦点/遍历目标，避免方向键移进本 scope。
+        canRequestFocus: false,
+        skipTraversal: true,
         onKeyEvent: _onKeyEvent,
         child: widget.child,
       ),
