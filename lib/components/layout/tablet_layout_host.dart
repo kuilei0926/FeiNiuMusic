@@ -92,31 +92,43 @@ class _TabletLayoutHostState extends State<TabletLayoutHost>
                 // TV 模式且播放页激活 → 隐藏侧栏与迷你播放器（只盖不卸载，
                 // 返回后自动还原）。手机/平板非 TV 恒 false，行为不变。
                 final hideChrome = AppLayoutSettings.tvMode.value && playerActive;
+                // 隐藏 chrome 时内容区铺满全屏：去掉左偏移/宽度收缩/缩放/圆角/
+                // 阴影，让播放页延伸到屏幕左边，不留空白。
+                final effOffset = hideChrome ? 0.0 : pageOffset;
+                final effContentWidth = hideChrome ? width : contentWidth;
+                final effScale = hideChrome ? 1.0 : scale;
+                final effRadius = hideChrome ? 0.0 : pageRadius;
+                final effShadow = hideChrome
+                    ? Colors.transparent
+                    : pageShadow;
+                final effBlur = hideChrome ? 0.0 : 28 * t;
+                final effShadowOffset = hideChrome ? Offset.zero : Offset(0, 10 * t);
                 return Stack(
                   children: [
                     Positioned.fill(
                       child: ClipRect(
                         child: Padding(
-                          padding: EdgeInsets.only(left: pageOffset),
+                          key: const ValueKey('tv-player-content-offset'),
+                          padding: EdgeInsets.only(left: effOffset),
                           child: Align(
                             alignment: Alignment.centerLeft,
                             child: SizedBox(
-                              width: contentWidth,
+                              width: effContentWidth,
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(pageRadius),
+                                  borderRadius: BorderRadius.circular(effRadius),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: pageShadow,
-                                      blurRadius: 28 * t,
-                                      offset: Offset(0, 10 * t),
+                                      color: effShadow,
+                                      blurRadius: effBlur,
+                                      offset: effShadowOffset,
                                     ),
                                   ],
                                 ),
                                 child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(pageRadius),
+                                  borderRadius: BorderRadius.circular(effRadius),
                                   child: Transform.scale(
-                                    scale: scale,
+                                    scale: effScale,
                                     alignment: Alignment.centerLeft,
                                     child: child,
                                   ),

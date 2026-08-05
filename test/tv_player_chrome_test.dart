@@ -48,7 +48,7 @@ void main() {
     expect(sideMenuInvisible(tester), isFalse);
   });
 
-  testWidgets('TV + 播放页激活 → 侧栏被隐藏（IgnorePointer ignoring），返回还原',
+  testWidgets('TV + 播放页激活 → 侧栏被隐藏且内容区铺满全屏（左无偏移），返回还原',
       (tester) async {
     AppLayoutSettings.tvMode.value = true;
     await tester.pumpWidget(buildHost());
@@ -58,6 +58,13 @@ void main() {
     AppLayoutSettings.playerRouteActive.value = true;
     await tester.pump();
     expect(sideMenuInvisible(tester), isTrue);
+
+    // 隐藏后内容区铺满全屏：内容偏移 Padding 的 left 为 0，不再留左侧空白。
+    final offsetPad = tester.widget<Padding>(
+      find.byKey(const ValueKey('tv-player-content-offset')),
+    );
+    final leftOffset = (offsetPad.padding as EdgeInsets).left;
+    expect(leftOffset, 0);
 
     // 返回后还原
     AppLayoutSettings.playerRouteActive.value = false;
