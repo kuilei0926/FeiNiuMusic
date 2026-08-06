@@ -34,10 +34,8 @@ android {
         // applicationId：CI 传 applicationIdOverride 时（如 com.luna.music 投音
         // 兼容包）覆盖为传入值；本地构建恒为正式包名 com.feiniu.music。
         applicationId = appIdOverride ?: DEFAULT_APP_ID
-        // 应用名随包区分：正式包「飞牛音乐」，投音兼容包追加「·投音版」便于
-        // 桌面识别，也降低与同名应用混淆的可能。
-        manifestPlaceholders["appLabel"] =
-            if (appIdOverride == null) "飞牛音乐" else "飞牛音乐·投音版"
+        // 应用名：正式包与投音兼容包统一为「飞牛音乐」，不区分命名。
+        manifestPlaceholders["appLabel"] = "飞牛音乐"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 27

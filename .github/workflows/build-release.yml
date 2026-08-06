@@ -55,8 +55,7 @@ jobs:
       # 2) 投音兼容包（非官方）：applicationId 覆盖为 com.luna.music，仅 arm64。
       #    用于鸿蒙 4/6、iQOO、VIVO 的播控中心显示投音控制（见 README 声明）。
       #    仅在 GitHub Actions 自动打包时产出，本地构建不做此覆盖。
-      - run: flutter build apk --release --target-platform android-arm64 \
-          --android-project-arg applicationIdOverride=com.luna.music
+      - run: flutter build apk --release --target-platform android-arm64 --android-project-arg applicationIdOverride=com.luna.music
         env:
           SIGNING_STORE_FILE: release.keystore
           SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
