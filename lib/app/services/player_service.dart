@@ -2071,7 +2071,7 @@ class PlayerService with WidgetsBindingObserver {
     _debugLog('restorePlaybackState queue=${session.queue.length}');
 
     final shouldAutoPlayOnLaunch =
-        AppLaunchPlaybackSettings.autoPlayOnAppLaunch.value;
+        AppLaunchPlaybackSettings.shouldAutoPlayOnAppLaunch();
     _restorePlaybackUiState(session);
     _restorePrepareFuture = _prepareRestoredAudioSource(session);
     await _restorePrepareFuture;

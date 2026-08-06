@@ -11,6 +11,7 @@ import '../../app/router/app_router.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
+import '../../app/state/settings_layout_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/deferred_page_init_mixin.dart';
@@ -439,7 +440,7 @@ class _SongsPageState extends State<SongsPage>
             title: isMultiSelecting ? '已选 $selectedCount 首' : '歌曲',
             showBackButton: false,
             centerTitle: false,
-            leading: useBottomNavigation
+            leading: useBottomNavigation || AppLayoutSettings.tvMode.value
                 ? null
                 : (isMultiSelecting
                     ? IconButton(

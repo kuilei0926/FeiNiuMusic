@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/state/settings_state.dart';
 import '../../components/common/setting_widgets.dart';
+import '../../components/focus/tv_focusable.dart';
 import '../../components/layout/base/app_background.dart';
 import '../../components/player/player_style_preview.dart';
 import '../player/widgets/player_background.dart';
@@ -54,6 +55,14 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   Future<void> _finish() async {
+    // 首次使用 + 大屏（TV/平板）：自动开启切歌弹窗，让切歌时在顶部看到
+    // 「正在播放」提示。仅在首次引导会话生效，老用户不改动任何开关。
+    final size = MediaQuery.sizeOf(context);
+    await AppLayoutSettings.applyFirstUseLargeScreenDefaults(
+      isFirstLaunch: AppOnboardingSettings.isFirstLaunchSession,
+      isTv: AppLayoutSettings.tvMode.value,
+      shortestSide: size.shortestSide,
+    );
     await AppOnboardingSettings.setCompleted();
     // 无需手动跳转：门控监听 completed，notifier 更新后自动替换子树卸载本页
   }
@@ -418,7 +427,7 @@ class _SeedColorPalette extends StatelessWidget {
           children: _presetColors.map((color) {
             final isSelected =
                 (selected?.toARGB32() ?? 0xFF3B82F6) == color.toARGB32();
-            return GestureDetector(
+            Widget swatch = GestureDetector(
               onTap: () {
                 // 点选固定色需先关闭动态颜色，否则主题色不生效
                 AppThemeSettings.setDynamicColorEnabled(false).then((_) {
@@ -441,6 +450,19 @@ class _SeedColorPalette extends StatelessWidget {
                     : null,
               ),
             );
+            // TV 模式：色板是 GestureDetector（非 Material），需焦点环可聚焦。
+            if (AppLayoutSettings.tvMode.value) {
+              swatch = TvFocusable(
+                borderRadius: BorderRadius.circular(24),
+                onActivate: () {
+                  AppThemeSettings.setDynamicColorEnabled(false).then((_) {
+                    AppThemeSettings.setThemeSeedColor(color);
+                  });
+                },
+                child: swatch,
+              );
+            }
+            return swatch;
           }).toList(),
         ),
       ],
@@ -610,7 +632,9 @@ class _PlayerStyleSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     // 每张卡片等宽（Spacer 占位）+ 尾部留 10px 间距，保证两个预览图
     // 宽度一致 → AspectRatio 高度一致，避免 classic/poster 卡片大小不一。
-    return Row(
+    // TV 端：两卡并排 + 遥控器导航，限制整体宽度防止预览占满横屏。
+    final isTv = AppLayoutSettings.tvMode.value;
+    final row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: PlayerStylePreset.values.map((preset) {
         final isSelected = preset == selected;
@@ -622,6 +646,13 @@ class _PlayerStyleSelector extends StatelessWidget {
         );
       }).toList(),
     );
+    if (!isTv) return row;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 860),
+        child: row,
+      ),
+    );
   }
 }
 
@@ -632,7 +663,7 @@ Widget _styleCard(
   ValueChanged<PlayerStylePreset> onChanged,
 ) {
   final scheme = Theme.of(context).colorScheme;
-  return GestureDetector(
+  final card = GestureDetector(
     behavior: HitTestBehavior.opaque,
     onTap: () => onChanged(preset),
     child: Column(
@@ -699,6 +730,16 @@ Widget _styleCard(
       ],
     ),
   );
+  // TV 模式：卡片是 GestureDetector（非 Material），需 TvFocusable 焦点环
+  // 才能被遥控器聚焦；确认键（Enter）触发同样的选择。
+  if (AppLayoutSettings.tvMode.value) {
+    return TvFocusable(
+      borderRadius: BorderRadius.circular(16),
+      onActivate: () => onChanged(preset),
+      child: card,
+    );
+  }
+  return card;
 }
 
 /// 页4：启动设置。
@@ -721,7 +762,7 @@ class _LaunchPage extends StatelessWidget {
               AppLaunchNavigationSettings.autoOpenPlayerOnLaunch,
           builder: (context, enabled, _) => AppSettingSwitchTile(
             title: '启动软件自动打开播放界面',
-            subtitle: '控制APP启动后的行为',
+            subtitle: 'APP启动后自动进入播放页面',
             value: enabled,
             onChanged: (value) =>
                 AppLaunchNavigationSettings.setAutoOpenPlayerOnLaunch(value),

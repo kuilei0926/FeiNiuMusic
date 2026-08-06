@@ -14,6 +14,7 @@ import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/state/settings_state.dart';
 import '../../app/state/song_state.dart';
+import '../../app/tv/tv_layout.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/primary_tab_refresh_mixin.dart';
 import '../../components/index.dart';
@@ -115,6 +116,18 @@ class _HomePageState extends State<HomePage>
   void initState() {
     super.initState();
     _loadAll();
+    _maybeShowTvEdgeHint();
+  }
+
+  /// TV 首次启动：展示「按右键打开播放页」提示（只一次，会话级别持久化）。
+  void _maybeShowTvEdgeHint() {
+    if (!AppLayoutSettings.tvMode.value) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (!await AppLayoutSettings.consumeTvEdgeHint()) return;
+      if (!mounted) return;
+      AppToast.show(context, '遥控器：按 ← 打开侧栏，按 → 打开播放页');
+    });
   }
 
   @override
@@ -631,7 +644,7 @@ class _HomePageState extends State<HomePage>
           showBackButton: false,
           centerTitle: false,
           isRefreshing: _isRefreshing.value,
-          leading: useBottomNavigation
+          leading: useBottomNavigation || AppLayoutSettings.tvMode.value
               ? null
               : IconButton(
                   icon: const Icon(Icons.menu_rounded),
@@ -658,7 +671,9 @@ class _HomePageState extends State<HomePage>
             return RefreshIndicator(
               onRefresh: () => _loadAll(forceRefresh: true),
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 160),
+                padding: AppLayoutSettings.tvMode.value
+                    ? TvLayout.pagePadding()
+                    : const EdgeInsets.fromLTRB(20, 8, 20, 160),
                 children: [
                   // 1. Hero Banner — 漫游/今日推荐，封面是绝对主角
                   if (heroSong != null)
@@ -735,7 +750,7 @@ class _HomePageState extends State<HomePage>
                       onViewAll: _openPlaylistsPage,
                     ),
                     HomeCoverCarousel(
-                      coverSize: 100,
+                      coverSize: AppLayoutSettings.tvMode.value ? 140 : 100,
                       borderRadius: 14,
                       centerText: true,
                       items: [
@@ -776,7 +791,7 @@ class _HomePageState extends State<HomePage>
                       },
                     ),
                     HomeCoverCarousel(
-                      coverSize: 128,
+                      coverSize: AppLayoutSettings.tvMode.value ? 168 : 128,
                       borderRadius: 16,
                       items: [
                         for (final a in _recentAlbums.value)
@@ -825,6 +840,8 @@ class _CompactSongList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final isTv = AppLayoutSettings.tvMode.value;
+    final artworkSize = isTv ? 56.0 : 44.0;
     final displaySongs = songs.take(5).toList();
     return Column(
       children: List.generate(displaySongs.length, (i) {
@@ -838,12 +855,16 @@ class _CompactSongList extends StatelessWidget {
               onTap: () => onTap(song),
               onLongPress: onLongPress == null ? null : () => onLongPress!(song),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                // TV 端加大行高与封面，方便遥控器聚焦。
+                padding: EdgeInsets.symmetric(
+                  horizontal: isTv ? 12 : 6,
+                  vertical: isTv ? 8 : 5,
+                ),
                 child: Row(
                   children: [
                     ArtworkWidget(
                       song: song,
-                      size: 44,
+                      size: artworkSize,
                       borderRadius: 10,
                     ),
                     const SizedBox(width: 12),

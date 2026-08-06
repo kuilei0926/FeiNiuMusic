@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart' as shad;
 
 import '../components/dialog/app_update_dialog.dart';
+import '../components/focus/tv_focus_scope.dart';
 import '../components/layout/tablet_layout_host.dart';
 import '../pages/login/login_page.dart';
 import '../pages/onboarding/onboarding_page.dart';
@@ -16,6 +17,7 @@ import 'services/feiniu/auth_service.dart';
 import 'state/settings_state.dart';
 import 'theme/app_styles.dart';
 import 'theme/app_visual_theme.dart';
+import 'utils/app_navigator.dart';
 import 'utils/route_visibility.dart';
 
 class FeiNiuMusicApp extends StatelessWidget {
@@ -25,10 +27,11 @@ class FeiNiuMusicApp extends StatelessWidget {
     ThemeData base,
     ColorScheme? scheme,
     AppVisualStyle visualStyle,
+    bool isTv,
   ) {
     final appliedScheme = scheme ?? base.colorScheme;
     if (visualStyle == AppVisualStyle.miuix) {
-      return buildMiuixMaterialTheme(base, appliedScheme);
+      return buildMiuixMaterialTheme(base, appliedScheme, isTv: isTv);
     }
     final isDark = base.brightness == Brightness.dark;
 
@@ -96,6 +99,9 @@ class FeiNiuMusicApp extends StatelessWidget {
                       valueListenable: AppThemeSettings.themeSeedColor,
                       builder: (context, seedColor, _) {
                         final baseSeed = seedColor ?? const Color(0xFF3B82F6);
+                        return ValueListenableBuilder<bool>(
+                          valueListenable: AppLayoutSettings.tvMode,
+                          builder: (context, isTv, _) {
                         final lightBase = ThemeData(
                           colorScheme: ColorScheme.fromSeed(
                             seedColor: baseSeed,
@@ -140,11 +146,13 @@ class FeiNiuMusicApp extends StatelessWidget {
                           lightBase,
                           dynamicEnabled ? lightDynamic : null,
                           visualStyle,
+                          isTv,
                         );
                         final darkTheme = _applyDynamic(
                           darkBase,
                           dynamicEnabled ? darkDynamic : null,
                           visualStyle,
+                          isTv,
                         );
                         final routes = AppRouter.routes;
                         Route<dynamic> onGenerateRoute(RouteSettings settings) {
@@ -157,7 +165,9 @@ class FeiNiuMusicApp extends StatelessWidget {
                           );
                         }
 
-                        return MaterialApp(
+                        return _TvOrientationSync(
+                          tv: isTv,
+                          child: MaterialApp(
                           title: '飞牛音乐',
                           navigatorKey: appNavigatorKey,
                           theme: lightTheme,
@@ -165,6 +175,7 @@ class FeiNiuMusicApp extends StatelessWidget {
                           themeMode: mode,
                           scrollBehavior: const AppScrollBehavior(),
                           home: _AppStartupGate(
+                            tv: isTv,
                             onGenerateRoute: onGenerateRoute,
                           ),
                           onGenerateRoute: onGenerateRoute,
@@ -191,6 +202,11 @@ class FeiNiuMusicApp extends StatelessWidget {
                                   value: overlay,
                                   child: child ?? const SizedBox.shrink(),
                                 );
+                            // TV 模式：根焦点域（方向键遍历 + 快捷键）。
+                            // 手机端 isTv=false，完全绕开，行为不变。
+                            if (isTv) {
+                              content = TvFocusScope(child: content);
+                            }
                             if (visualStyle == AppVisualStyle.miuix) {
                               final shadMode = switch (mode) {
                                 ThemeMode.light => shad.ThemeMode.light,
@@ -211,6 +227,9 @@ class FeiNiuMusicApp extends StatelessWidget {
                             }
                             return content;
                           },
+                          ),
+                        );
+                          },
                         );
                       },
                     );
@@ -225,15 +244,60 @@ class FeiNiuMusicApp extends StatelessWidget {
   }
 }
 
+/// TV 模式方向同步：`tv` 变化时锁定/解锁横屏。
+///
+/// 自动检测或手动开关任一改变 tvMode，这里都会响应：TV 开启锁横屏，
+/// 关闭恢复竖屏（手机默认）。手机端 tv=false 时是 no-op。
+class _TvOrientationSync extends StatefulWidget {
+  final bool tv;
+  final Widget child;
+
+  const _TvOrientationSync({required this.tv, required this.child});
+
+  @override
+  State<_TvOrientationSync> createState() => _TvOrientationSyncState();
+}
+
+class _TvOrientationSyncState extends State<_TvOrientationSync> {
+  @override
+  void didUpdateWidget(_TvOrientationSync oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tv == widget.tv) return;
+    _applyOrientation(widget.tv);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // 首帧应用一次，覆盖 main() 里未处理的手动开关场景。
+    _applyOrientation(widget.tv);
+  }
+
+  void _applyOrientation(bool tv) {
+    SystemChrome.setPreferredOrientations(
+      tv
+          ? const [
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]
+          : const [DeviceOrientation.portraitUp],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 /// APP 启动门控
 ///
 /// 登录状态切换门控：
 /// - 未登录 → LoginPage
 /// - 已登录 → 直接进主页面（后台探测在 main() 中异步执行，不阻塞首页渲染）
 class _AppStartupGate extends StatefulWidget {
+  final bool tv;
   final Route<dynamic> Function(RouteSettings) onGenerateRoute;
 
-  const _AppStartupGate({required this.onGenerateRoute});
+  const _AppStartupGate({required this.tv, required this.onGenerateRoute});
 
   @override
   State<_AppStartupGate> createState() => _AppStartupGateState();
@@ -307,6 +371,8 @@ class _AppStartupGateState extends State<_AppStartupGate> {
                 // 避免每次 build 新建 key 导致嵌套 Navigator 被整体重挂、导航栈清零。
                 final navKey = _navKeyFor(accountId ?? 'none');
                 _baseNavKey = navKey;
+                // 注册全局嵌套导航器：TV 遥控器快捷键（搜索键）压栈用。
+                AppNavigator.attach(navKey);
                 return KeyedSubtree(
                   key: ValueKey('shell-${accountId ?? 'none'}'),
                   child: TabletLayoutHost(
@@ -317,6 +383,13 @@ class _AppStartupGateState extends State<_AppStartupGate> {
                       // 上，注册后 AppRouteVisibilityMixin（didPushNext/didPopNext）
                       // 才能按文档生效，播放页/流光预览的路由可见性暂停才有意义。
                       observers: [appRouteObserver],
+                      // TV 方向键跨块：路由 scope 默认 directionalEdgeBehavior
+                      // 是 stop，横向/纵向到边缘就停住，进不了左侧侧边栏、也下不到
+                      // 迷你播放器。TV 时放开为 parentScope，让最外层 WidgetsApp
+                      // 的 ReadingOrder 策略按几何位置找到侧栏/迷你播放器。
+                      routeDirectionalTraversalEdgeBehavior: widget.tv
+                          ? TraversalEdgeBehavior.parentScope
+                          : kDefaultRouteDirectionalTraversalEdgeBehavior,
                       initialRoute: AppRouter.initialRoute,
                       onGenerateRoute: widget.onGenerateRoute,
                     ),
@@ -345,8 +418,12 @@ class _AppStartupGateState extends State<_AppStartupGate> {
   ///
   /// 必须压到当前账号的嵌套基础导航器上，不能压根导航器（根导航器会被
   /// 门控盖住，破坏登录/登出回退到门控的规则）。
+  ///
+  /// 用 [AppLaunchNavigationSettings.shouldAutoOpenPlayerOnLaunch] 判断：
+  /// 首次启动引导页刚勾选该开关、引导完成的当次不自动打开（等下次启动），
+  /// 且本次 session 只判断一次（切换账号重建外壳不重复跳转）。
   void _scheduleAutoOpenPlayer() {
-    if (!AppLaunchNavigationSettings.autoOpenPlayerOnLaunch.value) return;
+    if (!AppLaunchNavigationSettings.shouldAutoOpenPlayerOnLaunch()) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final nav = _baseNavKey?.currentState;

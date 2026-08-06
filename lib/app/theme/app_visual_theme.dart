@@ -5,7 +5,11 @@ extension AppVisualStyleContext on BuildContext {
   bool get usesMiuix => true;
 }
 
-ThemeData buildMiuixMaterialTheme(ThemeData base, ColorScheme source) {
+ThemeData buildMiuixMaterialTheme(
+  ThemeData base,
+  ColorScheme source, {
+  bool isTv = false,
+}) {
   final isDark = source.brightness == Brightness.dark;
   final background = isDark ? const Color(0xFF080808) : const Color(0xFFF7F7F7);
   final surface = isDark ? const Color(0xFF1C1C1E) : Colors.white;
@@ -57,6 +61,16 @@ ThemeData buildMiuixMaterialTheme(ThemeData base, ColorScheme source) {
     canvasColor: background,
     cardColor: surface,
     splashFactory: InkRipple.splashFactory,
+    // TV 模式：给所有 Material 可聚焦控件（InkWell/ListTile/IconButton 等）
+    // 设主题 focusColor，让遥控器焦点在 10-foot 距离清晰可见。手机端 isTv
+    // 为 false，focusColor 走默认，行为逐字节不变。
+    // 0.34/0.18 是为 TV 屏幕调高的可见度（0.22 太浅，3 米外看不出选中）。
+    focusColor: isTv
+        ? scheme.primary.withValues(alpha: 0.34)
+        : null,
+    highlightColor: isTv
+        ? scheme.primary.withValues(alpha: 0.18)
+        : null,
     textTheme: textTheme,
     appBarTheme: base.appBarTheme.copyWith(
       backgroundColor: Colors.transparent,

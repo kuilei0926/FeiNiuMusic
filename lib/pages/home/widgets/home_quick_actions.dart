@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/state/settings_state.dart';
+
 /// 首页功能入口卡片数据
 class HomeQuickAction {
   final IconData icon;
@@ -60,9 +62,10 @@ class _QuickActionCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final accent = action.accent;
     final onPlay = action.onPlay;
+    final isTv = AppLayoutSettings.tvMode.value;
 
     return Container(
-      height: 80,
+      height: isTv ? 104 : 80,
       decoration: BoxDecoration(
         // 强调色渐变背景，让卡片有立体感
         gradient: LinearGradient(
@@ -130,8 +133,8 @@ class _QuickActionCard extends StatelessWidget {
                     right: 12,
                     bottom: 12,
                     child: Container(
-                      width: 38,
-                      height: 38,
+                      width: isTv ? 48 : 38,
+                      height: isTv ? 48 : 38,
                       decoration: BoxDecoration(
                         color: Colors.white,
                         shape: BoxShape.circle,
@@ -150,7 +153,7 @@ class _QuickActionCard extends StatelessWidget {
                           onTap: onPlay,
                           child: Icon(
                             Icons.play_arrow_rounded,
-                            size: 24,
+                            size: isTv ? 28 : 24,
                             color: accent,
                           ),
                         ),

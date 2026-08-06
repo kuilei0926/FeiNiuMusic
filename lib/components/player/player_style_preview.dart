@@ -49,19 +49,28 @@ class PlayerStylePreview extends StatelessWidget {
     );
     final size = MediaQuery.sizeOf(context);
     final portraitRatio = size.shortestSide / size.longestSide;
-    return AspectRatio(
-      aspectRatio: portraitRatio,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [bg, scheme.surface.withValues(alpha: 0.78)],
+    // TV 端引导页卡片：横屏下 shortest/longest ≈ 0.56，会让预览卡几乎全屏。
+    // 固定横屏观感（封面偏大但仍是"卡片"），并保留垂直钳制。
+    final isTv = AppLayoutSettings.tvMode.value;
+    final aspectRatio = isTv ? 0.72 : portraitRatio;
+    return Center(
+      child: AspectRatio(
+        aspectRatio: aspectRatio,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: isTv ? 340 : double.infinity),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [bg, scheme.surface.withValues(alpha: 0.78)],
+                ),
+              ),
+              child: content,
             ),
           ),
-          child: content,
         ),
       ),
     );

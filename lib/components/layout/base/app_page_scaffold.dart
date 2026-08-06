@@ -78,14 +78,14 @@ class AppPageScaffoldState extends State<AppPageScaffold>
 
   void openDrawer() {
     if (!_hasDrawer) return;
-    if (AppLayoutSettings.tabletMode.value) return;
+    if (AppLayoutSettings.effectiveTabletMode) return;
     _drawerController.forward();
     _setDrawerOpen(true);
   }
 
   void closeDrawer() {
     if (!_hasDrawer) return;
-    if (AppLayoutSettings.tabletMode.value) return;
+    if (AppLayoutSettings.effectiveTabletMode) return;
     _drawerController.reverse();
   }
 
@@ -97,7 +97,7 @@ class AppPageScaffoldState extends State<AppPageScaffold>
   /// 后抽屉必然处于关闭态。
   void closeDrawerImmediately() {
     if (!_hasDrawer) return;
-    if (AppLayoutSettings.tabletMode.value) return;
+    if (AppLayoutSettings.effectiveTabletMode) return;
     _drawerController.value = 0;
     _setDrawerOpen(false);
   }
@@ -170,7 +170,7 @@ class AppPageScaffoldState extends State<AppPageScaffold>
     );
 
     return ValueListenableBuilder<bool>(
-      valueListenable: AppLayoutSettings.tabletMode,
+      valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
       builder: (context, tabletMode, _) {
         Widget buildBody({required bool includeMiniPlayer}) {
           return Stack(

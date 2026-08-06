@@ -7,6 +7,7 @@ import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/api_models.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
+import '../../app/state/settings_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/theme/app_styles.dart';
 import '../../components/index.dart';
@@ -158,7 +159,8 @@ class _SearchPageState extends State<SearchPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: TextField(
                 controller: _controller,
-                autofocus: false,
+                // TV 模式自动聚焦搜索框，遥控器可直接输入。
+                autofocus: AppLayoutSettings.tvMode.value,
                 onChanged: (value) {
                   setState(() { _query = value; });
                   _runSearch();

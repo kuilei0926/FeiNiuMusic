@@ -29,10 +29,10 @@ class FnConnectionResponse {
 /// FN 接口返回的连接参数
 ///
 /// 实际接口响应示例：
-/// {"ddns":null,"ipv4":["192.168.11.200","192.168.11.205","192.168.11.201"],
-///  "ipv6":[],"publicIpv4":["120.239.64.67"],
+/// {"ddns":null,"ipv4":["192.168.11.xxx","192.168.11.xxx","192.168.11.xxx"],
+///  "ipv6":[],"publicIpv4":["120.239.xx.xxx"],
 ///  "publicIpv6":["2409:...","2409:...",...],   // 6条
-///  "fn":["kuilei0926.5ddd.com:443"],
+///  "fn":["xxxxx.5ddd.com:443"],
 ///  "port":{"httpsPort":5667,"httpPort":5666},
 ///  "checkSum":"24756","ver":"3.0.0","forbbidPublicIpv6":false}
 class FnConnectionParams {
@@ -51,7 +51,7 @@ class FnConnectionParams {
   /// HTTP 端口（接口字段：port.httpPort，默认 5666）
   final int httpPort;
 
-  /// 中继地址列表（接口字段：fn，如 ["kuilei0926.5ddd.com:443"]）
+  /// 中继地址列表（接口字段：fn，如 ["xxxxx.5ddd.com:443"]）
   final List<String> relayAddresses;
 
   const FnConnectionParams({

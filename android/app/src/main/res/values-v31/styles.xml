@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ (API 31+) 系统 Splash：
+         targetSdk>=31 时系统强制用 SplashScreen API 展示启动画面。
+         - windowSplashScreenBackground：白/黑（跟随系统，values-night 自动覆盖）
+         - 图标保持默认（应用 launcher 图标），系统按圆形蒙版缩放展示，
+           不裁切（非自适应图标按 2/3 尺寸置于圆内）
+         SplashScreen 在 Flutter 首帧绘制后由引擎自动移除，无白屏、无额外延时。 -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/launch_splash_bg</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+</resources>

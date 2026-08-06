@@ -10,13 +10,25 @@ class AppOnboardingSettings {
 
   static final ValueNotifier<bool> completed = ValueNotifier(false);
 
+  /// 本次启动是否为「新用户首次启动」（启动时引导尚未完成）。
+  ///
+  /// 在 [ensureLoaded] 时记录（main() runApp 前，PlayerService 恢复播放的
+  /// _restorePlaybackState 也在其后异步运行）。首次启动用户在引导页勾选的
+  /// 启动设置（自动打开播放界面 / 进入应用自动播放）文案为「从下次启动生效」，
+  /// 因此本次 session 内两个行为都必须抑制，等下次启动（isFirstLaunchSession
+  /// 为 false）才生效。用「启动时」的快照而非「当前」的 completed，避免竞态：
+  /// 异步恢复流程可能跑到引导完成之后才读标记，那时 completed 已变 true。
+  static bool isFirstLaunchSession = false;
+
   static Future<void>? _loading;
 
   static Future<void> ensureLoaded() => _loading ??= _doLoad();
 
   static Future<void> _doLoad() async {
     final prefs = await SharedPreferences.getInstance();
-    completed.value = prefs.getBool(_prefsCompleted) ?? false;
+    final wasCompleted = prefs.getBool(_prefsCompleted) ?? false;
+    completed.value = wasCompleted;
+    isFirstLaunchSession = !wasCompleted;
   }
 
   /// 标记引导完成：写持久化标记后更新 notifier，
@@ -31,5 +43,6 @@ class AppOnboardingSettings {
   static void resetForTest() {
     _loading = null;
     completed.value = false;
+    isFirstLaunchSession = false;
   }
 }

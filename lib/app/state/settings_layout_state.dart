@@ -12,6 +12,8 @@ class AppLayoutSettings {
   static const String _prefsTrackChangeNotify = 'setting_track_change_notify';
   static const String _prefsTrackChangeToastDurationMs =
       'setting_track_change_toast_duration_ms';
+  static const String _prefsTrackChangeToastScale =
+      'setting_track_change_toast_scale';
 
   /// TV 首次启动的「向右打开播放页」提示是否已展示过。
   static bool _tvEdgeHintShown = true;
@@ -43,6 +45,51 @@ class AppLayoutSettings {
   static final ValueNotifier<int> trackChangeToastDurationMs =
       ValueNotifier(3000);
 
+  /// 平板/TV 切歌卡片大小倍数，默认 1.0（当前大小），范围 1.0–3.0。
+  static final ValueNotifier<double> trackChangeToastScale =
+      ValueNotifier(1.0);
+
+  /// 首次大屏默认值是否已应用过（同会话只应用一次）。
+  static bool _firstUseLargeScreenApplied = false;
+
+  /// 平板判定阈值：屏幕最短边（dp）≥ 该值视为平板（大屏）。
+  ///
+  /// 对齐 Android sw600dp 惯例：≥600dp 的屏幕（常见 7"+ 平板 / 折叠屏展开态）
+  /// 走桌面式布局与切歌弹窗等大屏体验。
+  static const double tabletMinShortestSide = 600;
+
+  /// 是否为 TV 或平板（大屏）。
+  ///
+  /// TV 由 [tvMode] 判定（自动检测或手动强制）；平板用屏幕最短边 dp 判定，
+  /// 传入 [shortestSide]（`MediaQuery.sizeOf(context).shortestSide` 即物理
+  /// 最短边 / devicePixelRatio，dp 单位）。
+  static bool isLargeScreen({
+    required bool isTv,
+    required double shortestSide,
+  }) {
+    return isTv || shortestSide >= tabletMinShortestSide;
+  }
+
+  /// 首次使用：检测为 TV 或平板（大屏）时自动开启「切歌弹窗」开关。
+  ///
+  /// 首次引导会话（[isFirstLaunch] 为 true）且设备为大屏时，开启切歌通知，
+  /// 让电视/平板在切歌时看到「正在播放」提示（设置页该开关注释即为大屏场景
+  /// 设计）。仅首次生效，老用户重启不改动任何开关。
+  ///
+  /// 同会话只应用一次：应用后置位内部标记，用户随后手动关闭不会被重新开启；
+  /// 由引导页完成时（main() 首帧前的门控）调用一次。
+  static Future<void> applyFirstUseLargeScreenDefaults({
+    required bool isFirstLaunch,
+    required bool isTv,
+    required double shortestSide,
+  }) async {
+    if (!isFirstLaunch) return;
+    if (_firstUseLargeScreenApplied) return;
+    if (!isLargeScreen(isTv: isTv, shortestSide: shortestSide)) return;
+    _firstUseLargeScreenApplied = true;
+    await setTrackChangeNotify(true);
+  }
+
   /// 播放页路由当前是否激活（由 PlayerPage initState/dispose 置位）。
   /// TabletLayoutHost 据此在 TV 模式隐藏侧栏与迷你播放器。
   static final ValueNotifier<bool> playerRouteActive = ValueNotifier(false);
@@ -69,10 +116,16 @@ class AppLayoutSettings {
     trackChangeToastDurationMs.value = _clampTrackChangeDuration(
       prefs.getInt(_prefsTrackChangeToastDurationMs) ?? 3000,
     );
+    trackChangeToastScale.value = _clampTrackChangeScale(
+      prefs.getDouble(_prefsTrackChangeToastScale) ?? 1.0,
+    );
   }
 
   /// 钳制切歌提示时长到 2s–10s。
   static int _clampTrackChangeDuration(int ms) => ms.clamp(2000, 10000);
+
+  /// 钳制切歌卡片大小倍数到 1.0–3.0。
+  static double _clampTrackChangeScale(double scale) => scale.clamp(1.0, 3.0);
 
   /// 是否应展示 TV 首次启动提示（未展示过）。展示后自动置位并持久化，
   /// 保证每次启动只提醒一次。
@@ -124,6 +177,13 @@ class AppLayoutSettings {
     trackChangeToastDurationMs.value = clamped;
   }
 
+  static Future<void> setTrackChangeToastScale(double scale) async {
+    final clamped = _clampTrackChangeScale(scale);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_prefsTrackChangeToastScale, clamped);
+    trackChangeToastScale.value = clamped;
+  }
+
   /// 测试用：重置懒加载与内存状态。
   @visibleForTesting
   static void resetForTest() {
@@ -135,7 +195,9 @@ class AppLayoutSettings {
     _tvEdgeHintShown = true;
     trackChangeNotify.value = false;
     trackChangeToastDurationMs.value = 3000;
+    trackChangeToastScale.value = 1.0;
     playerRouteActive.value = false;
+    _firstUseLargeScreenApplied = false;
   }
 }
 

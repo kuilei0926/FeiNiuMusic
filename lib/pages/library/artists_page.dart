@@ -10,6 +10,7 @@ import '../../app/router/app_page_route.dart';
 import '../../app/router/app_router.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/api_models.dart';
+import '../../app/state/settings_layout_state.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/deferred_page_init_mixin.dart';
 import '../../components/index.dart';
@@ -411,14 +412,16 @@ class _ArtistsPageState extends State<ArtistsPage>
         appBar: AppTopBar(
           title: '歌手',
           isRefreshing: _isRefreshing.value,
-          leading: IconButton(
-            icon: Icon(
-              useBottomNavigation ? Icons.arrow_back_rounded : Icons.menu_rounded,
-            ),
-            onPressed: useBottomNavigation
-                ? () => Navigator.of(context).maybePop()
-                : _openDrawer,
-          ),
+          leading: useBottomNavigation || AppLayoutSettings.tvMode.value
+              ? null
+              : IconButton(
+                  icon: Icon(
+                    useBottomNavigation ? Icons.arrow_back_rounded : Icons.menu_rounded,
+                  ),
+                  onPressed: useBottomNavigation
+                      ? () => Navigator.of(context).maybePop()
+                      : _openDrawer,
+                ),
           backgroundColor: Colors.transparent,
           elevation: 0,
           actions: [

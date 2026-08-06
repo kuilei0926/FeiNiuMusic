@@ -69,7 +69,7 @@ class MiniPlayerBar extends StatelessWidget {
         final openPlayer =
             onOpenPlayer ??
             () {
-              final isTabletLayout = AppLayoutSettings.tabletMode.value;
+              final isTabletLayout = AppLayoutSettings.effectiveTabletMode;
               final navigator = Navigator.of(
                 context,
                 rootNavigator: isTabletLayout,

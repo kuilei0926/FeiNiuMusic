@@ -8,6 +8,7 @@ import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/favorite_service.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
+import '../../app/state/settings_layout_state.dart';
 import '../../app/state/settings_playback_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/utils/api_cache_manager.dart';
@@ -421,7 +422,7 @@ class _FavoritePageState extends State<FavoritePage>
           isRefreshing: _isRefreshing.value && !isMultiSelecting,
           backgroundColor: Colors.transparent,
           elevation: 0,
-          leading: useBottomNavigation
+          leading: useBottomNavigation || AppLayoutSettings.tvMode.value
               ? null
               : (isMultiSelecting
                   ? IconButton(

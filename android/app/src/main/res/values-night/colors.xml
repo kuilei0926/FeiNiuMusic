@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 开屏背景（暗色模式）：跟随系统深色，白图标在黑色背景上保持品牌可见。
+         与 values/colors.xml 中同名资源按 uiMode 自动切换，无需改代码。 -->
+    <color name="launch_splash_bg">#000000</color>
+</resources>

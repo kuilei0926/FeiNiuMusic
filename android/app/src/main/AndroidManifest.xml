@@ -9,6 +9,7 @@
         android:label="飞牛音乐"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:banner="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:enableOnBackInvokedCallback="true">
         <meta-data android:name="lyricon_module" android:value="true" />
@@ -35,6 +36,18 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- 音乐播放器声明：系统 / OEM 的"默认应用 → 音乐"列表
+                 （MIUI、ColorOS、原生等）按 android.intent.action.MUSIC_PLAYER
+                 识别音乐播放器。没有它应用不会出现在该列表。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.MUSIC_PLAYER" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- Android TV Leanback 启动入口：同一 Activity 出现在 TV 启动器。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
@@ -92,4 +105,8 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- TV 支持声明：required=false 保持手机/平板可安装；
+         Play / Google TV 据此将应用识别为 TV 应用并允许 Leanback 启动器入口。 -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 </manifest>

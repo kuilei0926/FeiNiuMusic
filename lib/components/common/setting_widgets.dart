@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/state/settings_state.dart';
 import '../../app/theme/app_visual_theme.dart';
 import 'glass_panel.dart';
 import 'labeled_slider.dart';
@@ -87,14 +88,20 @@ class AppSettingTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final miuix = context.usesMiuix;
+    final isTv = AppLayoutSettings.tvMode.value;
     // 用透明 Material 包住 ListTile，让它的背景/涟漪画在自己的 Material
     // 上，避免中间的带色面板容器（GlassPanel）触发 SDK 的
     // "ListTile background color or ink splashes may be invisible" 断言。
     return Material(
       color: Colors.transparent,
       child: ListTile(
-        dense: !miuix,
-        contentPadding: EdgeInsets.symmetric(horizontal: miuix ? 20 : 16),
+        dense: isTv ? false : !miuix,
+        // TV 端加大设置行高度，方便遥控器聚焦命中。
+        minVerticalPadding: isTv ? 16 : null,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: isTv ? 24 : (miuix ? 20 : 16),
+          vertical: isTv ? 6 : 0,
+        ),
         leading: leading,
         title: Text(title),
         subtitle: subtitle == null ? null : Text(subtitle!),

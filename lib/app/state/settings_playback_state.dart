@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'settings_onboarding_state.dart';
 import 'settings_volume_schedule_state.dart';
 
 class AppPlaybackVolumeSettings {
@@ -74,7 +75,21 @@ class AppLaunchPlaybackSettings {
       'player_auto_play_on_app_launch';
 
   static final ValueNotifier<bool> autoPlayOnAppLaunch = ValueNotifier(false);
-  static bool hasHandledAutoPlayThisSession = false;
+
+  /// 判断本次启动是否应自动播放。
+  ///
+  /// 首次启动（[AppOnboardingSettings.isFirstLaunchSession]，启动时引导未完成）：
+  /// 用户在引导页勾选「进入应用自动播放」只是写入持久化，必须等**下次启动**
+  /// 才生效（引导页文案「这些设置从下次启动生效」），本次启动恢复流程不自动播放。
+  ///
+  /// 老用户（引导已完成，开关一直开着）重启时 isFirstLaunchSession 为 false，
+  /// 正常生效。用启动时的快照判断，避免异步恢复流程读到引导完成后的状态。
+  static bool shouldAutoPlayOnAppLaunch() {
+    if (AppOnboardingSettings.isFirstLaunchSession) {
+      return false;
+    }
+    return autoPlayOnAppLaunch.value;
+  }
 
   static Future<void>? _loading;
 
@@ -90,6 +105,12 @@ class AppLaunchPlaybackSettings {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefsAutoPlayOnAppLaunch, enabled);
     autoPlayOnAppLaunch.value = enabled;
+  }
+
+  /// 测试专用：重置内存状态（清空懒加载缓存），供测试 setUp 复用。
+  static void resetForTest() {
+    _loading = null;
+    autoPlayOnAppLaunch.value = false;
   }
 }
 
@@ -268,8 +289,33 @@ class AppLaunchNavigationSettings {
   static final ValueNotifier<bool> autoOpenPlayerOnLaunch =
       ValueNotifier(false);
 
-  /// 标记本次 session 是否已处理过启动跳转（仅启动首次生效）
-  static bool hasHandledNavigationThisSession = false;
+  /// 本次 session 是否已处理过「启动自动打开播放界面」。
+  ///
+  /// 首次启动引导页勾选该开关时，设置立即写入持久化，但必须等**下次启动**
+  /// 才生效（引导页文案「这些设置从下次启动生效」）。通过标记「在引导完成
+  /// 当次 session 内不自动打开」，区分「开关一直开着、本次是重启」与「本次
+  /// 才在引导页打开、是首次启动」。
+  static bool _hasHandledNavigationThisSession = false;
+
+  static bool get hasHandledNavigationThisSession =>
+      _hasHandledNavigationThisSession;
+
+  /// 判断本次启动首帧后是否应自动打开播放页，并标记已处理（一次性）。
+  ///
+  /// 门控首帧只调用一次（app.dart _scheduleAutoOpenPlayer 的 isLoggedIn
+  /// 分支仅首帧触发一次）。首次启动（isFirstLaunchSession，引导页刚勾选该
+  /// 开关）不自动打开（等下次启动）；老用户重启正常生效。切换账号重建外壳
+  /// 不会重复触发。
+  static bool shouldAutoOpenPlayerOnLaunch() {
+    if (_hasHandledNavigationThisSession) {
+      return false;
+    }
+    _hasHandledNavigationThisSession = true;
+    if (AppOnboardingSettings.isFirstLaunchSession) {
+      return false;
+    }
+    return autoOpenPlayerOnLaunch.value;
+  }
 
   static Future<void>? _loading;
 
@@ -285,5 +331,12 @@ class AppLaunchNavigationSettings {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefsAutoOpenPlayerOnLaunch, enabled);
     autoOpenPlayerOnLaunch.value = enabled;
+  }
+
+  /// 测试专用：重置内存状态（清空懒加载缓存 + 会话标记），供测试 setUp 复用。
+  static void resetForTest() {
+    _loading = null;
+    autoOpenPlayerOnLaunch.value = false;
+    _hasHandledNavigationThisSession = false;
   }
 }

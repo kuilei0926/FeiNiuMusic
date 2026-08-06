@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/state/settings_state.dart';
+
 /// 首页功能入口卡片数据
 class HomeShortcutItem {
   final IconData icon;
@@ -55,6 +57,8 @@ class _ShortcutItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = item.accent;
+    final isTv = AppLayoutSettings.tvMode.value;
+    final iconSize = isTv ? 56.0 : 44.0;
     return Material(
       color: scheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(16),
@@ -62,21 +66,23 @@ class _ShortcutItem extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         onTap: item.onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: EdgeInsets.symmetric(
+            vertical: isTv ? 16 : 12,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               // 圆形图标容器
               Container(
-                width: 44,
-                height: 44,
+                width: iconSize,
+                height: iconSize,
                 decoration: BoxDecoration(
                   color: accent.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   item.icon,
-                  size: 22,
+                  size: iconSize * 0.5,
                   color: accent,
                 ),
               ),

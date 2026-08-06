@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ (API 31+) 系统 Splash（暗色模式）：
+         黑色背景，与亮色版白色保持一致的产品逻辑：开屏跟随系统明暗。 -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/launch_splash_bg</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+</resources>

@@ -198,10 +198,11 @@ class _PrimaryNavigationShellState extends State<_PrimaryNavigationShell> {
       valueListenable: AppLayoutSettings.navigationStyle,
       builder: (context, navigationStyle, _) {
         return ValueListenableBuilder<bool>(
-          valueListenable: AppLayoutSettings.tabletMode,
-          builder: (context, tabletMode, _) {
+          valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
+          builder: (context, effectiveTabletMode, _) {
             final useBottomNavigation =
-                navigationStyle == AppNavigationStyle.bottomBar && !tabletMode;
+                navigationStyle == AppNavigationStyle.bottomBar &&
+                !effectiveTabletMode;
             if (!useBottomNavigation) return const HomePage();
 
             _scheduleWarmup();

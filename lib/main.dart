@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +10,8 @@ import 'app/app.dart';
 import 'app/services/debug_log_service.dart';
 import 'app/services/fn_auto_reconnect_service.dart';
 import 'app/services/media_notification_service.dart';
+import 'app/services/tv_detection.dart';
+import 'app/services/track_change_toast_service.dart';
 import 'app/services/feiniu/account_store.dart';
 import 'app/services/feiniu/api_client.dart';
 import 'app/services/feiniu/auth_service.dart';
@@ -32,15 +35,43 @@ Future<void> main() async {
     debugPrint('MediaKit.ensureInitialized failed: $e');
   }
   await DebugLogService.instance.ensureLoaded();
-  await FlutterDisplayMode.setHighRefreshRate();
+  // TV 检测必须在 runApp 前完成，避免首帧后再切换布局造成闪变。
+  // TV 面板固定 60Hz，强制高刷无意义甚至闪烁，因此高刷调用跳过 TV。
+  await TvDetection.ensureLoaded();
+  final isTvDevice = TvDetection.result.value;
+  if (!isTvDevice) {
+    await FlutterDisplayMode.setHighRefreshRate();
+  }
+  // 先加载设置：确保持久化的「TV 模式」手动开关已就位，再合并检测结果。
+  // 必须放在 syncTvMode() 之前，否则重启后已开启的开关读不进来，
+  // tvMode 会被算成 false（设置不丢失，但布局不会切到 TV）。
+  await AppLayoutSettings.ensureLoaded();
+  // 合并自动检测 + 设置页手动强制开关，写入 tvMode。
+  TvDetectionAutoValue.value = isTvDevice;
+  AppLayoutSettings.syncTvMode();
+  // TV 恒横屏：运行时锁定方向，manifest 不强制（避免连带手机横屏）。
+  if (AppLayoutSettings.tvMode.value) {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
   // 必须先恢复认证信息（token / 服务器地址）再初始化播放相关服务：
   // MediaNotificationService.init() 会实例化 PlayerService，其启动恢复流程
   // （含「进入应用自动播放」）依赖 FeiNiuApiClient.baseUrl 已就绪，
   // 否则流地址解析失败，自动播放会被静默吞掉。
+  //
+  // 首次启动引导标记必须在 MediaNotificationService.init() 之前预加载：
+  // isFirstLaunchSession 需在 PlayerService 启动恢复（_restorePlaybackState
+  // 读 shouldAutoPlayOnAppLaunch）之前确定，否则首次启动引导页勾选的
+  // 「进入应用自动播放」可能在本次启动就被自动播放（应等下次启动生效）。
+  await AppOnboardingSettings.ensureLoaded();
   await AuthService.instance.init();
   await MediaNotificationService.init();
+  // 切歌通知监听：PlayerService 已构造（MediaNotificationService.init 内），
+  // AppLayoutSettings 已在上面 ensureLoaded，可安全订阅 currentSong。
+  TrackChangeToastService.start();
   await AppThemeSettings.ensureLoaded();
-  await AppLayoutSettings.ensureLoaded();
   await AppBackgroundSettings.ensureLoaded();
   await AppFnConnectionSettings.ensureLoaded();
   // 已保存账号列表初始化：迁移/校正当前账号，并注册 401 token 同步回调。
@@ -49,9 +80,6 @@ Future<void> main() async {
   await AccountStore.instance.init();
   await PlayerStyleSettings.ensureLoaded();
   await AppLaunchNavigationSettings.ensureLoaded();
-  // 首次启动引导标记：必须在 runApp 前预加载，否则已完成引导的用户
-  // 每次启动都会先闪一下引导页再进登录/主界面（completed 初始为 false）。
-  await AppOnboardingSettings.ensureLoaded();
   // 初始化自动重连服务（监听网络变化 + API 失败）
   FnAutoReconnectService.instance.init();
   runApp(const FeiNiuMusicApp());

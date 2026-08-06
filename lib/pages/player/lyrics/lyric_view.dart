@@ -530,9 +530,16 @@ class _PlayerLyricsViewState extends State<PlayerLyricsView> with SignalsMixin {
         final dragSeek = _dragSeek.value;
         final showTranslation = _showTranslation.value;
         final forceKaraoke = _forceKaraoke.value;
-        final fontSize = _fontSize.value;
-        final activeFontSize = _activeFontSize.value;
-        final lineGap = _lineGap.value;
+        // TV 端（3 米外观看）按比例放大歌词字号：默认 16/20 → 22/28，
+        // 行距同步放大。滑块仍显示原始数值（用户设置不变，仅渲染缩放）。
+        final isTv = AppLayoutSettings.tvMode.value;
+        final fontSizeScale = isTv ? 1.4 : 1.0;
+        final rawFontSize = _fontSize.value;
+        final rawActiveFontSize = _activeFontSize.value;
+        final rawLineGap = _lineGap.value;
+        final fontSize = rawFontSize * fontSizeScale;
+        final activeFontSize = rawActiveFontSize * fontSizeScale;
+        final lineGap = rawLineGap * fontSizeScale;
         final snap = lyrics.snapshotSignal.value;
         final isPlaying = player.isPlayingSignal.value;
         final model = lyrics.lyricModelSignal.value;

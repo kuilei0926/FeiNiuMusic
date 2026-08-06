@@ -72,11 +72,11 @@ class AppNavigationModeBuilder extends StatelessWidget {
       valueListenable: AppLayoutSettings.navigationStyle,
       builder: (context, style, _) {
         return ValueListenableBuilder<bool>(
-          valueListenable: AppLayoutSettings.tabletMode,
-          builder: (context, tabletMode, _) {
+          valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
+          builder: (context, effectiveTabletMode, _) {
             return builder(
               context,
-              style == AppNavigationStyle.bottomBar && !tabletMode,
+              style == AppNavigationStyle.bottomBar && !effectiveTabletMode,
             );
           },
         );

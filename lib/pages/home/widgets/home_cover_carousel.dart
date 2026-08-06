@@ -2,6 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/services/feiniu/api_client.dart';
+import '../../../app/state/settings_layout_state.dart';
+import '../../../components/focus/tv_focusable.dart';
 
 /// 横向封面轮播单项数据
 class HomeCoverItem {
@@ -92,7 +94,8 @@ class _CarouselCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final coverId = item.coverId;
-    return SizedBox(
+    final isTv = AppLayoutSettings.tvMode.value;
+    final card = SizedBox(
       width: coverSize,
       child: GestureDetector(
         onTap: item.onTap,
@@ -158,6 +161,16 @@ class _CarouselCard extends StatelessWidget {
         ),
       ),
     );
+    // TV：轮播卡是 GestureDetector（非 Material），需焦点环才能被遥控器聚焦；
+    // Enter 触发同样的跳转。
+    if (isTv) {
+      return TvFocusable(
+        borderRadius: BorderRadius.circular(borderRadius + 8),
+        onActivate: item.onTap,
+        child: card,
+      );
+    }
+    return card;
   }
 
   Widget _coverPlaceholder() {

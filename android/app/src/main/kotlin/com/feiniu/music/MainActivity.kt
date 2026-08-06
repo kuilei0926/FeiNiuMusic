@@ -26,6 +26,7 @@ class MainActivity : AudioServiceActivity() {
     private val lyriconChannelName = "com.feiniu.music/lyricon"
     private val downloadsChannelName = "com.feiniu.music/downloads"
     private val artworkChannelName = "com.feiniu.music/native_artwork"
+    private val tvChannelName = "com.feiniu.music/tv"
     private val notificationId = 10010
     private val notificationChannelId = "meizu_lyric_channel"
     private var flagShowTicker: Int? = null
@@ -159,6 +160,23 @@ class MainActivity : AudioServiceActivity() {
                 else -> result.notImplemented()
             }
         }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            tvChannelName
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isTvDevice" -> result.success(isTvDevice())
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    /** 是否为 Android TV 设备：uiMode 类型为 TELEVISION，或设备声明 LEANBACK 特性。 */
+    private fun isTvDevice(): Boolean {
+        val uiMode = resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_TYPE_MASK
+        return uiMode == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
     }
 
     private fun loadAudioThumbnail(path: String, size: Int): ByteArray? {

@@ -5,6 +5,7 @@ import '../../components/index.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
+import '../../app/state/settings_layout_state.dart';
 import '../../app/state/settings_playback_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/theme/app_styles.dart';
@@ -290,16 +291,18 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
                   icon: const Icon(Icons.close_rounded),
                   onPressed: exitMultiSelect,
                 )
-              : IconButton(
-                  icon: Icon(
-                    useBottomNavigation
-                        ? Icons.arrow_back_rounded
-                        : Icons.menu_rounded,
-                  ),
-                  onPressed: useBottomNavigation
-                      ? () => Navigator.of(context).maybePop()
-                      : () => _scaffoldKey.currentState?.openDrawer(),
-                ),
+              : (useBottomNavigation || AppLayoutSettings.tvMode.value)
+                    ? null
+                    : IconButton(
+                        icon: Icon(
+                          useBottomNavigation
+                              ? Icons.arrow_back_rounded
+                              : Icons.menu_rounded,
+                        ),
+                        onPressed: useBottomNavigation
+                            ? () => Navigator.of(context).maybePop()
+                            : () => _scaffoldKey.currentState?.openDrawer(),
+                      ),
           backgroundColor: Colors.transparent,
           elevation: 0,
           actions: isMultiSelecting

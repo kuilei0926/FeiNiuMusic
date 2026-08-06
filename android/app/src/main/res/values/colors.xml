@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 开屏背景（亮色模式）：跟随系统浅色，彩色图标在白底上保持品牌可见。
+         暗色模式由 values-night/colors.xml 同名资源覆盖；四个 Splash 位置共用此色。 -->
+    <color name="launch_splash_bg">#FFFFFF</color>
+</resources>

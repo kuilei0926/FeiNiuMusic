@@ -28,6 +28,7 @@ export 'dialog/load_more_count_dialog.dart';
 export 'feedback/app_toast.dart';
 export 'feedback/probe_overlay.dart';
 export 'feedback/startup_probe_screen.dart';
+export 'feedback/track_change_toast.dart';
 export 'layout/modern_navigation_bar.dart';
 export 'layout/base/app_top_bar.dart';
 export 'player/karaoke_lyric_text.dart';

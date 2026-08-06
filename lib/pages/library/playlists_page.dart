@@ -16,8 +16,10 @@ import '../../app/services/feiniu/playlist_service.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/router/app_page_route.dart';
+import '../../app/state/settings_layout_state.dart';
 import '../../app/state/settings_playback_state.dart';
 import '../../app/state/song_state.dart';
+import '../../app/tv/tv_layout.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/deferred_page_init_mixin.dart';
 import '../../app/utils/primary_tab_refresh_mixin.dart';
@@ -62,8 +64,15 @@ class _PlaylistsPageState extends State<PlaylistsPage>
   bool _hasMore = true;
 
   double _gridAspectRatioForColumns(int cols) {
+    // TV 模式：正方形封面 + 标题，比例取 TvLayout（0.84~0.88），
+    // 避免 0.5 时封面下方空出大段空白。
+    if (AppLayoutSettings.tvMode.value) {
+      return TvLayout.cardAspectRatio(cols);
+    }
     if (cols == 2) return 0.76;
     if (cols == 3) return 0.65;
+    if (cols == 5) return 0.52;
+    if (cols == 6) return 0.5;
     return 0.57;
   }
 
@@ -148,23 +157,35 @@ class _PlaylistsPageState extends State<PlaylistsPage>
   }
 
   Future<void> _loadPrefs() async {
+    // 在首个 await 前取宽，避免跨异步间隙使用 BuildContext。
+    final width = AppLayoutSettings.tvMode.value
+        ? MediaQuery.sizeOf(context).width
+        : 0.0;
     final prefs = await SharedPreferences.getInstance();
     var mode = (prefs.getString(_prefsSortMode) ?? 'name').trim();
     if (mode.isEmpty) mode = 'name';
     final asc = prefs.getBool(_prefsSortAscending) ?? true;
-    var cols = prefs.getInt(_prefsGridColumns) ?? 2;
-    if (cols < 2) cols = 2;
-    if (cols > 4) cols = 4;
+    // TV 模式：列数按屏幕宽度自适应，不读移动端持久化值（互不串味）。
+    if (AppLayoutSettings.tvMode.value) {
+      _gridColumns.value = TvLayout.gridColumns(width);
+    } else {
+      var cols = prefs.getInt(_prefsGridColumns) ?? 2;
+      if (cols < 2) cols = 2;
+      if (cols > 4) cols = 4;
+      _gridColumns.value = cols;
+    }
     _sortMode.value = mode;
     _ascending.value = asc;
-    _gridColumns.value = cols;
   }
 
   Future<void> _savePrefs() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsSortMode, _sortMode.value);
     await prefs.setBool(_prefsSortAscending, _ascending.value);
-    await prefs.setInt(_prefsGridColumns, _gridColumns.value);
+    // TV 模式的列数选择不写入移动端持久化，避免污染手机端偏好。
+    if (!AppLayoutSettings.tvMode.value) {
+      await prefs.setInt(_prefsGridColumns, _gridColumns.value);
+    }
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
@@ -468,23 +489,42 @@ class _PlaylistsPageState extends State<PlaylistsPage>
                 child: SizedBox(
                   width: double.infinity,
                   child: SegmentedButton<int>(
-                    segments: const [
-                      ButtonSegment(
-                        value: 2,
-                        label: Text('二列'),
-                        icon: Icon(Icons.grid_view_rounded),
-                      ),
-                      ButtonSegment(
-                        value: 3,
-                        label: Text('三列'),
-                        icon: Icon(Icons.grid_view_rounded),
-                      ),
-                      ButtonSegment(
-                        value: 4,
-                        label: Text('四列'),
-                        icon: Icon(Icons.grid_view_rounded),
-                      ),
-                    ],
+                    // TV 大屏给更多列选项（4/5/6），手机/平板保持 2/3/4。
+                    segments: AppLayoutSettings.tvMode.value
+                        ? const [
+                            ButtonSegment(
+                              value: 4,
+                              label: Text('四列'),
+                              icon: Icon(Icons.grid_view_rounded),
+                            ),
+                            ButtonSegment(
+                              value: 5,
+                              label: Text('五列'),
+                              icon: Icon(Icons.grid_view_rounded),
+                            ),
+                            ButtonSegment(
+                              value: 6,
+                              label: Text('六列'),
+                              icon: Icon(Icons.grid_view_rounded),
+                            ),
+                          ]
+                        : const [
+                            ButtonSegment(
+                              value: 2,
+                              label: Text('二列'),
+                              icon: Icon(Icons.grid_view_rounded),
+                            ),
+                            ButtonSegment(
+                              value: 3,
+                              label: Text('三列'),
+                              icon: Icon(Icons.grid_view_rounded),
+                            ),
+                            ButtonSegment(
+                              value: 4,
+                              label: Text('四列'),
+                              icon: Icon(Icons.grid_view_rounded),
+                            ),
+                          ],
                     selected: {_gridColumns.value},
                     onSelectionChanged: (selection) {
                       final v = selection.first;
@@ -511,16 +551,18 @@ class _PlaylistsPageState extends State<PlaylistsPage>
         appBar: AppTopBar(
           title: '我的歌单',
           isRefreshing: _isRefreshing.value,
-          leading: IconButton(
-            icon: Icon(
-              useBottomNavigation
-                  ? Icons.arrow_back_rounded
-                  : Icons.menu_rounded,
-            ),
-            onPressed: useBottomNavigation
-                ? () => Navigator.of(context).maybePop()
-                : _openDrawer,
-          ),
+          leading: useBottomNavigation || AppLayoutSettings.tvMode.value
+              ? null
+              : IconButton(
+                  icon: Icon(
+                    useBottomNavigation
+                        ? Icons.arrow_back_rounded
+                        : Icons.menu_rounded,
+                  ),
+                  onPressed: useBottomNavigation
+                      ? () => Navigator.of(context).maybePop()
+                      : _openDrawer,
+                ),
           backgroundColor: Colors.transparent,
           elevation: 0,
           actions: [
@@ -604,7 +646,9 @@ class _PlaylistsPageState extends State<PlaylistsPage>
                           slivers: [
                             const SliverToBoxAdapter(child: SizedBox(height: 8)),
                             SliverPadding(
-                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 160),
+                              padding: AppLayoutSettings.tvMode.value
+                                  ? TvLayout.pagePadding()
+                                  : const EdgeInsets.fromLTRB(12, 0, 12, 160),
                               sliver: SliverGrid(
                                 delegate: SliverChildBuilderDelegate(
                                   (context, index) {
