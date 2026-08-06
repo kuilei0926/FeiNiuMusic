@@ -15,6 +15,11 @@
         <meta-data android:name="lyricon_module" android:value="true" />
         <meta-data android:name="lyricon_module_author" android:value="FeiNiuMusic" />
         <meta-data android:name="lyricon_module_description" android:value="FeiNiuMusic Lyricon Provider" />
+        <!-- Android Automotive OS（车机版）媒体应用身份：让车机 App 库
+             识别本应用为媒体应用。手机投屏 Android Auto 不需要此项。 -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

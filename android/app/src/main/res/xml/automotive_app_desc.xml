@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Automotive OS（车机版）媒体应用声明：
+     Google 通过该文件把应用识别为媒体应用，纳入车机 App 库。
+     仅用于内置 Android 的车机（AAOS）；手机投屏 Android Auto 不需要
+     它，走的是 MediaBrowserService。 -->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

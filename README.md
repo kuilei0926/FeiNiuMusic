@@ -54,7 +54,29 @@
 
 ## 适用平台
 
-- Android（手机 / 平板 / Android TV）
+- Android（手机 / 平板 / Android TV / Android Auto 车机）
+
+## Android Auto 支持
+
+飞牛音乐通过 `audio_service` 注册系统 MediaSession / MediaBrowserService，
+支持在 Android Auto（手机投屏）与 Android Automotive OS（车机版）上显示和控制播放：
+
+- **启动器可见**：应用启动即注册媒体会话，Android Auto 启动器可直接发现本应用
+- **正在播放卡片**：显示封面、歌名、歌手、专辑与进度，支持上一首 / 播放暂停 / 下一首 / 拖动进度
+- **队列列表**：点按队列中的曲目可直接切歌
+- **通知联动**：通知栏与车机共用同一媒体会话，自定义按键（收藏 / 关闭）同步生效
+
+### 测试方式
+
+1. 手机安装本应用，并安装 Android Auto 应用
+2. 通过数据线连接支持 Android Auto 的车机（或使用 Android Auto 模拟器）
+3. 在车机启动器中选择「飞牛音乐」
+
+### 上架说明
+
+要在 Google Play 上架并支持 Android Auto，需要在 Play Console 中将应用
+**声明为媒体应用**并提交 Android Auto 审核，详见
+[Android Auto 媒体应用质量要求](https://developer.android.com/training/cars/media)。
 
 ## 界面预览
 

@@ -27,6 +27,17 @@ class MediaNotificationService {
     final player = PlayerService.instance;
     final snap = player.snapshot.value;
     if (!force && snap.song == null && !snap.isPlaying) {
+      // Android Auto / 系统媒体中心通过 MediaBrowserService 发现应用：
+      // 即使当前没有播放内容也要注册 MediaSession，否则首次连接车机时
+      // 启动器里看不到本应用（要等用户手动播一首歌才会出现）。
+      // 其他平台保持原有延迟注册行为。
+      if (io.Platform.isAndroid) {
+        try {
+          await _initHandler();
+        } catch (e) {
+          _debugLog('eager init failed, will retry on first play: $e');
+        }
+      }
       if (_initListener == null) {
         _initListener = () {
           final current = player.snapshot.value;
@@ -41,27 +52,28 @@ class MediaNotificationService {
       }
       return;
     }
+    await _initHandler();
+  }
+
+  static Future<void> _initHandler() async {
+    if (_audioHandler != null || _initStarted) return;
     _initStarted = true;
-    _debugLog('init start force=$force');
-    if (io.Platform.isAndroid) {
-      final status = await Permission.notification.status;
-      if (!status.isGranted) {
-        _debugLog('requesting Android notification permission');
-        await Permission.notification.request();
-      }
+    _debugLog('init start');
+    try {
+      _audioHandler = await AudioService.init(
+        builder: () => _FeiNiuAudioHandler(PlayerService.instance),
+        config: const AudioServiceConfig(
+          androidNotificationChannelId: 'com.feiniu.music.playback',
+          androidNotificationChannelName: '音乐播放',
+          androidNotificationOngoing: true,
+          androidStopForegroundOnPause: true,
+          androidShowNotificationBadge: false,
+        ),
+      );
+      _debugLog('init completed');
+    } finally {
+      _initStarted = false;
     }
-    _audioHandler = await AudioService.init(
-      builder: () => _FeiNiuAudioHandler(PlayerService.instance),
-      config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.feiniu.music.playback',
-        androidNotificationChannelName: '音乐播放',
-        androidNotificationOngoing: true,
-        androidStopForegroundOnPause: true,
-        androidShowNotificationBadge: false,
-      ),
-    );
-    _debugLog('init completed');
-    _initStarted = false;
   }
 
   static void _debugLog(String message) {
@@ -81,6 +93,7 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   String? _lastMediaItemKey;
   String? _lastPlaybackStateKey;
   bool _supportsCustomActions = true;
+  bool _notificationPermissionRequested = false;
 
   // 封面本地缓存
   String? _coverDirPath;
@@ -347,7 +360,11 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
         : AudioProcessingState.ready;
     return PlaybackState(
       controls: controls,
-      systemActions: const {MediaAction.seek},
+      systemActions: const {
+        MediaAction.seek,
+        MediaAction.skipToNext,
+        MediaAction.skipToPrevious,
+      },
       androidCompactActionIndices: const [0, 1, 2],
       processingState: processing,
       playing: playing,
@@ -360,8 +377,24 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
 
   // ---- 同步方法 ----
 
+  // 通知权限在首次真正开始播放时才请求（保持原有交互），
+  // 避免应用启动时（仅注册 MediaSession 用于 Android Auto 发现）
+  // 就弹出系统权限对话框。
+  void _requestNotificationPermissionIfNeeded(PlaybackSnapshot snap) {
+    if (_notificationPermissionRequested || !snap.isPlaying) return;
+    _notificationPermissionRequested = true;
+    if (!io.Platform.isAndroid) return;
+    Permission.notification.status.then((status) {
+      if (!status.isGranted) {
+        _debugLog('requesting Android notification permission');
+        Permission.notification.request();
+      }
+    });
+  }
+
   void _syncFromPlayer() {
     final snap = player.snapshot.value;
+    _requestNotificationPermissionIfNeeded(snap);
     final songId = snap.song?.id;
     final songChanged = songId != _lastSongId;
     if (songId != _lastSongId) {
@@ -528,7 +561,9 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   @override
   Future<void> skipToQueueItem(int index) {
     _debugLog('skipToQueueItem action index=$index');
-    return player.next(); // 简化实现
+    // Android Auto / 系统媒体中心的队列列表点选曲目时调用，
+    // 必须真正跳到对应索引（原实现恒为 next()，点队列无效）。
+    return player.skipToIndex(index);
   }
 
   @override
