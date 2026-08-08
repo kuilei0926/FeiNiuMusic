@@ -20,6 +20,7 @@ import '../../app/utils/primary_tab_refresh_mixin.dart';
 import '../../components/index.dart';
 import '../library/library_detail_pages.dart';
 import '../library/playlists_page.dart';
+import '../search/search_page.dart';
 import '../songs/song_detail_sheet.dart';
 import '../songs/songs_page.dart';
 import 'widgets/home_cover_carousel.dart';
@@ -531,6 +532,11 @@ class _HomePageState extends State<HomePage>
     Navigator.of(context).pushNamed(AppRoutes.playlists);
   }
 
+  /// 右上角搜索 → 综合搜索页。
+  void _openSearch() {
+    Navigator.pushNamed(context, AppRoutes.search, arguments: SearchCategory.all);
+  }
+
   void _openSongsPage() {
     // 从首页「最新歌曲」进入：一次性按创建时间降序（不回写偏好，仅本次有效）
     Navigator.of(context).push(
@@ -653,6 +659,13 @@ class _HomePageState extends State<HomePage>
                   icon: const Icon(Icons.menu_rounded),
                   onPressed: () => _scaffoldKey.currentState?.openDrawer(),
                 ),
+          actions: [
+            IconButton(
+              tooltip: '搜索',
+              icon: const Icon(Icons.search_rounded),
+              onPressed: _openSearch,
+            ),
+          ],
           backgroundColor: Colors.transparent,
           elevation: 0,
         ),

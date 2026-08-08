@@ -625,7 +625,11 @@ class _SongEditPageState extends State<SongEditPage> {
         ],
       ),
       showMiniPlayer: false,
-      resizeToAvoidBottomInset: true,
+      // 关掉键盘 inset 缩放：键盘弹出/收起时 Scaffold 不再逐帧重排整页
+      // （页面有 4 张圆角卡片 + 6 个输入框，是全 App 唯一开此开关的页，
+      //  是展开输入法卡顿的主因）。改用列表末尾的 _KeyboardInsetSpacer
+      //  单独占位，只让那一个小组件随键盘逐帧重建。
+      resizeToAvoidBottomInset: false,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Stack(
@@ -635,15 +639,17 @@ class _SongEditPageState extends State<SongEditPage> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                     children: [
-                      _buildHeaderCard(context),
+                      // 每张卡片独立 RepaintBoundary：键盘 insets 动画期间
+                      // 卡片自身不重排，图层只做合成平移，避免整页重新栅格化。
+                      RepaintBoundary(child: _buildHeaderCard(context)),
                       const SizedBox(height: 16),
                       if (_audioSpec != null) ...[
-                        _buildAudioSpecCard(context),
+                        RepaintBoundary(child: _buildAudioSpecCard(context)),
                         const SizedBox(height: 16),
                       ],
-                      _buildEditCard(context),
+                      RepaintBoundary(child: _buildEditCard(context)),
                       const SizedBox(height: 16),
-                      _buildLyricSection(context),
+                      RepaintBoundary(child: _buildLyricSection(context)),
                       const SizedBox(height: 24),
                       SizedBox(
                         height: 48,
@@ -664,6 +670,10 @@ class _SongEditPageState extends State<SongEditPage> {
                           ),
                         ),
                       ),
+                      // 键盘 insets 占位：resizeToAvoidBottomInset 已关闭，
+                      // 这里单独读 viewInsets，让保存按钮仍能滚到键盘上方。
+                      // 只让这个小组件随键盘逐帧重建，不波及整页。
+                      const _KeyboardInsetSpacer(),
                     ],
                   ),
                 ),
@@ -1391,6 +1401,19 @@ class _SongEditPageState extends State<SongEditPage> {
     final hh = dt.hour.toString().padLeft(2, '0');
     final mm = dt.minute.toString().padLeft(2, '0');
     return '$y-$m-$d $hh:$mm';
+  }
+}
+
+/// 键盘 insets 占位：编辑页关闭了 resizeToAvoidBottomInset 以避免键盘动画
+/// 逐帧重排整页，这里单独读取 viewInsets 撑出底部空间，让保存按钮仍能滚到
+/// 键盘上方。独立小部件，随键盘逐帧重建的只有它自己。
+class _KeyboardInsetSpacer extends StatelessWidget {
+  const _KeyboardInsetSpacer();
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return SizedBox(height: bottomInset + 12);
   }
 }
 
