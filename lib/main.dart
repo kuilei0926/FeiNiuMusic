@@ -92,7 +92,7 @@ Future<void> main() async {
   // 默认关闭不打扰。
   await IslandLyricSettings.ensureLoaded();
   IslandLyricService.start();
-  // 数据源匹配设置 + 配套编辑服务（FnMusicLyricsEditor）设置：启动时加载，
+  // 数据源匹配设置 + 服务端增强（FnMusicEnhance）设置：启动时加载，
   // 并把并发上限同步到 PluginService。
   await MatchSettings.ensureLoaded();
   PluginService.instance.concurrencyLimit = MatchSettings.concurrency.value;

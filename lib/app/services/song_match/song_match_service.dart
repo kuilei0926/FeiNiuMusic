@@ -290,9 +290,9 @@ class SongMatchService {
 
   /// 把匹配到的专辑名解析为飞牛 FeiNiuAlbum（用于回填专辑 guid）。
   ///
-  /// 按名字精确匹配；**匹配不到且配套服务可用时自动创建专辑**（主 API 无
-  /// `album/create`，走配套服务 `createEntity`），避免服务端按字符串隐式新建出
-  /// 重复专辑。配套服务不可用（中继 / 未配置密钥）或创建失败返回 null
+  /// 按名字精确匹配；**匹配不到且服务端增强可用时自动创建专辑**（主 API 无
+  /// `album/create`，走服务端增强 `createEntity`），避免服务端按字符串隐式新建出
+  /// 重复专辑。服务端增强不可用（中继 / 未登录）或创建失败返回 null
   /// （调用方回退原专辑字符串）。
   Future<FeiNiuAlbum?> resolveAlbum(String albumName) async {
     final name = albumName.trim();
@@ -304,7 +304,7 @@ class SongMatchService {
       if (album.name == name) return album;
     }
 
-    // 库中不存在 → 配套服务创建（仅非中继直连 + 已配置密钥时可用）
+    // 库中不存在 → 服务端增强创建（仅非中继直连 + 已登录时可用）
     if (!MetadataCompanionService.instance.available) return null;
     try {
       final guid = await MetadataCompanionService.instance

@@ -171,7 +171,7 @@ class _BatchMatchPageState extends State<BatchMatchPage> {
     final patch = await SongMatchService.instance
         .buildPatch(candidate, downloadCover: options.fields.contains(MatchField.cover));
 
-    // 歌词：勾选歌词字段且歌词修改已开启时，通过插件获取并写入配套应用
+    // 歌词：勾选歌词字段且歌词修改已开启时，通过插件获取并写入服务端增强
     if (options.fields.contains(MatchField.lyrics) &&
         LyricCompanionSettings.enabled.value) {
       final lyrics = await SongMatchService.instance.fetchLyrics(
@@ -259,8 +259,8 @@ class _BatchMatchPageState extends State<BatchMatchPage> {
       body['title'] = patch.title;
     }
 
-    // 专辑：仅勾选且有匹配结果时应用；解析 album 名 → guid（匹配不到且配套
-    // 服务可用时自动新建）。成功则带 albumGUID 关联实体；解析失败（如中继
+    // 专辑：仅勾选且有匹配结果时应用；解析 album 名 → guid（匹配不到且服务端
+    // 增强可用时自动新建）。成功则带 albumGUID 关联实体；解析失败（如中继
     // 不可用）则仅带 album 字符串，回退服务端原有行为。
     if (wants.contains(MatchField.album) && patch.album.isNotEmpty) {
       body['album'] = patch.album;
@@ -492,7 +492,7 @@ class _BatchMatchPageState extends State<BatchMatchPage> {
       case MatchField.cover:
         return '匹配封面并上传到 NAS';
       case MatchField.lyrics:
-        return '匹配歌词（写入配套应用）';
+        return '匹配歌词（写入服务端增强）';
     }
   }
 

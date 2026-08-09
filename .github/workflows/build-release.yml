@@ -64,6 +64,28 @@ jobs:
       - run: |
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
              FeiNiuMusic-v${VERSION}-z-luna-arm64-v8a.apk
+      # 3) 配套服务端增强应用 FPK：从 FnMusicEnhance 仓库拉取最新 release 产物。
+      #    配套仓库尚无 release 时跳过（后续发布自然附带）。
+      - name: Download companion FPK
+        run: |
+          echo "从 FnMusicEnhance 拉取最新 release 的 fpk ..."
+          # 用 GitHub API 获取最新 release 资产 URL（仓库公开即可，无需 token）
+          ASSETS_JSON=$(curl -s \
+            https://api.github.com/repos/kuilei0926/FnMusicEnhance/releases/latest)
+          # 提取 fpk 资产下载地址（jq 不在则用 grep/sed 兜底）
+          FPK_URL=$(echo "$ASSETS_JSON" | jq -r '.assets[]?.browser_download_url | select(test("\\.fpk$"))' 2>/dev/null | head -n1)
+          if [ -z "$FPK_URL" ]; then
+            FPK_URL=$(echo "$ASSETS_JSON" \
+              | grep -o '"browser_download_url": *"[^"]*\.fpk"' \
+              | head -n1 | sed 's/.*: *"//; s/"$//')
+          fi
+          if [ -z "$FPK_URL" ]; then
+            echo "未找到 FnMusicEnhance 的 fpk release 产物，跳过配套应用"
+            exit 0
+          fi
+          echo "下载: $FPK_URL"
+          curl -sL -o "FnMusicEnhance-v${VERSION}.fpk" "$FPK_URL"
+          ls -la FnMusicEnhance-v${VERSION}.fpk
       - run: |
           git log -1 --pretty=format:"- %s%n%b" > release_notes.txt
           if [ ! -s release_notes.txt ]; then
@@ -79,3 +101,4 @@ jobs:
             FeiNiuMusic-v${{ env.VERSION }}-armeabi-v7a.apk
             FeiNiuMusic-v${{ env.VERSION }}-x86_64.apk
             FeiNiuMusic-v${{ env.VERSION }}-z-luna-arm64-v8a.apk
+            FnMusicEnhance-*.fpk

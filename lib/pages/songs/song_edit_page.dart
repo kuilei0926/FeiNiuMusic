@@ -90,7 +90,7 @@ class _SongEditPageState extends State<SongEditPage> {
   bool _lyricsSaving = false;
   late final TextEditingController _lyricsController;
 
-  /// 歌词是否被修改过（只有修改时才随主保存按钮写入配套应用）。
+  /// 歌词是否被修改过（只有修改时才随主保存按钮写入服务端增强）。
   bool _lyricsDirty = false;
 
   @override
@@ -533,7 +533,7 @@ class _SongEditPageState extends State<SongEditPage> {
       // 未换图时沿用原曲目 coverId（可能为 null，由服务端决定保留原封面）
       final coverId = newCoverId ?? _displayCoverId;
 
-      // 专辑：解析 album 名 → guid（匹配不到且配套服务可用时自动新建），
+      // 专辑：解析 album 名 → guid（匹配不到且服务端增强可用时自动新建），
       // 避免服务端按字符串隐式新建出重复专辑。
       String? albumGuid;
       final albumText = _albumController.text.trim();
@@ -560,7 +560,7 @@ class _SongEditPageState extends State<SongEditPage> {
 
       await _api.updateTrackMetadata(body);
 
-      // 歌词修改过则随保存统一写入配套应用（未修改跳过）。
+      // 歌词修改过则随保存统一写入服务端增强（未修改跳过）。
       if (_lyricsDirty && LyricCompanionSettings.enabled.value) {
         await _saveLyrics();
       }
@@ -1054,7 +1054,7 @@ class _SongEditPageState extends State<SongEditPage> {
               const Spacer(),
               if (!LyricCompanionSettings.enabled.value)
                 Text(
-                  '未启用配套编辑服务',
+                  '未启用服务端增强',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -1100,8 +1100,8 @@ class _SongEditPageState extends State<SongEditPage> {
     final theme = Theme.of(context);
     final relayMode = FeiNiuApiClient.instance.relayMode;
     final message = relayMode
-        ? '配套编辑服务仅内网直连（非中继）可用，当前为中继连接'
-        : '启用「配套编辑服务」后可在此读取 / 编辑 / 保存歌词（需 NAS 上运行配套应用与密钥）';
+        ? '服务端增强仅内网直连（非中继）可用，当前为中继连接'
+        : '启用「服务端增强」后可在此读取 / 编辑 / 保存歌词（需 NAS 上运行 FnMusicEnhance）';
     return InkWell(
       onTap: relayMode ? null : () => _openLyricCompanionSettings(),
       borderRadius: BorderRadius.circular(12),
@@ -1148,7 +1148,7 @@ class _SongEditPageState extends State<SongEditPage> {
     Navigator.of(context).pushNamed(AppRoutes.metadataMatchSettings);
   }
 
-  /// 从 FnMusicLyricsEditor 读取当前歌词。
+  /// 从 FnMusicEnhance 读取当前歌词。
   Future<void> _loadLyrics() async {
     if (_lyricsLoading) return;
     setState(() => _lyricsLoading = true);
@@ -1173,7 +1173,7 @@ class _SongEditPageState extends State<SongEditPage> {
     }
   }
 
-  /// 保存歌词（写入配套应用，重新读取验证）。
+  /// 保存歌词（写入服务端增强，重新读取验证）。
   ///
   /// 仅在歌词被修改过时调用（随主「保存」按钮统一提交）；未修改则跳过。
   Future<void> _saveLyrics() async {

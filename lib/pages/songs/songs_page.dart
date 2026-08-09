@@ -7,11 +7,13 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
+import '../../app/router/app_page_route.dart';
 import '../../app/router/app_router.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/state/settings_layout_state.dart';
+import '../../app/state/settings_lyric_companion.dart';
 import '../../app/state/song_state.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/deferred_page_init_mixin.dart';
@@ -19,6 +21,7 @@ import '../../app/utils/primary_tab_refresh_mixin.dart';
 import '../../components/index.dart';
 import '../search/search_page.dart';
 import '../library/library_detail_pages.dart';
+import '../library/folders_page.dart';
 import 'song_detail_sheet.dart';
 
 /// 音乐库（原歌曲页面）- 从飞牛 API 分页加载并展示所有歌曲
@@ -379,6 +382,21 @@ class _SongsPageState extends State<SongsPage>
     Navigator.pushNamed(context, AppRoutes.search, arguments: SearchCategory.song);
   }
 
+  /// 打开文件夹视图（服务端增强）。未开启时引导到设置页。
+  void _openFolders() {
+    if (LyricCompanionSettings.enabled.value) {
+      Navigator.of(context).push(
+        buildAppPageRoute((_) => const FoldersPage()),
+      );
+    } else {
+      AppToast.show(
+        context,
+        '请先在设置 → 元数据匹配开启「服务端增强」',
+        type: ToastType.error,
+      );
+    }
+  }
+
   void _playSong(int index) {
     final songs = _songs.value;
     if (songs.isEmpty) return;
@@ -557,6 +575,23 @@ class _SongsPageState extends State<SongsPage>
                               fontSize: 13,
                             ),
                             onTap: _hasMoreSongs ? _showLoadMoreDialog : null,
+                          ),
+                          const Spacer(),
+                          // 文件夹视图入口（服务端增强）
+                          InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: _openFolders,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 4,
+                              ),
+                              child: Icon(
+                                Icons.folder_outlined,
+                                size: 20,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
                           ),
                         ],
                       ),

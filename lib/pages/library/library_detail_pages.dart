@@ -288,7 +288,7 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
                         final available =
                             enabled && !FeiNiuApiClient.instance.relayMode;
                         return IconButton(
-                          tooltip: available ? '编辑' : '需先启用配套编辑服务（设置 → 元数据匹配）',
+                          tooltip: available ? '编辑' : '需先启用服务端增强（设置 → 元数据匹配）',
                           icon: Icon(
                             Icons.edit_outlined,
                             color: available
@@ -818,7 +818,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
                         final available =
                             enabled && !FeiNiuApiClient.instance.relayMode;
                         return IconButton(
-                          tooltip: available ? '编辑' : '需先启用配套编辑服务（设置 → 元数据匹配）',
+                          tooltip: available ? '编辑' : '需先启用服务端增强（设置 → 元数据匹配）',
                           icon: Icon(
                             Icons.edit_outlined,
                             color: available
