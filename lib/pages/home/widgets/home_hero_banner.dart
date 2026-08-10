@@ -18,12 +18,23 @@ class HomeHeroBanner extends StatelessWidget {
   /// 换一首按钮回调。为 null 时不显示刷新按钮。
   final VoidCallback? onRefresh;
 
+  /// 自定义宽高比（宽/高）。默认按设备自适应：
+  /// TV/平板 12:5、手机 16:9。调用方（如大屏首页布局）可传更扁的值
+  /// 让 Banner 变矮变长方形，避免占满整屏。
+  final double? aspectRatio;
+
+  /// 固定高度模式：与 [aspectRatio] 二选一。传值时 Banner 用固定高度
+  /// （如与右侧四宫格等高），不随宽度按比例缩放。
+  final double? height;
+
   const HomeHeroBanner({
     super.key,
     required this.song,
     required this.onPlay,
     this.label = '漫游 · 随心听',
     this.onRefresh,
+    this.aspectRatio,
+    this.height,
   });
 
   @override
@@ -36,133 +47,150 @@ class HomeHeroBanner extends StatelessWidget {
     final isTv = AppLayoutSettings.tvMode.value;
     final isTablet = AppLayoutSettings.effectiveTabletMode && !isTv;
     final useLarge = isTv || isTablet;
-    final banner = ClipRRect(
-      borderRadius: BorderRadius.circular(isTv ? 28 : 24),
-      child: AspectRatio(
-        aspectRatio: isTv ? 12 / 5 : 16 / 9,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // 封面铺满
-            if (coverId != null && coverId.isNotEmpty)
-              CachedNetworkImage(
-                imageUrl: FeiNiuApiClient.instance.coverUrl(
-                  coverId,
-                  size: 800,
-                  updatedAt: song?.updatedAt,
-                ),
-                httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
-                fit: BoxFit.cover,
-                placeholder: (_, _) => _HeroFallback(song: song),
-                errorWidget: (_, _, _) => _HeroFallback(song: song),
-              )
-            else
-              _HeroFallback(song: song),
+    Widget bannerChild = AspectRatio(
+      aspectRatio: aspectRatio ?? (useLarge ? 12 / 5 : 16 / 9),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 封面铺满
+          if (coverId != null && coverId.isNotEmpty)
+            CachedNetworkImage(
+              imageUrl: FeiNiuApiClient.instance.coverUrl(
+                coverId,
+                size: 800,
+                updatedAt: song?.updatedAt,
+              ),
+              httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
+              fit: BoxFit.cover,
+              placeholder: (_, _) => _HeroFallback(song: song),
+              errorWidget: (_, _, _) => _HeroFallback(song: song),
+            )
+          else
+            _HeroFallback(song: song),
 
-            // 底部渐变遮罩
-            const DecoratedBox(
+          // 底部渐变遮罩
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Colors.black54, Colors.black87],
+                stops: [0.45, 0.8, 1.0],
+              ),
+            ),
+          ),
+
+          // 左上角标签
+          Positioned(
+            left: 16,
+            top: 14,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.black54, Colors.black87],
-                  stops: [0.45, 0.8, 1.0],
+                color: Colors.black.withValues(alpha: 0.32),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.25),
+                  width: 0.6,
                 ),
               ),
-            ),
-
-            // 左上角标签
-            Positioned(
-              left: 16,
-              top: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.32),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.25),
-                    width: 0.6,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.auto_awesome_rounded,
-                      size: 13,
-                      color: Colors.white.withValues(alpha: 0.9),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white.withValues(alpha: 0.92),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // 右上角换一首按钮
-            if (onRefresh != null)
-              Positioned(
-                right: 12,
-                top: 12,
-                child: _TvRefreshButton(onRefresh: onRefresh!),
-              ),
-
-            // 左下角：歌名 + 歌手
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 14,
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          song?.title ?? '随机播放',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          song?.artistDisplayName ?? '今天想听点什么',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.white.withValues(alpha: 0.75),
-                          ),
-                        ),
-                      ],
+                  Icon(
+                    Icons.auto_awesome_rounded,
+                    size: 13,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.92),
                     ),
                   ),
-                  // 大播放按钮
-                  _TvPlayButton(onPlay: onPlay, primary: theme.colorScheme.primary),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+
+          // 右上角换一首按钮
+          if (onRefresh != null)
+            Positioned(
+              right: 12,
+              top: 12,
+              child: _TvRefreshButton(onRefresh: onRefresh!),
+            ),
+
+          // 左下角：歌名 + 歌手
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 14,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        song?.title ?? '随机播放',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        song?.artistDisplayName ?? '今天想听点什么',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white.withValues(alpha: 0.75),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // 大播放按钮
+                _TvPlayButton(
+                  onPlay: onPlay,
+                  primary: theme.colorScheme.primary,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
+    );
+    final Widget banner = ClipRRect(
+      borderRadius: BorderRadius.circular(isTv ? 28 : 24),
+      child: height != null
+          ? SizedBox(height: height, child: bannerChild)
+          : bannerChild,
     );
 
     if (!useLarge) return banner;
+    // 自定义 aspectRatio / height（大屏首页布局）→ 直接通栏全宽，不限制宽度居中。
+    if (aspectRatio != null || height != null) {
+      if (isTv) {
+        return TvFocusable(
+          borderRadius: BorderRadius.circular(28),
+          onActivate: onPlay,
+          child: banner,
+        );
+      }
+      return banner;
+    }
     // TV/平板大屏：限制最大宽度避免全屏占比，居中显示。
     // TV 额外包 TvFocusable（遥控器整卡可聚焦，Enter 即播放）。
     final centered = Center(
@@ -209,11 +237,7 @@ class _TvPlayButton extends StatelessWidget {
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: onPlay,
-          child: Icon(
-            Icons.play_arrow_rounded,
-            color: primary,
-            size: 36,
-          ),
+          child: Icon(Icons.play_arrow_rounded, color: primary, size: 36),
         ),
       ),
     );

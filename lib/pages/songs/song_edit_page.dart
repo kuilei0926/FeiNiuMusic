@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../app/utils/image_crop_helper.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/api_models.dart';
 import '../../app/services/lyrics/lyric_companion_service.dart';
@@ -181,11 +182,10 @@ class _SongEditPageState extends State<SongEditPage> {
     final file = result?.files.first;
     if (file?.path == null || !mounted) return;
 
-    final cropped = await ImageCropper().cropImage(
+    final cropped = await cropCoverImage(
       sourcePath: file!.path!,
-      compressFormat: ImageCompressFormat.png,
-      compressQuality: 95,
-      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+      ratioX: 1,
+      ratioY: 1,
       uiSettings: [
         AndroidUiSettings(
           toolbarTitle: '裁剪封面',

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../feiniu/transcode_service.dart';
 import '../../state/song_state.dart';
 import 'player_engine.dart';
@@ -22,6 +24,12 @@ import 'player_engine.dart';
 /// 未知/空格式走 just_audio 直连（与现状一致）：格式探测延后，播放出错由
 /// 引擎错误处理兜底。
 EngineKind routeForFormat(String? format, {String? codec}) {
+  // Windows 桌面端：just_audio（ExoPlayer）无原生实现，全量走 media_kit
+  // （libmpv + FFmpeg，任意格式都能软解）。用 defaultTargetPlatform 而非
+  // Platform.isWindows：单测默认 TargetPlatform.android，保持路由测试有效。
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    return EngineKind.mediaKit;
+  }
   // codec 判断优先：eac3/ac3/alac 等 ExoPlayer 设备解码不可靠的编码直接
   // 走 media_kit（FFmpeg），即使容器是 m4a（format 不在黑名单）。
   if (FeiNiuTranscodeService.isMediaKitCodec(codec)) {

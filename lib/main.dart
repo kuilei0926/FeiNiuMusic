@@ -14,6 +14,7 @@ import 'app/services/debug_log_service.dart';
 import 'app/services/fn_auto_reconnect_service.dart';
 import 'app/services/island_lyric_service.dart';
 import 'app/services/media_notification_service.dart';
+import 'app/services/portable_storage_service.dart';
 import 'app/services/tv_detection.dart';
 import 'app/services/track_change_overlay_service.dart';
 import 'app/services/feiniu/account_store.dart';
@@ -35,6 +36,10 @@ Future<void> main() async {
   }
 
   WidgetsFlutterBinding.ensureInitialized();
+  // 便携模式：Windows 下把数据目录重定向到 exe 旁 `feiniumusic_data/`。
+  // 必须在任何 SharedPreferences / path_provider 读取之前替换全局实例，
+  // 否则 prefs/数据库/缓存会落回系统 %APPDATA%。
+  AppPortableStorage.overridePathProviderForPortable();
   // 初始化 media_kit（加载 libmpv 原生库）。必须在任何 Player() 构造前调用；
   // 放在认证恢复之前，不依赖网络/账号状态。
   try {
@@ -47,7 +52,8 @@ Future<void> main() async {
   // TV 面板固定 60Hz，强制高刷无意义甚至闪烁，因此高刷调用跳过 TV。
   await TvDetection.ensureLoaded();
   final isTvDevice = TvDetection.result.value;
-  if (!isTvDevice) {
+  // flutter_displaymode 仅 Android 实现；Windows/桌面端跳过（无高刷概念）。
+  if (!isTvDevice && Platform.isAndroid) {
     await FlutterDisplayMode.setHighRefreshRate();
   }
   // 先加载设置：确保持久化的「TV 模式」手动开关已就位，再合并检测结果。
@@ -79,19 +85,33 @@ Future<void> main() async {
   // 转码设置须在 PlayerService（MediaNotificationService.init）之前加载：
   // 启动恢复自动播放时 _sourceForSong 会同步读转码开关，未加载会读到默认关。
   await AppTranscodeSettings.ensureLoaded();
+  // 便携模式·换机检测：数据目录跟随 exe，若文件夹被拷到另一台电脑运行，
+  // 自动清空本机 NAS 密码/token/安全码（保留服务器地址与用户名），
+  // 避免把本机凭据带到别的机器。须在 AuthService.init（恢复会话）之前执行。
+  await AppPortableStorage.checkMachineOwner();
   await AuthService.instance.init();
-  await MediaNotificationService.init();
+  // 媒体通知（MediaSession/通知栏/Android Auto）仅 Android 有原生实现。
+  // 桌面端跳过：PlayerService 由首个用到它的页面懒构造，无需在此初始化。
+  if (Platform.isAndroid) {
+    await MediaNotificationService.init();
+  }
   // 切歌通知监听：PlayerService 已构造（MediaNotificationService.init 内），
   // AppLayoutSettings 已在上面 ensureLoaded，可安全订阅 currentSong。
   // AppThemeSettings 需先 ensureLoaded：TrackChangeOverlayService 在切歌时
   // 用主题设置计算悬浮窗卡片配色（computeCardColors），若未加载会读到默认值。
   await AppThemeSettings.ensureLoaded();
-  TrackChangeOverlayService.start();
+  // 切歌悬浮窗/灵动岛歌词均为 Android 系统级通知（SYSTEM_ALERT_WINDOW /
+  // HyperOS 焦点通知），桌面端无对应实现，跳过启动避免无谓构造 PlayerService。
+  if (Platform.isAndroid) {
+    TrackChangeOverlayService.start();
+  }
   // 通知歌词灵动岛监听：依赖 PlayerService 与 LyricsService 已就绪。
   // 设置懒加载（IslandLyricSettings.ensureLoaded）由设置页与 start 内部处理，
   // 默认关闭不打扰。
   await IslandLyricSettings.ensureLoaded();
-  IslandLyricService.start();
+  if (Platform.isAndroid) {
+    IslandLyricService.start();
+  }
   // 数据源匹配设置 + 服务端增强（FnMusicEnhance）设置：启动时加载，
   // 并把并发上限同步到 PluginService。
   await MatchSettings.ensureLoaded();

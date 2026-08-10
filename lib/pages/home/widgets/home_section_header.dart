@@ -8,10 +8,14 @@ class HomeSectionHeader extends StatelessWidget {
   final String title;
   final VoidCallback? onViewAll;
 
+  /// 标题行右侧额外控件（如收藏的「播放全部」按钮）。放在「全部」之前。
+  final Widget? trailing;
+
   const HomeSectionHeader({
     super.key,
     required this.title,
     this.onViewAll,
+    this.trailing,
   });
 
   @override
@@ -33,6 +37,7 @@ class HomeSectionHeader extends StatelessWidget {
               ),
             ),
           ),
+          if (trailing != null) ...[trailing!, const SizedBox(width: 4)],
           if (onViewAll != null)
             TextButton(
               onPressed: onViewAll,

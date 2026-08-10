@@ -48,8 +48,11 @@ class SideMenu extends StatelessWidget {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
                   children: [
-                    // 当前账号卡片（点击进入账号切换页）
-                    const AccountHeaderCard(),
+                    // 当前账号卡片（点击进入账号切换页，走内容区导航：与
+                    // 顶部头部一致，避免从根 Navigator 压栈盖住整个平板外壳）
+                    AccountHeaderCard(
+                      onTap: () => _pushAndClose(context, AppRoutes.accounts),
+                    ),
                     const SizedBox(height: 10),
                     _GroupCard(
                       title: '浏览',

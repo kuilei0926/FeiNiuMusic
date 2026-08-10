@@ -25,6 +25,7 @@ import '../songs/song_detail_sheet.dart';
 import '../songs/songs_page.dart';
 import 'widgets/home_cover_carousel.dart';
 import 'widgets/home_hero_banner.dart';
+import 'widgets/home_large_layout.dart';
 import 'widgets/home_quick_actions.dart';
 import 'widgets/home_section_header.dart';
 import 'widgets/home_shortcut_menu.dart';
@@ -80,11 +81,7 @@ class _HomeCacheData {
 }
 
 /// 首页播放数据源：决定点播放时按队列上限请求哪个 API 填充完整队列。
-enum _HomePlaySource {
-  favorites,
-  recentHistory,
-  recentTracks,
-}
+enum _HomePlaySource { favorites, recentHistory, recentTracks }
 
 /// 飞牛首页 — 云端音乐仪表板
 class HomePage extends StatefulWidget {
@@ -232,7 +229,11 @@ class _HomePageState extends State<HomePage>
       if (_heroSong != null &&
           _heroSong!.coverId != null &&
           _heroSong!.coverId!.isNotEmpty)
-        api.coverUrl(_heroSong!.coverId!, size: 800, updatedAt: _heroSong!.updatedAt),
+        api.coverUrl(
+          _heroSong!.coverId!,
+          size: 800,
+          updatedAt: _heroSong!.updatedAt,
+        ),
       // 收藏歌曲封面
       for (final s in _favoriteSongs.value.take(9))
         if (s.coverId != null && s.coverId!.isNotEmpty)
@@ -334,9 +335,7 @@ class _HomePageState extends State<HomePage>
       if (currentRoamId == null || currentRoamId.isEmpty) {
         final start = await _api.getRoamStart(deviceId);
         _roamId.value = start.current.roamId;
-        return _trackService.trackToSongEntity(
-          start.current.track.toJson(),
-        );
+        return _trackService.trackToSongEntity(start.current.track.toJson());
       }
       final next = await _api.getRoamNext(deviceId, currentRoamId);
       if (next.next == null) return null;
@@ -534,7 +533,11 @@ class _HomePageState extends State<HomePage>
 
   /// 右上角搜索 → 综合搜索页。
   void _openSearch() {
-    Navigator.pushNamed(context, AppRoutes.search, arguments: SearchCategory.all);
+    Navigator.pushNamed(
+      context,
+      AppRoutes.search,
+      arguments: SearchCategory.all,
+    );
   }
 
   void _openSongsPage() {
@@ -678,163 +681,228 @@ class _HomePageState extends State<HomePage>
         onBottomNavTap: useBottomNavigation
             ? (index) => navigateToPrimaryDestination(context, index)
             : null,
-        body: Watch.builder(
-          builder: (context) {
-            if (_loading.value) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final heroSong = _heroSong;
-            return RefreshIndicator(
-              onRefresh: () => _loadAll(forceRefresh: true),
-              child: ListView(
-                padding: AppLayoutSettings.tvMode.value
-                    ? TvLayout.pagePadding()
-                    : const EdgeInsets.fromLTRB(20, 8, 20, 160),
-                children: [
-                  // 1. Hero Banner — 漫游/今日推荐，封面是绝对主角
-                  if (heroSong != null)
-                    HomeHeroBanner(
-                      song: heroSong,
-                      onPlay: _playRoam,
-                      onRefresh: _refreshRoam,
-                    ),
-
-                  if (heroSong != null) const SizedBox(height: 16),
-
-                  // 1.5 快捷菜单 — 歌曲 / 歌手 / 专辑 / 风格（4×1）
-                  HomeShortcutMenu(
-                    items: [
-                      HomeShortcutItem(
-                        icon: Icons.music_note_rounded,
-                        label: '歌曲',
-                        accent: const Color(0xFF3B82F6),
-                        onTap: _openSongsPage,
-                      ),
-                      HomeShortcutItem(
-                        icon: Icons.people_rounded,
-                        label: '歌手',
-                        accent: const Color(0xFF14B8A6),
-                        onTap: _openArtistsPage,
-                      ),
-                      HomeShortcutItem(
-                        icon: Icons.album_rounded,
-                        label: '专辑',
-                        accent: const Color(0xFFA855F7),
-                        onTap: _openAlbumsPage,
-                      ),
-                      HomeShortcutItem(
-                        icon: Icons.music_video_rounded,
-                        label: '风格',
-                        accent: const Color(0xFFF97316),
-                        onTap: _openGenresPage,
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // 2. 功能入口 — 收藏 / 最近播放，各带直接播放按钮
-                  HomeQuickActions(
-                    actions: [
-                      HomeQuickAction(
-                        icon: Icons.history_rounded,
-                        title: '最近播放',
-                        subtitle: '接着上次听',
-                        accent: const Color(0xFF14B8A6),
-                        onTap: _openRecentPage,
-                        onPlay: () =>
-                            _playFromList(_recentSongs.value, _HomePlaySource.recentHistory),
-                      ),
-                      HomeQuickAction(
-                        icon: Icons.favorite_rounded,
-                        title: '收藏',
-                        subtitle: '我的最爱',
-                        accent: const Color(0xFFEC4899),
-                        onTap: _openFavoritePage,
-                        onPlay: () =>
-                            _playFromList(_favoriteSongs.value, _HomePlaySource.favorites),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // 3. 我的歌单 — 横向封面轮播（尺寸小于专辑）
-                  if (_playlists.value.isNotEmpty) ...[
-                    HomeSectionHeader(
-                      title: '我的歌单',
-                      onViewAll: _openPlaylistsPage,
-                    ),
-                    HomeCoverCarousel(
-                      coverSize: AppLayoutSettings.tvMode.value ? 140 : 100,
-                      borderRadius: 14,
-                      centerText: true,
-                      items: [
-                        for (final p in _playlists.value)
-                          HomeCoverItem(
-                            coverId: p.coverId,
-                            updatedAt: p.updatedAt,
-                            title: p.name,
-                            // 歌单没有数量副标题，空串不占行，避免卡片下方留白
-                            subtitle: '',
-                            onTap: () => _openPlaylistDetail(p),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // 4. 最新歌曲 — 紧凑竖排行列表
-                  if (_recentTracks.value.isNotEmpty) ...[
-                    HomeSectionHeader(
-                      title: '最新歌曲',
-                      onViewAll: _openSongsPage,
-                    ),
-                    _CompactSongList(
-                      songs: _recentTracks.value,
-                      onTap: (song) => _playHomeSong(song, _recentTracks.value),
-                      onLongPress: _showSongDetail,
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // 5. 最新专辑 — 横向大封面轮播
-                  if (_recentAlbums.value.isNotEmpty) ...[
-                    HomeSectionHeader(
-                      title: '最新专辑',
-                      onViewAll: () {
-                        Navigator.of(context).pushNamed(AppRoutes.albums);
-                      },
-                    ),
-                    HomeCoverCarousel(
-                      coverSize: AppLayoutSettings.tvMode.value ? 168 : 128,
-                      borderRadius: 16,
-                      items: [
-                        for (final a in _recentAlbums.value)
-                          HomeCoverItem(
-                            coverId: a.coverId,
-                            title: a.name,
-                            subtitle: a.trackCount != null
-                                ? '${a.trackCount} 首'
-                                : '',
-                            onTap: () => _openAlbumDetail(a),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // 空状态
-                  if (_favoriteSongs.value.isEmpty &&
-                      _recentSongs.value.isEmpty &&
-                      _recentAlbums.value.isEmpty)
-                    const _HomeEmptyState(text: '还没有数据，下拉刷新试试'),
-                ],
-              ),
-            );
+        body: ValueListenableBuilder<bool>(
+          valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
+          builder: (context, effectiveTabletMode, _) {
+            return _buildHomeBody(context, effectiveTabletMode);
           },
         ),
       ),
+    );
+  }
+
+  /// 首页主体：平板/TV/Windows 用大屏五模块布局，手机端保持原滚动布局。
+  Widget _buildHomeBody(BuildContext context, bool effectiveTabletMode) {
+    return Watch.builder(
+      builder: (context) {
+        if (_loading.value) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final heroSong = _heroSong;
+        // 平板 / TV / Windows：大屏布局
+        if (effectiveTabletMode) {
+          return RefreshIndicator(
+            onRefresh: () => _loadAll(forceRefresh: true),
+            child: HomeLargeLayout(
+              heroSong: heroSong,
+              onPlayRoam: _playRoam,
+              onRefreshRoam: _refreshRoam,
+              shortcutItems: const [
+                HomeShortcutItem(
+                  icon: Icons.music_note_rounded,
+                  label: '歌曲',
+                  accent: Color(0xFF3B82F6),
+                ),
+                HomeShortcutItem(
+                  icon: Icons.people_rounded,
+                  label: '歌手',
+                  accent: Color(0xFF14B8A6),
+                ),
+                HomeShortcutItem(
+                  icon: Icons.album_rounded,
+                  label: '专辑',
+                  accent: Color(0xFFA855F7),
+                ),
+                HomeShortcutItem(
+                  icon: Icons.music_video_rounded,
+                  label: '风格',
+                  accent: Color(0xFFF97316),
+                ),
+              ],
+              recentSongs: _recentSongs.value,
+              onPlayRecent: () => _playFromList(
+                _recentSongs.value,
+                _HomePlaySource.recentHistory,
+              ),
+              onOpenRecent: _openRecentPage,
+              onTapRecent: (song) => _playHomeSong(song, _recentSongs.value),
+              onLongPressRecent: _showSongDetail,
+              playlists: _playlists.value,
+              onOpenPlaylists: _openPlaylistsPage,
+              onTapPlaylist: _openPlaylistDetail,
+              recentAlbums: _recentAlbums.value,
+              onOpenAlbums: () {
+                Navigator.of(context).pushNamed(AppRoutes.albums);
+              },
+              onTapAlbum: _openAlbumDetail,
+              recentTracks: _recentTracks.value,
+              favoriteSongs: _favoriteSongs.value,
+              onOpenSongs: _openSongsPage,
+              onOpenFavorite: _openFavoritePage,
+              onTapTrack: (song) => _playHomeSong(song, _recentTracks.value),
+              onLongPressTrack: _showSongDetail,
+              onTapFavorite: (song) =>
+                  _playHomeSong(song, _favoriteSongs.value),
+            ),
+          );
+        }
+        return RefreshIndicator(
+          onRefresh: () => _loadAll(forceRefresh: true),
+          child: ListView(
+            padding: AppLayoutSettings.tvMode.value
+                ? TvLayout.pagePadding()
+                : const EdgeInsets.fromLTRB(20, 8, 20, 160),
+            children: [
+              // 1. Hero Banner — 漫游/今日推荐，封面是绝对主角
+              if (heroSong != null)
+                HomeHeroBanner(
+                  song: heroSong,
+                  onPlay: _playRoam,
+                  onRefresh: _refreshRoam,
+                ),
+
+              if (heroSong != null) const SizedBox(height: 16),
+
+              // 1.5 快捷菜单 — 歌曲 / 歌手 / 专辑 / 风格（4×1）
+              HomeShortcutMenu(
+                items: [
+                  HomeShortcutItem(
+                    icon: Icons.music_note_rounded,
+                    label: '歌曲',
+                    accent: const Color(0xFF3B82F6),
+                    onTap: _openSongsPage,
+                  ),
+                  HomeShortcutItem(
+                    icon: Icons.people_rounded,
+                    label: '歌手',
+                    accent: const Color(0xFF14B8A6),
+                    onTap: _openArtistsPage,
+                  ),
+                  HomeShortcutItem(
+                    icon: Icons.album_rounded,
+                    label: '专辑',
+                    accent: const Color(0xFFA855F7),
+                    onTap: _openAlbumsPage,
+                  ),
+                  HomeShortcutItem(
+                    icon: Icons.music_video_rounded,
+                    label: '风格',
+                    accent: const Color(0xFFF97316),
+                    onTap: _openGenresPage,
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // 2. 功能入口 — 收藏 / 最近播放，各带直接播放按钮
+              HomeQuickActions(
+                actions: [
+                  HomeQuickAction(
+                    icon: Icons.history_rounded,
+                    title: '最近播放',
+                    subtitle: '接着上次听',
+                    accent: const Color(0xFF14B8A6),
+                    onTap: _openRecentPage,
+                    onPlay: () => _playFromList(
+                      _recentSongs.value,
+                      _HomePlaySource.recentHistory,
+                    ),
+                  ),
+                  HomeQuickAction(
+                    icon: Icons.favorite_rounded,
+                    title: '收藏',
+                    subtitle: '我的最爱',
+                    accent: const Color(0xFFEC4899),
+                    onTap: _openFavoritePage,
+                    onPlay: () => _playFromList(
+                      _favoriteSongs.value,
+                      _HomePlaySource.favorites,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // 3. 我的歌单 — 横向封面轮播（尺寸小于专辑）
+              if (_playlists.value.isNotEmpty) ...[
+                HomeSectionHeader(title: '我的歌单', onViewAll: _openPlaylistsPage),
+                HomeCoverCarousel(
+                  coverSize: AppLayoutSettings.tvMode.value ? 140 : 100,
+                  borderRadius: 14,
+                  centerText: true,
+                  items: [
+                    for (final p in _playlists.value)
+                      HomeCoverItem(
+                        coverId: p.coverId,
+                        updatedAt: p.updatedAt,
+                        title: p.name,
+                        // 歌单没有数量副标题，空串不占行，避免卡片下方留白
+                        subtitle: '',
+                        onTap: () => _openPlaylistDetail(p),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // 4. 最新歌曲 — 紧凑竖排行列表
+              if (_recentTracks.value.isNotEmpty) ...[
+                HomeSectionHeader(title: '最新歌曲', onViewAll: _openSongsPage),
+                _CompactSongList(
+                  songs: _recentTracks.value,
+                  onTap: (song) => _playHomeSong(song, _recentTracks.value),
+                  onLongPress: _showSongDetail,
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // 5. 最新专辑 — 横向大封面轮播
+              if (_recentAlbums.value.isNotEmpty) ...[
+                HomeSectionHeader(
+                  title: '最新专辑',
+                  onViewAll: () {
+                    Navigator.of(context).pushNamed(AppRoutes.albums);
+                  },
+                ),
+                HomeCoverCarousel(
+                  coverSize: AppLayoutSettings.tvMode.value ? 168 : 128,
+                  borderRadius: 16,
+                  items: [
+                    for (final a in _recentAlbums.value)
+                      HomeCoverItem(
+                        coverId: a.coverId,
+                        title: a.name,
+                        subtitle: a.trackCount != null
+                            ? '${a.trackCount} 首'
+                            : '',
+                        onTap: () => _openAlbumDetail(a),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // 空状态
+              if (_favoriteSongs.value.isEmpty &&
+                  _recentSongs.value.isEmpty &&
+                  _recentAlbums.value.isEmpty)
+                const _HomeEmptyState(text: '还没有数据，下拉刷新试试'),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -869,7 +937,9 @@ class _CompactSongList extends StatelessWidget {
             child: InkWell(
               borderRadius: BorderRadius.circular(12),
               onTap: () => onTap(song),
-              onLongPress: onLongPress == null ? null : () => onLongPress!(song),
+              onLongPress: onLongPress == null
+                  ? null
+                  : () => onLongPress!(song),
               child: Padding(
                 // TV 端加大行高与封面，方便遥控器聚焦。
                 padding: EdgeInsets.symmetric(

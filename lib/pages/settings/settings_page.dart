@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../app/router/app_router.dart';
@@ -118,40 +120,54 @@ class _SettingsPageState extends State<SettingsPage> {
                       AppRoutes.volumeScheduleSettings,
                     ),
                   ),
-                  AppSettingTile(
-                    title: '通知设置',
-                    subtitle: '媒体通知显示与按钮偏好',
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () => Navigator.pushNamed(
-                      context,
-                      AppRoutes.notificationSettings,
+                  // 通知设置（媒体通知/通知歌词/悬浮窗）依赖 Android 媒体会话
+                  // 与系统通知，桌面端无对应能力，隐藏入口（切歌弹窗应用内
+                  // 默认开启，无需进设置页调整）。
+                  if (Platform.isAndroid)
+                    AppSettingTile(
+                      title: '通知设置',
+                      subtitle: '媒体通知显示与按钮偏好',
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        AppRoutes.notificationSettings,
+                      ),
                     ),
-                  ),
-                  AppSettingTile(
-                    title: '权限管理',
-                    subtitle: '查看通知、音频与后台播放权限',
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () => Navigator.pushNamed(
-                      context,
-                      AppRoutes.permissionSettings,
+                  // 权限管理仅 Android 有对应系统权限，桌面端隐藏入口。
+                  if (Platform.isAndroid)
+                    AppSettingTile(
+                      title: '权限管理',
+                      subtitle: '查看通知、音频与后台播放权限',
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        AppRoutes.permissionSettings,
+                      ),
                     ),
-                  ),
-                  AppSettingTile(
-                    title: '歌词设置',
-                    subtitle: '控制歌词的呈现方式',
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () =>
-                        Navigator.pushNamed(context, AppRoutes.lyricsSettings),
-                  ),
-                  AppSettingTile(
-                    title: '元数据管理',
-                    subtitle: '音乐元数据维护',
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () => Navigator.pushNamed(
-                      context,
-                      AppRoutes.metadataMatchSettings,
+                  // 歌词设置（状态栏歌词/车载蓝牙/灵动岛）依赖 Android 系统级
+                  // 通知与媒体会话，桌面端无对应能力，隐藏入口。
+                  if (Platform.isAndroid)
+                    AppSettingTile(
+                      title: '歌词设置',
+                      subtitle: '控制歌词的呈现方式',
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        AppRoutes.lyricsSettings,
+                      ),
                     ),
-                  ),
+                  // 元数据管理（数据源插件搜索匹配）依赖原生 QuickJS，
+                  // 仅 Android 支持，桌面端隐藏入口。
+                  if (Platform.isAndroid)
+                    AppSettingTile(
+                      title: '元数据管理',
+                      subtitle: '音乐元数据维护',
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        AppRoutes.metadataMatchSettings,
+                      ),
+                    ),
                   AppSettingTile(
                     title: '启动设置',
                     subtitle: '控制APP启动后的行为',

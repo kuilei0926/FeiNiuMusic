@@ -1,4 +1,5 @@
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart' as shad;
@@ -102,11 +103,18 @@ class FeiNiuMusicApp extends StatelessWidget {
                         return ValueListenableBuilder<bool>(
                           valueListenable: AppLayoutSettings.tvMode,
                           builder: (context, isTv, _) {
+                        final isWindows = !kIsWeb &&
+                            defaultTargetPlatform == TargetPlatform.windows;
+                        // Windows 桌面端不设 fontFamily 时，Flutter 默认用 Segoe UI，
+                        // 中文字形回退到系统 CJK 字体——拉丁/中文混排时字体不同、
+                        // 字重渲染不一致（有的粗有的细）。统一到微软雅黑解决。
+                        final fontFamily = isWindows ? 'Microsoft YaHei UI' : null;
                         final lightBase = ThemeData(
                           colorScheme: ColorScheme.fromSeed(
                             seedColor: baseSeed,
                             brightness: Brightness.light,
                           ),
+                          fontFamily: fontFamily,
                           useMaterial3: true,
                           pageTransitionsTheme: const PageTransitionsTheme(
                             builders: {
@@ -127,6 +135,7 @@ class FeiNiuMusicApp extends StatelessWidget {
                             seedColor: baseSeed,
                             brightness: Brightness.dark,
                           ),
+                          fontFamily: fontFamily,
                           useMaterial3: true,
                           pageTransitionsTheme: const PageTransitionsTheme(
                             builders: {

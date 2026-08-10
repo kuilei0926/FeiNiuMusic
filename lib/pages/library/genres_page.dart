@@ -57,11 +57,32 @@ class _GenresPageState extends State<GenresPage> with SignalsMixin {
     if (AppLayoutSettings.tvMode.value) {
       return TvLayout.cardAspectRatio(cols);
     }
+    // 平板/Windows 大屏：卡片更宽，比例相应拉大，避免正方形封面下方留白。
+    if (AppLayoutSettings.effectiveTabletMode) {
+      return switch (cols) {
+        3 => 0.82,
+        4 => 0.74,
+        5 => 0.62,
+        _ => 0.88,
+      };
+    }
     if (cols == 2) return 0.76;
     if (cols == 3) return 0.65;
     if (cols == 5) return 0.52;
     if (cols == 6) return 0.5;
     return 0.57;
+  }
+
+  /// 平板/Windows 大屏下按可用宽度自适应列数（手机端仍用用户手动选择）。
+  int _adaptiveGridColumns(BuildContext context) {
+    if (AppLayoutSettings.effectiveTabletMode &&
+        !AppLayoutSettings.tvMode.value) {
+      final width = MediaQuery.sizeOf(context).width;
+      if (width >= 1400) return 5;
+      if (width >= 1000) return 4;
+      return 3;
+    }
+    return _gridColumns.value;
   }
 
   double _gridMainAxisSpacingForColumns(int cols) {
@@ -292,6 +313,11 @@ class _GenresPageState extends State<GenresPage> with SignalsMixin {
           },
           extra: Watch.builder(
             builder: (context) {
+              // 平板/Windows 大屏列数自适应，隐藏手动列数选择（TV 仍用自定义列数）。
+              if (AppLayoutSettings.effectiveTabletMode &&
+                  !AppLayoutSettings.tvMode.value) {
+                return const SizedBox.shrink();
+              }
               return Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                 child: SizedBox(
@@ -486,13 +512,13 @@ class _GenresPageState extends State<GenresPage> with SignalsMixin {
                         );
                       }, childCount: genres.length + (_loadingMore.value ? 1 : 0)),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: _gridColumns.value,
+                        crossAxisCount: _adaptiveGridColumns(context),
                         crossAxisSpacing: 14,
                         mainAxisSpacing: _gridMainAxisSpacingForColumns(
-                          _gridColumns.value,
+                          _adaptiveGridColumns(context),
                         ),
                         childAspectRatio: _gridAspectRatioForColumns(
-                          _gridColumns.value,
+                          _adaptiveGridColumns(context),
                         ),
                       ),
                     ),

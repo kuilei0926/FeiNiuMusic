@@ -7,6 +7,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 import '../../app/state/settings_state.dart';
+import '../../app/utils/image_crop_helper.dart';
 import '../../components/index.dart';
 
 class AppAppearanceSettingsPage extends StatefulWidget {
@@ -207,16 +208,11 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
     // fine — no need to react to rotation while the cropper UI is on screen.
     if (!context.mounted) return;
     final size = MediaQuery.of(context).size;
-    final ratio = CropAspectRatio(
+
+    final cropped = await cropCoverImage(
+      sourcePath: file!.path!,
       ratioX: size.width,
       ratioY: size.height,
-    );
-
-    final cropped = await ImageCropper().cropImage(
-      sourcePath: file!.path!,
-      compressFormat: ImageCompressFormat.png,
-      compressQuality: 95,
-      aspectRatio: ratio,
       uiSettings: [
         AndroidUiSettings(
           toolbarTitle: '裁剪背景',
@@ -253,8 +249,10 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding =
-        AppPageScaffold.scrollableBottomPadding(context, showMiniPlayer: false);
+    final bottomPadding = AppPageScaffold.scrollableBottomPadding(
+      context,
+      showMiniPlayer: false,
+    );
     return AppPageScaffold(
       extendBodyBehindAppBar: true,
       appBar: const AppTopBar(
@@ -266,64 +264,71 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
       body: ListView(
         padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
         children: [
-          AppSettingSection(
-            title: '导航布局',
-            children: [
-              ValueListenableBuilder<AppNavigationStyle>(
-                valueListenable: AppLayoutSettings.navigationStyle,
-                builder: (context, style, _) {
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 14, 12, 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '导航方式',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: double.infinity,
-                          child: SegmentedButton<AppNavigationStyle>(
-                            segments: const [
-                              ButtonSegment(
-                                value: AppNavigationStyle.drawer,
-                                icon: Icon(Icons.menu_open_rounded),
-                                label: Text('侧边栏'),
+          // 平板/TV/Windows 恒用侧边栏大屏布局，不提供底栏模式切换，隐藏整块。
+          ValueListenableBuilder<bool>(
+            valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
+            builder: (context, effectiveTabletMode, _) {
+              if (effectiveTabletMode) return const SizedBox.shrink();
+              return AppSettingSection(
+                title: '导航布局',
+                children: [
+                  ValueListenableBuilder<AppNavigationStyle>(
+                    valueListenable: AppLayoutSettings.navigationStyle,
+                    builder: (context, style, _) {
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 14, 12, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '导航方式',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: SegmentedButton<AppNavigationStyle>(
+                                segments: const [
+                                  ButtonSegment(
+                                    value: AppNavigationStyle.drawer,
+                                    icon: Icon(Icons.menu_open_rounded),
+                                    label: Text('侧边栏'),
+                                  ),
+                                  ButtonSegment(
+                                    value: AppNavigationStyle.bottomBar,
+                                    icon: Icon(Icons.space_dashboard_outlined),
+                                    label: Text('底部导航'),
+                                  ),
+                                ],
+                                selected: {style},
+                                showSelectedIcon: false,
+                                onSelectionChanged: (selection) {
+                                  AppLayoutSettings.setNavigationStyle(
+                                    selection.first,
+                                  );
+                                },
                               ),
-                              ButtonSegment(
-                                value: AppNavigationStyle.bottomBar,
-                                icon: Icon(Icons.space_dashboard_outlined),
-                                label: Text('底部导航'),
-                              ),
-                            ],
-                            selected: {style},
-                            showSelectedIcon: false,
-                            onSelectionChanged: (selection) {
-                              AppLayoutSettings.setNavigationStyle(
-                                selection.first,
-                              );
-                            },
-                          ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              style == AppNavigationStyle.bottomBar
+                                  ? '四个常用入口固定在底部，专辑、歌手与文件夹仍从音乐库进入'
+                                  : '保留当前从左侧菜单访问各页面的方式',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 10),
-                        Text(
-                          style == AppNavigationStyle.bottomBar
-                              ? '四个常用入口固定在底部，专辑、歌手与文件夹仍从音乐库进入'
-                              : '保留当前从左侧菜单访问各页面的方式',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
+                      );
+                    },
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 16),
           AppSettingSection(
@@ -570,9 +575,7 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
                 builder: (context, blurEnabled, _) {
                   return AppSettingSwitchTile(
                     title: '高斯模糊',
-                    subtitle: blurEnabled
-                        ? '面板、底部音乐条等使用毛玻璃效果'
-                        : '关闭后所有高斯模糊渲染',
+                    subtitle: blurEnabled ? '面板、底部音乐条等使用毛玻璃效果' : '关闭后所有高斯模糊渲染',
                     value: blurEnabled,
                     onChanged: (value) {
                       AppBackgroundSettings.setPanelBlurEnabled(value);
@@ -596,9 +599,7 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
                         min: 0,
                         max: 32,
                         divisions: 32,
-                        valueText: value == 0
-                            ? '关闭'
-                            : value.toStringAsFixed(0),
+                        valueText: value == 0 ? '关闭' : value.toStringAsFixed(0),
                         onChanged: (next) {
                           AppBackgroundSettings.setPanelBlur(next);
                         },

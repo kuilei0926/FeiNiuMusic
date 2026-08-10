@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqflite/sqflite.dart';
+// sqflite_common_ffi 已 re-export sqflite 的 openDatabase/Database 等符号。
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'db_constants.dart';
 
@@ -11,6 +12,20 @@ class DbHelper {
   static final DbHelper instance = DbHelper._internal();
 
   Database? _db;
+
+  /// 是否已为 Windows 一次性接入 sqflite ffi factory（系统 winsqlite3.dll）。
+  static bool _ffiFactoryReady = false;
+
+  /// 桌面端（Windows）sqflite 无原生实现，需切到 ffi factory。
+  ///
+  /// 幂等：只初始化一次。Android/iOS 走原 platform channel，不触碰这里。
+  static void _ensureFfiFactoryForWindows() {
+    if (defaultTargetPlatform != TargetPlatform.windows || kIsWeb) return;
+    if (_ffiFactoryReady) return;
+    _ffiFactoryReady = true;
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
 
   Future<Database> get database async {
     final current = _db;
@@ -55,6 +70,7 @@ class DbHelper {
   }
 
   Future<Database> _openDb() async {
+    _ensureFfiFactoryForWindows();
     final override = _pathOverride;
     final String path;
     if (override != null) {

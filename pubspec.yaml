@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.4.7+1
+version: 1.4.8+1
 
 environment:
   sdk: ^3.10.8
@@ -53,6 +53,7 @@ dependencies:
   sqflite: ^2.4.2
   path: ^1.9.1
   path_provider: ^2.1.5
+  path_provider_platform_interface: ^2.1.2
   shelf: ^1.4.1
   qr_flutter: ^4.1.0
   file_picker: ^10.3.10
@@ -73,6 +74,9 @@ dependencies:
   media_cast_dlna: ^0.3.1
   webview_flutter: ^4.10.0
   webview_flutter_android: ^4.13.0
+  # Windows 桌面端 sqflite 需走 ffi（系统 winsqlite3.dll）。从 dev 提升为
+  # 正式依赖：仅 Windows 构建/运行时使用，Android 不受影响。
+  sqflite_common_ffi: ^2.4.2
 
 dev_dependencies:
   flutter_test:
@@ -86,7 +90,6 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.3
   path_provider_platform_interface: ^2.1.2
-  sqflite_common_ffi: ^2.4.2
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -144,3 +147,9 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/icon/app_icon.png"
   min_sdk_android: 21
+  # Windows 桌面图标：从同一张源图生成 app_icon.ico（含 16/32/48/256 多分辨率），
+  # 打包进 exe 作为程序/任务栏图标。运行 `dart run flutter_launcher_icons` 生效。
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    icon_size: 256

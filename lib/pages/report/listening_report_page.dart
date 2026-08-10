@@ -171,6 +171,16 @@ class _ListeningReportPageState extends State<ListeningReportPage> {
   }
 
   Future<void> _buildAndOpen() async {
+    // 听歌报告依赖 WebView 渲染；Windows 桌面端无 webview_flutter 实现，
+    // 直接进入错误态占位，不构造 WebViewController（会抛错）。
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      if (!mounted) return;
+      setState(() {
+        _stage = _ReportStage.error;
+        _error = '听歌报告暂不支持 Windows 桌面版';
+      });
+      return;
+    }
     setState(() => _stage = _ReportStage.building);
     try {
       // 聚合可能耗时（genre 反查是网络请求），Builder 内部已是异步 IO。

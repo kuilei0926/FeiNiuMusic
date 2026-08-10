@@ -11,6 +11,33 @@ permissions:
   contents: write
 
 jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: 提取版本号
+        shell: powershell
+        run: |
+          $line = Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$' | Select-Object -First 1
+          $full = $line.Matches[0].Groups[1].Value.Trim()
+          $ver = $full.Split('+')[0]
+          echo "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: 构建并打包 Windows 绿色版
+        shell: powershell
+        run: .\scripts\package_windows.ps1 -Build
+      - name: 上传 Windows 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            build/installer/FeiNiuMusic-Windows-*.zip
+            pubspec.yaml
+
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -92,19 +119,49 @@ jobs:
           echo "保存为: $FPK_NAME"
           curl -sL -o "$FPK_NAME" "$FPK_URL"
           ls -la "$FPK_NAME"
-      - run: |
+      - name: 上传 Android 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build
+          path: |
+            FeiNiuMusic-v*.apk
+            FnMusicEnhance-*.fpk
+            pubspec.yaml
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-android]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 提取版本号
+        run: |
+          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          VERSION=${FULL_VERSION%%+*}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: 生成 release 说明
+        run: |
           git log -1 --pretty=format:"- %s%n%b" > release_notes.txt
           if [ ! -s release_notes.txt ]; then
             echo "- ${GITHUB_SHA}" > release_notes.txt
           fi
+      - name: 下载 Windows 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: windows-artifact/
+      - name: 下载 Android 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: android-build
+          path: android-artifact/
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }}
           body_path: release_notes.txt
           files: |
-            FeiNiuMusic-v${{ env.VERSION }}-arm64-v8a.apk
-            FeiNiuMusic-v${{ env.VERSION }}-armeabi-v7a.apk
-            FeiNiuMusic-v${{ env.VERSION }}-x86_64.apk
-            FeiNiuMusic-v${{ env.VERSION }}-z-luna-arm64-v8a.apk
-            FnMusicEnhance-*.fpk
+            android-artifact/FeiNiuMusic-v*.apk
+            android-artifact/FnMusicEnhance-*.fpk
+            windows-artifact/FeiNiuMusic-Windows-*.zip

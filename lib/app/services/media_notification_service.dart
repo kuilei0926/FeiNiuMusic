@@ -25,6 +25,9 @@ class MediaNotificationService {
   static bool _initStarted = false;
 
   static Future<void> init({bool force = false}) async {
+    // 媒体通知（MediaSession / 通知栏）走 audio_service + 系统媒体中心，
+    // 仅 Android 实现。桌面端（Windows）直接跳过，播放本身不依赖它。
+    if (!io.Platform.isAndroid) return;
     if (_audioHandler != null || _initStarted) return;
     await MediaNotificationSettings.ensureLoaded();
     final player = PlayerService.instance;

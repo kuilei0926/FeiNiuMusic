@@ -8,6 +8,14 @@ import '../../pages/library/playlists_page.dart' show showAddToPlaylistDialog;
 import '../../app/router/app_router.dart';
 import '../feedback/app_toast.dart';
 import 'multi_select_bottom_bar.dart';
+/// 全局多选活动计数：当前有多少个页面处于多选状态。
+///
+/// 平板/TV/Windows 布局的迷你播放器由 [TabletLayoutHost] 统一渲染，不感知
+/// 各页面自己的多选状态。多选时底部会出现操作栏，迷你播放器会挡住它，
+/// 所以用这个全局计数让外壳在任一页面多选时隐藏迷你播放器（手机端各页
+/// 已用 `showMiniPlayer: !isMultiSelecting` 自行控制，互不影响）。
+final ValueNotifier<int> globalMultiSelectActive = ValueNotifier(0);
+
 /// 歌曲列表页多选通用能力。
 ///
 /// 为歌曲/收藏/最近播放/歌手详情/专辑详情/风格详情等页面提供：
@@ -47,6 +55,24 @@ mixin SongMultiSelectMixin<T extends StatefulWidget>
   void toggleMultiSelect() {
     _multiSelect.value = !_multiSelect.value;
     _selectedIds.value = {};
+    // 同步全局多选计数（平板/TV/Windows 外壳据此隐藏迷你播放器）。
+    globalMultiSelectActive.value += _multiSelect.value ? 1 : -1;
+    if (globalMultiSelectActive.value < 0) globalMultiSelectActive.value = 0;
+  }
+
+  @override
+  void dispose() {
+    // 页面在多选状态下被销毁（如切换账号重建外壳/直接返回）时，释放全局
+    // 计数，避免迷你播放器被永久隐藏。页面自身的 dispose 走 super 到这里。
+    // 延迟到帧后：dispose 常在 widget tree 锁定期执行，同步 notify 会触发
+    // "setState when widget tree was locked"。
+    if (_multiSelect.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        globalMultiSelectActive.value =
+            (globalMultiSelectActive.value - 1).clamp(0, 1 << 30);
+      });
+    }
+    super.dispose();
   }
 
   void exitMultiSelect() {

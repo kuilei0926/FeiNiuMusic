@@ -9,19 +9,20 @@ import 'package:image_cropper/image_cropper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
+import '../../app/router/app_page_route.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/api_models.dart';
 import '../../app/services/feiniu/favorite_service.dart';
 import '../../app/services/feiniu/playlist_service.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
-import '../../app/router/app_page_route.dart';
 import '../../app/state/settings_layout_state.dart';
 import '../../app/state/settings_playback_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/tv/tv_layout.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/deferred_page_init_mixin.dart';
+import '../../app/utils/image_crop_helper.dart';
 import '../../app/utils/primary_tab_refresh_mixin.dart';
 import '../../app/theme/app_styles.dart';
 import '../../components/index.dart';
@@ -69,11 +70,32 @@ class _PlaylistsPageState extends State<PlaylistsPage>
     if (AppLayoutSettings.tvMode.value) {
       return TvLayout.cardAspectRatio(cols);
     }
+    // 平板/Windows 大屏：卡片更宽，比例相应拉大，避免正方形封面下方留白。
+    if (AppLayoutSettings.effectiveTabletMode) {
+      return switch (cols) {
+        3 => 0.82,
+        4 => 0.74,
+        5 => 0.62,
+        _ => 0.88,
+      };
+    }
     if (cols == 2) return 0.76;
     if (cols == 3) return 0.65;
     if (cols == 5) return 0.52;
     if (cols == 6) return 0.5;
     return 0.57;
+  }
+
+  /// 平板/Windows 大屏下按可用宽度自适应列数（手机端仍用用户手动选择）。
+  int _adaptiveGridColumns(BuildContext context) {
+    if (AppLayoutSettings.effectiveTabletMode &&
+        !AppLayoutSettings.tvMode.value) {
+      final width = MediaQuery.sizeOf(context).width;
+      if (width >= 1400) return 5;
+      if (width >= 1000) return 4;
+      return 3;
+    }
+    return _gridColumns.value;
   }
 
   double _gridMainAxisSpacingForColumns(int cols) {
@@ -484,6 +506,11 @@ class _PlaylistsPageState extends State<PlaylistsPage>
           },
           extra: Watch.builder(
             builder: (context) {
+              // 平板/Windows 大屏列数自适应，隐藏手动列数选择（TV 仍用自定义列数）。
+              if (AppLayoutSettings.effectiveTabletMode &&
+                  !AppLayoutSettings.tvMode.value) {
+                return const SizedBox.shrink();
+              }
               return Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                 child: SizedBox(
@@ -756,15 +783,15 @@ class _PlaylistsPageState extends State<PlaylistsPage>
                                 ),
                                 gridDelegate:
                                     SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: _gridColumns.value,
+                                  crossAxisCount: _adaptiveGridColumns(context),
                                   crossAxisSpacing: 14,
                                   mainAxisSpacing:
                                       _gridMainAxisSpacingForColumns(
-                                    _gridColumns.value,
+                                    _adaptiveGridColumns(context),
                                   ),
                                   childAspectRatio:
                                       _gridAspectRatioForColumns(
-                                    _gridColumns.value,
+                                    _adaptiveGridColumns(context),
                                   ),
                                 ),
                               ),
@@ -1813,11 +1840,10 @@ class _PlaylistNameDialogState extends State<_PlaylistNameDialog> {
     if (file?.path == null) return;
 
     // 正方形裁剪，与歌单封面展示比例一致
-    final cropped = await ImageCropper().cropImage(
+    final cropped = await cropCoverImage(
       sourcePath: file!.path!,
-      compressFormat: ImageCompressFormat.png,
-      compressQuality: 95,
-      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+      ratioX: 1,
+      ratioY: 1,
       uiSettings: [
         AndroidUiSettings(
           toolbarTitle: '裁剪封面',

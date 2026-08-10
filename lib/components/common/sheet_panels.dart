@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../app/state/settings_layout_state.dart';
 import '../../app/theme/app_visual_theme.dart';
 
-class AppSheetPanel extends StatelessWidget {
+class AppSheetPanel extends StatefulWidget {
   final String? title;
   final Widget child;
   final EdgeInsetsGeometry? padding;
@@ -15,6 +16,33 @@ class AppSheetPanel extends StatelessWidget {
     this.padding,
     this.expand = false,
   });
+
+  @override
+  State<AppSheetPanel> createState() => _AppSheetPanelState();
+}
+
+class _AppSheetPanelState extends State<AppSheetPanel> {
+  @override
+  void initState() {
+    super.initState();
+    // 模态底部面板打开：平板/TV/Windows 外壳据此隐藏迷你播放器
+    // （外壳在 Navigator 外，面板盖不住它，会挡住面板底部按钮）。
+    // 延迟到帧后置位：initState 可能在 build 阶段执行，同步通知外壳
+    // ValueListenableBuilder 会触发 "setState during build"。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppLayoutSettings.modalSheetActive.value = true;
+    });
+  }
+
+  @override
+  void dispose() {
+    // 帧后复位：dispose 常在 widget tree 锁定期（面板关闭动画）执行，
+    // 同步 notify 祖先会触发 "setState when widget tree was locked"。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppLayoutSettings.modalSheetActive.value = false;
+    });
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +65,7 @@ class AppSheetPanel extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Column(
-          mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
+          mainAxisSize: widget.expand ? MainAxisSize.max : MainAxisSize.min,
           children: [
             const SizedBox(height: 8),
             Container(
@@ -48,11 +76,11 @@ class AppSheetPanel extends StatelessWidget {
                 borderRadius: BorderRadius.circular(99),
               ),
             ),
-            if (title != null)
+            if (widget.title != null)
               Padding(
                 padding: EdgeInsets.fromLTRB(20, miuix ? 18 : 16, 20, 10),
                 child: Text(
-                  title!,
+                  widget.title!,
                   style: miuix
                       ? theme.textTheme.titleLarge?.copyWith(fontSize: 20)
                       : TextStyle(
@@ -62,15 +90,18 @@ class AppSheetPanel extends StatelessWidget {
                         ),
                 ),
               ),
-            if (expand)
+            if (widget.expand)
               Expanded(
                 child: Padding(
-                  padding: padding ?? EdgeInsets.zero,
-                  child: child,
+                  padding: widget.padding ?? EdgeInsets.zero,
+                  child: widget.child,
                 ),
               )
             else
-              Padding(padding: padding ?? EdgeInsets.zero, child: child),
+              Padding(
+                padding: widget.padding ?? EdgeInsets.zero,
+                child: widget.child,
+              ),
           ],
         ),
       ),

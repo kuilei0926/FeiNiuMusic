@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_lyric/core/lyric_model.dart';
 import 'package:skeletonizer/skeletonizer.dart';
@@ -269,6 +271,35 @@ class _PlayerPageState extends State<PlayerPage>
                   },
                 ),
               ),
+              // Windows 桌面端没有系统返回键，播放页左上角放一个返回按钮，
+              // 点击关闭播放页（等价于手机的下滑返回/系统返回）。其他平台不显示。
+              if (Platform.isWindows)
+                Positioned(
+                  top: 8,
+                  left: 12,
+                  child: SafeArea(
+                    child: IconButton(
+                      tooltip: '返回',
+                      visualDensity: const VisualDensity(
+                        horizontal: -4,
+                        vertical: -4,
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 40,
+                        height: 40,
+                      ),
+                      icon: Icon(
+                        Icons.arrow_back_rounded,
+                        size: 24,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.72),
+                      ),
+                      onPressed: _closePlayer,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

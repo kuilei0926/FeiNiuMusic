@@ -93,11 +93,32 @@ class _AlbumsPageState extends State<AlbumsPage>
     if (AppLayoutSettings.tvMode.value) {
       return TvLayout.cardAspectRatio(cols);
     }
+    // 平板/Windows 大屏：卡片更宽，比例相应拉大，避免正方形封面下方留白。
+    if (AppLayoutSettings.effectiveTabletMode) {
+      return switch (cols) {
+        3 => 0.82,
+        4 => 0.74,
+        5 => 0.62,
+        _ => 0.88,
+      };
+    }
     if (cols == 2) return 0.76;
     if (cols == 3) return 0.65;
     if (cols == 5) return 0.52;
     if (cols == 6) return 0.5;
     return 0.57;
+  }
+
+  /// 平板/Windows 大屏下按可用宽度自适应列数（手机端仍用用户手动选择）。
+  int _adaptiveGridColumns(BuildContext context) {
+    if (AppLayoutSettings.effectiveTabletMode &&
+        !AppLayoutSettings.tvMode.value) {
+      final width = MediaQuery.sizeOf(context).width;
+      if (width >= 1400) return 5;
+      if (width >= 1000) return 4;
+      return 3;
+    }
+    return _gridColumns.value;
   }
 
   double _gridMainAxisSpacingForColumns(int cols) {
@@ -371,11 +392,16 @@ class _AlbumsPageState extends State<AlbumsPage>
           },
           extra: Watch.builder(
             builder: (context) {
+              // 平板/Windows 大屏列数自适应，隐藏手动列数选择（TV 仍用自定义列数）。
+              if (AppLayoutSettings.effectiveTabletMode &&
+                  !AppLayoutSettings.tvMode.value) {
+                return const SizedBox.shrink();
+              }
               return Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                 child: SizedBox(
                   width: double.infinity,
-                  // TV 大屏给更多列选项（4/5/6），手机/平板保持 2/3/4。
+                  // TV 大屏给更多列选项（4/5/6），手机保持 2/3/4。
                   child: SegmentedButton<int>(
                     segments: AppLayoutSettings.tvMode.value
                         ? const [
@@ -433,15 +459,14 @@ class _AlbumsPageState extends State<AlbumsPage>
     if (!_gridController.hasClients) return;
     const headerHeight = 8.0;
     final screenWidth = MediaQuery.of(context).size.width;
-    final totalSpacing = 14.0 * (_gridColumns.value - 1);
+    final cols = _adaptiveGridColumns(context);
+    final totalSpacing = 14.0 * (cols - 1);
     final totalPadding = 12.0 + 12.0;
-    final itemWidth =
-        (screenWidth - totalPadding - totalSpacing) / _gridColumns.value;
-    final aspectRatio = _gridAspectRatioForColumns(_gridColumns.value);
+    final itemWidth = (screenWidth - totalPadding - totalSpacing) / cols;
+    final aspectRatio = _gridAspectRatioForColumns(cols);
     final itemHeight = itemWidth / aspectRatio;
-    final rowHeight =
-        itemHeight + _gridMainAxisSpacingForColumns(_gridColumns.value);
-    final rowIndex = (index / _gridColumns.value).floor();
+    final rowHeight = itemHeight + _gridMainAxisSpacingForColumns(cols);
+    final rowIndex = (index / cols).floor();
     final offset = rowIndex * rowHeight + headerHeight;
     final max = _gridController.position.maxScrollExtent;
     _gridController.jumpTo(offset.clamp(0.0, max));
@@ -559,13 +584,13 @@ class _AlbumsPageState extends State<AlbumsPage>
                   );
                 }, childCount: _groups.value.length + (_loadingMore.value ? 1 : 0)),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: _gridColumns.value,
+                  crossAxisCount: _adaptiveGridColumns(context),
                   crossAxisSpacing: 14,
                   mainAxisSpacing: _gridMainAxisSpacingForColumns(
-                    _gridColumns.value,
+                    _adaptiveGridColumns(context),
                   ),
                   childAspectRatio: _gridAspectRatioForColumns(
-                    _gridColumns.value,
+                    _adaptiveGridColumns(context),
                   ),
                 ),
               ),

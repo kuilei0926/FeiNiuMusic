@@ -36,10 +36,15 @@ class AppLayoutSettings {
   /// 由 [syncTvMode] 计算合并，不直接持久化（forceTvMode 才是持久化来源）。
   static final ValueNotifier<bool> tvMode = ValueNotifier(false);
 
-  /// 有效平板模式：用户开关或 TV 模式任一为真。
+  /// 桌面端（Windows）恒用平板/大屏布局：侧边栏外壳，无需屏幕尺寸判定。
+  static bool get _forceTabletOnDesktop =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+
+  /// 有效平板模式：Windows 桌面端恒为真；其余平台取用户开关或 TV 模式。
   ///
   /// TV 与平板共用同一套桌面式布局外壳；TV 只是额外强制开启 + 焦点导航。
-  static bool get effectiveTabletMode => tabletMode.value || tvMode.value;
+  static bool get effectiveTabletMode =>
+      _forceTabletOnDesktop || tabletMode.value || tvMode.value;
 
   /// 切歌通知开关：切歌时应用内弹出「正在播放」提示。
   static final ValueNotifier<bool> trackChangeNotify = ValueNotifier(false);
@@ -132,6 +137,9 @@ class AppLayoutSettings {
     if (!isFirstLaunch) return;
     if (_firstUseLargeScreenApplied) return;
     if (!isLargeScreen(isTv: isTv, shortestSide: shortestSide)) return;
+    // Windows 桌面端跳过：不自动开启切歌弹窗（保持默认关闭），
+    // 用户如需可到设置页手动开启。
+    if (_forceTabletOnDesktop) return;
     _firstUseLargeScreenApplied = true;
     await setTrackChangeNotify(true);
   }
@@ -139,6 +147,22 @@ class AppLayoutSettings {
   /// 播放页路由当前是否激活（由 PlayerPage initState/dispose 置位）。
   /// TabletLayoutHost 据此在 TV 模式隐藏侧栏与迷你播放器。
   static final ValueNotifier<bool> playerRouteActive = ValueNotifier(false);
+
+  /// 模态底部面板（歌曲信息 sheet 等）当前是否打开。
+  ///
+  /// 手机端页面内渲染的迷你播放器会被模态 sheet（Navigator 路由）自然盖住；
+  /// 但平板/TV/Windows 的迷你播放器由 TabletLayoutHost 外壳渲染，位于
+  /// Navigator 之外，sheet 盖不住它，会挡住 sheet 底部的操作按钮。Sheet 类
+  /// initState/dispose 置位/复位此信号，外壳据此隐藏迷你播放器。
+  static final ValueNotifier<bool> modalSheetActive = ValueNotifier(false);
+
+  /// 当前页面栈上「隐藏迷你播放器」的页面计数。
+  ///
+  /// 手机端各页面通过 `AppPageScaffold.showMiniPlayer: false`（设置页、播放页、
+  /// 各种全屏页等）隐藏迷你播放器；但平板/TV/Windows 的迷你播放器由外壳
+  /// 统一渲染，无视页面的该参数。AppPageScaffold 在 `showMiniPlayer == false`
+  /// 时自增此计数、dispose 时自减，外壳据此隐藏迷你播放器。
+  static final ValueNotifier<int> miniPlayerSuppressedCount = ValueNotifier(0);
 
   /// [effectiveTabletMode] 的响应式版本：任一来源变化时通知。
   static final ValueNotifier<bool> effectiveTabletModeNotifier =

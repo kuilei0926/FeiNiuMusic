@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/state/settings_layout_state.dart';
 import '../common/sheet_panels.dart';
 
 class SortOption {
@@ -47,6 +48,23 @@ class _SortSheetState extends State<SortSheet> {
     super.initState();
     _currentKey = widget.currentKey;
     _ascending = widget.ascending;
+    // 排序面板作为模态底部面板打开：平板/TV/Windows 外壳据此隐藏迷你播放器
+    // （外壳在 Navigator 外，sheet 盖不住它，会挡住 sheet 底部按钮）。
+    // 延迟到帧后置位：本 initState 可能在 build 阶段执行，同步通知外壳
+    // ValueListenableBuilder 会触发 "setState during build"。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppLayoutSettings.modalSheetActive.value = true;
+    });
+  }
+
+  @override
+  void dispose() {
+    // 帧后复位：dispose 常在 widget tree 锁定期（sheet 关闭动画）执行，
+    // 同步 notify 祖先会触发 "setState when widget tree was locked"。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppLayoutSettings.modalSheetActive.value = false;
+    });
+    super.dispose();
   }
 
   @override

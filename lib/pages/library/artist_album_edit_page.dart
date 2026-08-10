@@ -14,6 +14,7 @@ import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/plugin/plugin_result_parser.dart';
 import '../../app/services/song_match/song_match_service.dart';
 import '../../app/state/settings_lyric_companion.dart';
+import '../../app/utils/image_crop_helper.dart';
 import '../../components/index.dart';
 import '../songs/song_edit_page.dart';
 
@@ -102,11 +103,10 @@ class _ArtistAlbumEditPageState extends State<ArtistAlbumEditPage> {
     final file = result?.files.first;
     if (file?.path == null || !mounted) return;
 
-    final cropped = await ImageCropper().cropImage(
+    final cropped = await cropCoverImage(
       sourcePath: file!.path!,
-      compressFormat: ImageCompressFormat.png,
-      compressQuality: 95,
-      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+      ratioX: 1,
+      ratioY: 1,
       uiSettings: [
         AndroidUiSettings(
           toolbarTitle: '裁剪封面',

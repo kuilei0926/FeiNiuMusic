@@ -57,6 +57,10 @@ class PluginService {
   /// 聚合搜索并发上限（默认 3；用户可在设置中调整）。
   int concurrencyLimit = 3;
 
+  /// 数据源插件走原生 QuickJS（MethodChannel `com.feiniu.music/match_plugin`），
+  /// 仅 Android 有实现。桌面端（Windows）显式禁用，返回空结果。
+  static bool get _enabledOnPlatform => !kIsWeb && Platform.isAndroid;
+
   /// 搜索歌曲（聚合所有已启用且含 searchSongs 能力的插件），**按源分组**返回。
   ///
   /// 对齐 Lyrico：各源结果独立分组（不合并），供按源展示。
@@ -65,6 +69,7 @@ class PluginService {
     int page = 1,
     int pageSize = 20,
   }) async {
+    if (!_enabledOnPlatform) return const GroupedSongResults();
     final plugins = await PluginStore.instance.getPlugins();
     final candidates = plugins
         .where((p) => p.enabled && p.hasCapability(PluginCapability.searchSongs))
@@ -110,6 +115,7 @@ class PluginService {
     int pageSize = 5,
     int searchType = 0,
   }) async {
+    if (!_enabledOnPlatform) return [];
     final plugins = await PluginStore.instance.getPlugins();
     final candidates = plugins
         .where(
@@ -150,6 +156,7 @@ class PluginService {
     String? pluginId,
     Map<String, String>? internal,
   }) async {
+    if (!_enabledOnPlatform) return [];
     final plugins = await PluginStore.instance.getPlugins();
     final candidates = plugins
         .where((p) =>

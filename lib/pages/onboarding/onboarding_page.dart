@@ -233,10 +233,7 @@ class _WelcomePage extends StatelessWidget {
             child: SizedBox(
               width: 96,
               height: 96,
-              child: Image.asset(
-                'assets/icon/app_icon.png',
-                fit: BoxFit.cover,
-              ),
+              child: Image.asset('assets/icon/app_icon.png', fit: BoxFit.cover),
             ),
           ),
         ),
@@ -323,7 +320,9 @@ Widget _modeTile(
   final textColor = selected
       ? scheme.primary
       : (isDark ? Colors.white70 : Colors.black87);
-  final background = selected ? scheme.primary.withAlpha(31) : Colors.transparent;
+  final background = selected
+      ? scheme.primary.withAlpha(31)
+      : Colors.transparent;
   return Expanded(
     child: InkWell(
       borderRadius: BorderRadius.circular(14),
@@ -375,12 +374,20 @@ class _AppearancePage extends StatelessWidget {
           builder: (context, seed, _) => _SeedColorPalette(selected: seed),
         ),
         const SizedBox(height: 28),
-        ValueListenableBuilder<AppNavigationStyle>(
-          valueListenable: AppLayoutSettings.navigationStyle,
-          builder: (context, style, _) => _NavigationStyleSelector(
-            selected: style,
-            onChanged: (value) => AppLayoutSettings.setNavigationStyle(value),
-          ),
+        // 平板/TV/Windows 恒用侧边栏大屏布局，不提供底栏模式切换，隐藏选择器。
+        ValueListenableBuilder<bool>(
+          valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
+          builder: (context, effectiveTabletMode, _) {
+            if (effectiveTabletMode) return const SizedBox.shrink();
+            return ValueListenableBuilder<AppNavigationStyle>(
+              valueListenable: AppLayoutSettings.navigationStyle,
+              builder: (context, style, _) => _NavigationStyleSelector(
+                selected: style,
+                onChanged: (value) =>
+                    AppLayoutSettings.setNavigationStyle(value),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -446,7 +453,11 @@ class _SeedColorPalette extends StatelessWidget {
                   ),
                 ),
                 child: isSelected
-                    ? const Icon(Icons.check_rounded, color: Colors.white, size: 22)
+                    ? const Icon(
+                        Icons.check_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      )
                     : null,
               ),
             );
@@ -536,8 +547,8 @@ Widget _navTile(
   final borderColor = selected
       ? scheme.primary
       : (Theme.of(context).brightness == Brightness.dark
-          ? Colors.white12
-          : Colors.black12);
+            ? Colors.white12
+            : Colors.black12);
   return InkWell(
     borderRadius: BorderRadius.circular(14),
     onTap: onTap,
@@ -758,8 +769,7 @@ class _LaunchPage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         ValueListenableBuilder<bool>(
-          valueListenable:
-              AppLaunchNavigationSettings.autoOpenPlayerOnLaunch,
+          valueListenable: AppLaunchNavigationSettings.autoOpenPlayerOnLaunch,
           builder: (context, enabled, _) => AppSettingSwitchTile(
             title: '启动软件自动打开播放界面',
             subtitle: 'APP启动后自动进入播放页面',

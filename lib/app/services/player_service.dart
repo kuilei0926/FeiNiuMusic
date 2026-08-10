@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:audio_session/audio_session.dart';
@@ -49,11 +50,20 @@ class PlayerService with WidgetsBindingObserver {
   /// 当前活跃的播放引擎：只有它出声、只有它的流驱动状态。
   /// 播放 MP3/AAC/Opus 时是 [_justAudioEngine]；播放 FLAC/DSF（media_kit
   /// 格式）时切换为 MediaKitEngine。引擎切换只在歌曲边界发生。
-  late PlayerEngine _activeEngine = _justAudioEngine;
+  late PlayerEngine _activeEngine = _defaultEngine();
 
   /// media_kit 引擎（libmpv + FFmpeg）：FLAC/DSF 等。懒创建：
   /// 首次播放 media_kit 格式时才实例化原生 Player，省启动开销。
   MediaKitEngine? _mediaKitEngine;
+
+  /// 默认播放引擎。Windows 桌面端 just_audio（ExoPlayer）无原生实现，
+  /// 直接以 media_kit 为默认引擎，避免构造 just_audio 抛错。
+  PlayerEngine _defaultEngine() {
+    if (Platform.isWindows) {
+      return _mediaKitEngine ??= MediaKitEngine();
+    }
+    return _justAudioEngine;
+  }
 
   /// 与逻辑队列平行的引擎类型列表。构建队列时并发解析，
   /// 之后任意逻辑索引都能算出所在引擎与同引擎连续段（run）。
@@ -3767,7 +3777,11 @@ class PlayerService with WidgetsBindingObserver {
     await _becomingNoisySub?.cancel();
     _stopBackgroundAudioKeepAlive();
     await _setAudioSessionActive(false);
-    await _justAudioEngine.dispose();
+    // Windows 上 just_audio 从未构造（_defaultEngine 走 media_kit），
+    // 访问 late final 会反构造一个 AudioPlayer 报错，须跳过。
+    if (!Platform.isWindows) {
+      await _justAudioEngine.dispose();
+    }
     await _mediaKitEngine?.dispose();
     _mediaKitEngine = null;
   }

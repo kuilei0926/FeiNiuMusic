@@ -105,6 +105,16 @@ class AppPageScaffoldState extends State<AppPageScaffold>
   @override
   void initState() {
     super.initState();
+    // 页面声明隐藏迷你播放器（设置页、全屏页等）时，上报给平板/TV/Windows
+    // 外壳（外壳统一渲染迷你播放器，无视页面的 showMiniPlayer 参数）。
+    // 计数式：页面栈上可能有多个 AppPageScaffold，任一隐藏则外壳隐藏。
+    // 延迟到帧后：initState 在 Navigator build 中执行，同步 notify 外壳的
+    // ValueListenableBuilder 会触发 "setState during build"。
+    if (!widget.showMiniPlayer) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        AppLayoutSettings.miniPlayerSuppressedCount.value += 1;
+      });
+    }
     // 关闭动画播完（反向到底）时，把展开态同步为关闭。
     // 这样 closeDrawer() 的动画收尾后 PopScope 也能正确放行返回键。
     _drawerController.addStatusListener((status) {
@@ -116,6 +126,17 @@ class AppPageScaffoldState extends State<AppPageScaffold>
 
   @override
   void dispose() {
+    if (!widget.showMiniPlayer) {
+      // 帧后递减：dispose 常在 widget tree 锁定期执行，同步 notify 会触发
+      // "setState when widget tree was locked"。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        AppLayoutSettings.miniPlayerSuppressedCount.value =
+            (AppLayoutSettings.miniPlayerSuppressedCount.value - 1).clamp(
+              0,
+              1 << 30,
+            );
+      });
+    }
     _drawerController.dispose();
     super.dispose();
   }

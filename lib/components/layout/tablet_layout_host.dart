@@ -7,6 +7,7 @@ import '../../app/state/settings_state.dart';
 import '../feedback/app_toast.dart';
 import '../focus/tv_focusable.dart';
 import 'base/app_background.dart';
+import '../list/song_multi_select_mixin.dart' show globalMultiSelectActive;
 import '../player/mini_player/mini_player_bar.dart';
 import 'side_menu.dart';
 
@@ -160,21 +161,50 @@ class _TabletLayoutHostState extends State<TabletLayoutHost>
                       ),
                     ),
                     if (AppLayoutSettings.effectiveTabletMode)
-                      Positioned(
-                        // 迷你播放器左侧对齐侧边栏右缘，不覆盖侧边栏
-                        // （侧边栏底部「设置」等入口需可点击）。动画期间随
-                        // 侧边栏一起滑入/滑出。
-                        left: drawerWidth * t,
-                        right: 0,
-                        bottom: bottomInset,
-                        child: IgnorePointer(
-                          key: const ValueKey('tv-player-hide-miniplayer'),
-                          ignoring: hideChrome,
-                          child: Opacity(
-                            opacity: hideChrome ? 0 : 1,
-                            child: _buildMiniPlayer(),
-                          ),
-                        ),
+                      // 隐藏迷你播放器的场景（平板/TV/Windows 由外壳统一渲染，
+                      // 手机端各页已用 showMiniPlayer 自行控制）：
+                      //   1. 多选：底部有操作栏，迷你播放器会挡住它；
+                      //   2. 模态底部面板（歌曲信息 sheet）：外壳在 Navigator 外，
+                      //      sheet 盖不住迷你播放器，会挡住 sheet 底部按钮；
+                      //   3. 页面声明隐藏迷你播放器（设置页等 showMiniPlayer:false）。
+                      ValueListenableBuilder<int>(
+                        valueListenable: globalMultiSelectActive,
+                        builder: (context, multiSelectCount, _) {
+                          return ValueListenableBuilder<bool>(
+                            valueListenable: AppLayoutSettings.modalSheetActive,
+                            builder: (context, sheetActive, _) {
+                              return ValueListenableBuilder<int>(
+                                valueListenable:
+                                    AppLayoutSettings.miniPlayerSuppressedCount,
+                                builder: (context, suppressedCount, _) {
+                                  final hideMini =
+                                      hideChrome ||
+                                      multiSelectCount > 0 ||
+                                      sheetActive ||
+                                      suppressedCount > 0;
+                                  return Positioned(
+                                    // 迷你播放器左侧对齐侧边栏右缘，不覆盖侧边栏
+                                    // （侧边栏底部「设置」等入口需可点击）。动画期间随
+                                    // 侧边栏一起滑入/滑出。
+                                    left: drawerWidth * t,
+                                    right: 0,
+                                    bottom: bottomInset,
+                                    child: IgnorePointer(
+                                      key: const ValueKey(
+                                        'tv-player-hide-miniplayer',
+                                      ),
+                                      ignoring: hideMini,
+                                      child: Opacity(
+                                        opacity: hideMini ? 0 : 1,
+                                        child: _buildMiniPlayer(),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          );
+                        },
                       ),
                   ],
                 );

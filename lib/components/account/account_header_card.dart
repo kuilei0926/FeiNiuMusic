@@ -10,7 +10,11 @@ import '../../app/services/feiniu/account_store.dart';
 /// （[SideMenu._buildHeader]）或「我的」页展示。点击进入账号切换页。
 /// 无当前账号时渲染为空。
 class AccountHeaderCard extends StatelessWidget {
-  const AccountHeaderCard({super.key});
+  /// 点击回调。默认直接 push 账号切换页；侧边栏场景可注入走内容区导航
+  /// （避免从根 Navigator 压栈把整个平板外壳盖住）。
+  final VoidCallback? onTap;
+
+  const AccountHeaderCard({super.key, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +23,7 @@ class AccountHeaderCard extends StatelessWidget {
       builder: (context, accountId, _) {
         final account = AccountStore.instance.currentAccount;
         if (account == null) return const SizedBox.shrink();
-        return _AccountHeaderCardInner(account: account);
+        return _AccountHeaderCardInner(account: account, onTap: onTap);
       },
     );
   }
@@ -27,8 +31,9 @@ class AccountHeaderCard extends StatelessWidget {
 
 class _AccountHeaderCardInner extends StatelessWidget {
   final AccountEntry account;
+  final VoidCallback? onTap;
 
-  const _AccountHeaderCardInner({required this.account});
+  const _AccountHeaderCardInner({required this.account, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +43,8 @@ class _AccountHeaderCardInner extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: () => Navigator.of(context).pushNamed(AppRoutes.accounts),
+        onTap: onTap ??
+            () => Navigator.of(context).pushNamed(AppRoutes.accounts),
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
           decoration: BoxDecoration(

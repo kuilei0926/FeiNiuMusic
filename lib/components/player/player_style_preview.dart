@@ -50,16 +50,19 @@ class PlayerStylePreview extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final portraitRatio = size.shortestSide / size.longestSide;
     // TV/平板大屏引导页卡片：横屏下 shortest/longest ≈ 0.56，会让预览卡几乎
-    // 全屏。大屏统一用固定横屏观感比例（封面偏大但仍是"卡片"），并保留垂直钳制。
+    // 全屏。大屏统一用固定手机竖屏观感比例（≈ 0.56），并钳制最大高度，
+    // 让预览在横屏大屏上依然是"手机小样"，而非占满整屏的大图。
     final isLarge = AppLayoutSettings.effectiveTabletMode;
-    final aspectRatio = isLarge ? 0.72 : portraitRatio;
+    final aspectRatio = isLarge ? 0.56 : portraitRatio;
     return Center(
-      child: AspectRatio(
-        aspectRatio: aspectRatio,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: isLarge ? 340 : double.infinity,
-          ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          // 大屏下钳制高度：约 412px 的手机小样观感（1280×720 下宽度约 232px），
+          // 不再占满横屏。手机端仍不限高，由纵向滚动承接。
+          maxHeight: isLarge ? 412 : double.infinity,
+        ),
+        child: AspectRatio(
+          aspectRatio: aspectRatio,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(14),
             child: DecoratedBox(
