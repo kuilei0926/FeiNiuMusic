@@ -8,20 +8,19 @@ import 'lyrics_repository.dart';
 
 /// FnMusicEnhance 服务端增强歌词服务。
 ///
-/// 服务端增强运行在飞牛 NAS 上（监听 38200 端口），提供 HTTP 写歌词：
+/// 服务端增强运行在飞牛 NAS 上（经 nginx /music-enhance/ 提供），提供 HTTP 写歌词：
 /// - **读取歌词**：用飞牛音乐服务原本的接口（`FeiNiuApiClient.getLyricText`），
 ///   无需第三方；
 /// - **写入歌词**：`POST /music/api/v1/lyric/list` body `{guid, content}`
 ///   （服务端增强，X-API-Key 携带登录 token，必填）。
 ///
 /// 配置了服务地址（`FeiNiuApiClient.instance.baseUrl`）即可用。
-/// 基础 URL 取 `FeiNiuApiClient.instance.baseUrl` 的主机 + `:38200`。
+/// 基础 URL 取 `FeiNiuApiClient.instance.baseUrl` + `/music-enhance`。
 class LyricCompanionService {
   LyricCompanionService._internal();
 
   static final LyricCompanionService instance = LyricCompanionService._internal();
 
-  static const int port = 38200;
   static const String _apiPath = '/music/api/v1/lyric/list';
 
   final Dio _dio = Dio(
@@ -39,15 +38,14 @@ class LyricCompanionService {
     return api.baseUrl.isNotEmpty;
   }
 
-  /// 构造服务端增强基础 URL：`http://<NAS-host>:38200`。
+  /// 构造服务端增强基础 URL：`<FeiNiuApiClient.baseUrl>/music-enhance`。
   ///
-  /// NAS-host 取自 `FeiNiuApiClient.baseUrl` 的主机部分。
+  /// NAS 的 nginx 将 `/music-enhance/` 转发到 FnMusicEnhance(unix socket),
+  /// scheme/host/port 与主 API 一致。
   String? get baseUrl {
     final api = FeiNiuApiClient.instance;
     if (api.baseUrl.isEmpty) return null;
-    final host = Uri.tryParse(api.baseUrl)?.host;
-    if (host == null || host.isEmpty) return null;
-    return 'http://$host:$port';
+    return '${api.baseUrl}/music-enhance';
   }
 
   /// 健康探测：验证服务端增强是否在 NAS 上运行。

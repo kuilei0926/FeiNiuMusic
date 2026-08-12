@@ -19,7 +19,7 @@ import 'library_detail_pages.dart';
 
 /// 文件夹视图 —— 按 NAS 文件系统目录层级浏览音乐文件。
 ///
-/// 目录数据来自服务端增强（FnMusicEnhance，38200 端口）的
+/// 目录数据来自服务端增强（FnMusicEnhance，经 nginx /music-enhance/ 提供）的
 /// `GET /music/api/v1/folder/list`，路径为库内相对路径（不含 /vol3/...）。
 /// 第一层是库根目录（如 `/Music`），根请求 `/` 只显示库根入口。
 /// 需要已开启「服务端增强」（[LyricCompanionSettings.enabled]）。
@@ -110,7 +110,8 @@ class _FoldersPageState extends State<FoldersPage>
     _playerPlaying.value = _player.isPlaying.value;
     _player.currentSong.addListener(_handleCurrentSongChanged);
     _player.isPlaying.addListener(_handlePlayingChanged);
-    _load();
+    // 初始加载允许自动进入（根目录/首目录是"单文件夹无歌"包装时跳过无用层）。
+    _load(allowAutoEnter: true);
   }
 
   @override
@@ -153,10 +154,13 @@ class _FoldersPageState extends State<FoldersPage>
   }
 
   /// 跳到指定目录（面包屑/进入/返回共用），重新加载。
-  void _goTo(String path) {
+  /// [allowAutoEnter] 仅在「进入文件夹」（初始加载或点击文件夹）时传 true；
+  /// 返回上层目录/面包屑上退时传 false，避免父目录恰好是"单文件夹无歌曲"
+  /// 时再次自动下钻，让用户无法停在父目录。
+  void _goTo(String path, {bool allowAutoEnter = false}) {
     if (_path.value == path) return;
     _path.value = path;
-    _load();
+    _load(allowAutoEnter: allowAutoEnter);
   }
 
   static String _parentOf(String path) {
@@ -255,7 +259,10 @@ class _FoldersPageState extends State<FoldersPage>
     });
   }
 
-  Future<void> _load({bool forceRefresh = false}) async {
+  Future<void> _load({
+    bool forceRefresh = false,
+    bool allowAutoEnter = false,
+  }) async {
     if (forceRefresh) _service.clearCache();
     _loading.value = true;
     _error.value = null;
@@ -279,16 +286,19 @@ class _FoldersPageState extends State<FoldersPage>
       _fileTotal.value = listing.fileTotal;
       _hasMore.value = listing.files.length < listing.fileTotal;
 
-      // 自动进入：当前目录只有一个文件夹且没有歌曲时，自动进入该文件夹（递归，
-      // 直到出现多文件夹或歌曲）。搜索/平铺模式下不自动进入。
-      if (_searchQuery.value.isEmpty &&
+      // 自动进入：仅「进入文件夹」（初始加载或点击文件夹）时允许。当前目录
+      // 只有一个文件夹且没有歌曲时自动进入（递归，直到多文件夹或歌曲）。
+      // 返回上层目录、面包屑上退、搜索/平铺/排序时不自动进入，否则父目录
+      // 恰好是"单文件夹无歌曲"时一返回就被再次下钻，无法停在父目录。
+      if (allowAutoEnter &&
+          _searchQuery.value.isEmpty &&
           !_flatten.value &&
           listing.folders.length == 1 &&
           listing.fileTotal == 0) {
         final only = listing.folders.first;
         if (only.path != _path.value) {
           _path.value = only.path;
-          await _load();
+          await _load(allowAutoEnter: true);
           return;
         }
       }
@@ -370,7 +380,7 @@ class _FoldersPageState extends State<FoldersPage>
   }
 
   /// 点击文件夹进入子目录（同页内切换）。
-  void _openFolder(FolderDir dir) => _goTo(dir.path);
+  void _openFolder(FolderDir dir) => _goTo(dir.path, allowAutoEnter: true);
 
   /// 把单个文件的一首 track 构造成可播放 SongEntity。
   SongEntity _toSongEntity(FolderFile file, FolderTrack t) {

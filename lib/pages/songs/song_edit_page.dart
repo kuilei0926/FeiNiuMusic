@@ -434,7 +434,7 @@ class _SongEditPageState extends State<SongEditPage> {
       if (selected == null || !mounted) return;
 
       // 歌词修改开启时，候选选中即同步预取歌词（应用时直接使用，不再二次搜索）。
-      // 歌词预取走数据源插件（getLyricsCandidates），与 38200 端口的服务端增强
+      // 歌词预取走数据源插件（getLyricsCandidates），与 nginx /music-enhance 的服务端增强
       // 无关，故不 gate 于 checkConnected()；连接状态只影响弹层里「未连接到增强
       // 插件」提示与是否可勾选歌词（决定能否写入 NAS）。
       String? prefetchedLyrics;

@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
 
-/// 配套服务（FnMusicEnhance，38200 端口）连接错误的统一中文化。
+/// 配套服务（FnMusicEnhance，经 nginx /music-enhance/ 提供）连接错误的统一中文化。
 ///
 /// 各 companion service（歌词 / 元数据 / 文件夹）在捕获 [DioException] 时调用，
 /// 把底层英文错误映射为对用户友好的中文提示，避免把 "Connection refused"

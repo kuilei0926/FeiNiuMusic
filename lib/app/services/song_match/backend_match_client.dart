@@ -172,20 +172,19 @@ class RefreshBatchResult {
 
 /// FnMusicEnhance 数据源搜索客户端。
 ///
-/// 服务端增强运行在飞牛 NAS 上（监听 38200 端口），提供多平台搜索 API：
+/// 服务端增强运行在飞牛 NAS 上（经 nginx /music-enhance/ 提供），提供多平台搜索 API：
 /// - `GET  /music/api/v1/search/sources` 平台列表（客户端决定启用哪些）
 /// - `POST /music/api/v1/search/songs`   歌曲搜索（按客户端 sources 顺序分组）
 /// - `POST /music/api/v1/search/covers`  封面搜索（扁平列表）
 /// - `POST /music/api/v1/search/lyrics`  歌词获取
 ///
-/// 基础 URL 取 `FeiNiuApiClient.instance.baseUrl` 的主机 + `:38200`。
+/// 基础 URL 取 `FeiNiuApiClient.instance.baseUrl` + `/music-enhance`。
 /// X-API-Key 携带飞牛音乐登录 token（`FeiNiuApiClient.token`）。
 class BackendMatchClient {
   BackendMatchClient._internal();
 
   static final BackendMatchClient instance = BackendMatchClient._internal();
 
-  static const int port = 38200;
   static const String _sourcesPath = '/music/api/v1/search/sources';
   static const String _songsPath = '/music/api/v1/search/songs';
   static const String _coversPath = '/music/api/v1/search/covers';
@@ -215,13 +214,11 @@ class BackendMatchClient {
     return api.baseUrl.isNotEmpty && api.token.isNotEmpty;
   }
 
-  /// 构造服务端增强基础 URL：`http://<NAS-host>:38200`。
+  /// 构造服务端增强基础 URL：`<FeiNiuApiClient.baseUrl>/music-enhance`。
   String? get baseUrl {
     final api = FeiNiuApiClient.instance;
     if (api.baseUrl.isEmpty) return null;
-    final host = Uri.tryParse(api.baseUrl)?.host;
-    if (host == null || host.isEmpty) return null;
-    return 'http://$host:$port';
+    return '${api.baseUrl}/music-enhance';
   }
 
   /// 获取后端可用平台列表。失败抛异常（携带服务器 msg）。

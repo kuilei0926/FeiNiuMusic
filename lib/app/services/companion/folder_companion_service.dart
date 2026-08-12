@@ -6,19 +6,18 @@ import 'companion_error.dart';
 
 /// FnMusicEnhance 服务端增强 —— 文件夹视图服务。
 ///
-/// 服务端增强运行在飞牛 NAS 上（监听 38200 端口），读取 music.db 的
+/// 服务端增强运行在飞牛 NAS 上（经 nginx /music-enhance/ 提供），读取 music.db 的
 /// `shared_library` / `audio_file` 表提供按目录浏览音乐文件的能力：
 /// `GET /music/api/v1/folder/list?path=<相对路径>`。
 ///
 /// 配置了服务地址且已登录即可用。
-/// 基础 URL 取 `FeiNiuApiClient.instance.baseUrl` 的主机 + `:38200`。
+/// 基础 URL 取 `FeiNiuApiClient.instance.baseUrl` + `/music-enhance`。
 /// X-API-Key 携带飞牛音乐登录 token（`FeiNiuApiClient.token`）。
 class FolderCompanionService {
   FolderCompanionService._internal();
 
   static final FolderCompanionService instance = FolderCompanionService._internal();
 
-  static const int port = 38200;
   static const String _apiPath = '/music/api/v1/folder/list';
 
   final Dio _dio = Dio(
@@ -40,15 +39,14 @@ class FolderCompanionService {
     return api.baseUrl.isNotEmpty && api.token.isNotEmpty;
   }
 
-  /// 构造服务端增强基础 URL：`http://<NAS-host>:38200`。
+  /// 构造服务端增强基础 URL：`<FeiNiuApiClient.baseUrl>/music-enhance`。
   ///
-  /// NAS-host 取自 `FeiNiuApiClient.baseUrl` 的主机部分。
+  /// NAS 的 nginx 将 `/music-enhance/` 转发到 FnMusicEnhance(unix socket),
+  /// scheme/host/port 与主 API 一致。
   String? get baseUrl {
     final api = FeiNiuApiClient.instance;
     if (api.baseUrl.isEmpty) return null;
-    final host = Uri.tryParse(api.baseUrl)?.host;
-    if (host == null || host.isEmpty) return null;
-    return 'http://$host:$port';
+    return '${api.baseUrl}/music-enhance';
   }
 
   /// 获取某目录的文件夹/文件列表（分页）。

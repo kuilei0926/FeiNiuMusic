@@ -53,15 +53,27 @@ class CoverLocalCache {
   static Future<String?> downloadToLocal(
     String coverId, {
     int? updatedAt,
+    int size = 120,
   }) async {
-    final target = await _cacheFileFor(coverId, updatedAt: updatedAt);
+    final target = await _cacheFileFor(
+      coverId,
+      updatedAt: updatedAt,
+      size: size,
+    );
     if (await target.exists()) return target.path;
 
     final url = FeiNiuApiClient.instance.coverUrl(
       coverId,
-      size: 120,
+      size: size,
       updatedAt: updatedAt,
     );
+    // 目标尺寸未缓存时，先尝试复用同封面其它已缓存尺寸（App UI 的
+    // CachedNetworkImage 与 _coverCache 是同一个 DefaultCacheManager 单例，
+    // 播放页/列表页通常已把该封面以某个尺寸下载过）。直接磁盘拷贝，避免
+    // 重新向 NAS 请求一个新的尺寸而慢到超时。
+    if (await _reuseCachedVariant(coverId, updatedAt, size, target)) {
+      return target.path;
+    }
     try {
       final cacheObject = await _coverCache.getFileFromCache(url);
       if (cacheObject != null) {
@@ -110,8 +122,14 @@ class CoverLocalCache {
     return null;
   }
 
-  static Future<io.File> _cacheFileFor(String coverId, {int? updatedAt}) async {
-    final cacheKey = '$coverId:${updatedAt ?? 0}';
+  static Future<io.File> _cacheFileFor(
+    String coverId, {
+    int? updatedAt,
+    int size = 120,
+  }) async {
+    // size 纳入缓存键：同封面不同尺寸（通知 512px vs 悬浮岛 120px）落在
+    // 不同文件，避免先写入的小尺寸文件被大尺寸请求复用。
+    final cacheKey = '$coverId:${updatedAt ?? 0}:$size';
     final fileName = '${sha1.convert(utf8.encode(cacheKey))}.img';
     return io.File('${await coverDirPath()}/$fileName');
   }
@@ -129,6 +147,46 @@ class CoverLocalCache {
       _debugLog('copy cover into shared cache failed: $error');
       return null;
     }
+  }
+
+  /// 在 flutter_cache_manager 缓存里找同封面其它已缓存尺寸，拷贝进目标槽位。
+  /// App UI 的 CachedNetworkImage 与 [_coverCache] 是同一个
+  /// DefaultCacheManager 单例，播放页/列表页通常已下载过该封面，直接复用
+  /// 磁盘文件可避免向 NAS 重新请求一个新的尺寸（首请求会触发服务端生成，
+  /// 可能 >2s 导致媒体卡片封面解析超时）。
+  ///
+  /// 只接受 >= 256px 的候选：小米图像管线把低分辨率判为 "small resolution"
+  /// （JpegXmCodec::isSupported returns false for small resolution），妙播
+  /// 媒体卡片不渲染 120px 这种小图；复用 256+ 才保证能显示。
+  static Future<bool> _reuseCachedVariant(
+    String coverId,
+    int? updatedAt,
+    int targetSize,
+    io.File target,
+  ) async {
+    // 常见 UI 尺寸（由大到小，优先更大的）。跳过目标尺寸本身（那正缺失）。
+    const candidates = <int>[800, 512, 320, 300, 256, 120];
+    for (final s in candidates) {
+      if (s == targetSize || s < 256) continue;
+      final url = FeiNiuApiClient.instance.coverUrl(
+        coverId,
+        size: s,
+        updatedAt: updatedAt,
+      );
+      try {
+        final cacheObject = await _coverCache.getFileFromCache(url);
+        if (cacheObject == null) continue;
+        final source = io.File(cacheObject.file.path);
+        if (await source.exists()) {
+          await source.copy(target.path);
+          _debugLog('reused cached cover size=$s for target=$targetSize');
+          return true;
+        }
+      } catch (_) {
+        // 某个尺寸查缓存失败不影响其它尺寸。
+      }
+    }
+    return false;
   }
 
   static void _debugLog(String message) {

@@ -24,14 +24,14 @@ enum EntityEditKind {
 
 /// FnMusicEnhance 服务端增强元数据服务。
 ///
-/// 服务端增强运行在飞牛 NAS 上（监听 38200 端口），除歌词回写外，还提供
+/// 服务端增强运行在飞牛 NAS 上（经 nginx /music-enhance/ 提供），除歌词回写外，还提供
 /// 歌手/专辑的**封面写入**与**名称修改 / 实体创建**：
 /// - `POST /music/api/v1/cover`：写入歌手/专辑封面（JSON base64），
 ///   写 `cover/{type}/{guid[:2]}/{guid}` 并更新 DB `cover_guid`；
 /// - `POST /music/api/v1/entity`：`action=update` 改名，`action=create` 新建实体。
 ///
 /// 配置了服务地址且已登录即可用。
-/// 基础 URL 取 `FeiNiuApiClient.instance.baseUrl` 的主机 + `:38200`。
+/// 基础 URL 取 `FeiNiuApiClient.instance.baseUrl` + `/music-enhance`。
 /// X-API-Key 携带飞牛音乐登录 token（`FeiNiuApiClient.token`）。
 class MetadataCompanionService {
   MetadataCompanionService._internal();
@@ -39,7 +39,6 @@ class MetadataCompanionService {
   static final MetadataCompanionService instance =
       MetadataCompanionService._internal();
 
-  static const int port = 38200;
   static const String _coverPath = '/music/api/v1/cover';
   static const String _entityPath = '/music/api/v1/entity';
 
@@ -59,15 +58,14 @@ class MetadataCompanionService {
     return api.baseUrl.isNotEmpty && api.token.isNotEmpty;
   }
 
-  /// 构造服务端增强基础 URL：`http://<NAS-host>:38200`。
+  /// 构造服务端增强基础 URL：`<FeiNiuApiClient.baseUrl>/music-enhance`。
   ///
-  /// NAS-host 取自 `FeiNiuApiClient.baseUrl` 的主机部分。
+  /// NAS 的 nginx 将 `/music-enhance/` 转发到 FnMusicEnhance(unix socket),
+  /// scheme/host/port 与主 API 一致。
   String? get baseUrl {
     final api = FeiNiuApiClient.instance;
     if (api.baseUrl.isEmpty) return null;
-    final host = Uri.tryParse(api.baseUrl)?.host;
-    if (host == null || host.isEmpty) return null;
-    return 'http://$host:$port';
+    return '${api.baseUrl}/music-enhance';
   }
 
   /// 写入歌手/专辑封面图片。

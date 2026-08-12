@@ -33,7 +33,7 @@ class _MetadataMatchSettingsPageState extends State<MetadataMatchSettingsPage> {
   /// 探测中。
   bool _probing = true;
 
-  /// 端口探测结果：null = 成功（服务端增强在 NAS 上运行）；否则为错误消息。
+  /// 服务探测结果：null = 成功（服务端增强在 NAS 上运行）；否则为错误消息。
   String? _probeError;
 
   /// 服务端增强是否已连接（探测成功后置 true，供区块显示连接状态）。
@@ -51,7 +51,7 @@ class _MetadataMatchSettingsPageState extends State<MetadataMatchSettingsPage> {
     _probeCompanion();
   }
 
-  /// 进入页面时探测 NAS 上 38200 端口（不校验 token，仅探测应用是否运行）。
+  /// 进入页面时探测 FnMusicEnhance（不校验 token，仅探测应用是否运行）。
   Future<void> _probeCompanion() async {
     setState(() {
       _probing = true;
@@ -317,7 +317,7 @@ class _MetadataMatchSettingsPageState extends State<MetadataMatchSettingsPage> {
   /// 服务端增强（FnMusicEnhance）区块。
   ///
   /// 除歌词修改外，还提供歌手/专辑编辑（改名 + 封面写入）。
-  /// 进入页面时探测 NAS 上 38200 端口，不可达则禁用开关并提供仓库链接。
+  /// 进入页面时探测 FnMusicEnhance，不可达则禁用开关并提供仓库链接。
   List<Widget> _buildCompanionSection(BuildContext context) {
     // 探测中
     if (_probing) {
@@ -343,7 +343,7 @@ class _MetadataMatchSettingsPageState extends State<MetadataMatchSettingsPage> {
           AppSettingTile(
             title: '服务端增强',
             subtitle: '已安装但当前不可达：请确认 NAS 上 FnMusicEnhance 正在运行，'
-                '且端口 ${LyricCompanionService.port} 已开放',
+                '且 nginx 已配置 /music-enhance 转发',
             trailing: const Icon(Icons.warning_amber_rounded),
           ),
           AppSettingTile(
@@ -377,8 +377,7 @@ class _MetadataMatchSettingsPageState extends State<MetadataMatchSettingsPage> {
         title: '连接状态',
         subtitle: _connected
             ? '已连接到 NAS 上的 FnMusicEnhance'
-            : '未连接：请确认 NAS 已运行 FnMusicEnhance，且端口 '
-                '${LyricCompanionService.port} 已开放',
+            : '未连接：请确认 NAS 已运行 FnMusicEnhance，且 nginx 已配置 /music-enhance 转发',
         leading: Icon(
           _connected ? Icons.check_circle_rounded : Icons.link_off_rounded,
           color: _connected ? Colors.green : null,
@@ -407,7 +406,7 @@ class _MetadataMatchSettingsPageState extends State<MetadataMatchSettingsPage> {
 
   Future<void> _setCompanionEnabled(bool value) async {
     if (value) {
-      // 开启前探测 NAS 上 38200 端口 + 校验登录 token
+      // 开启前探测 FnMusicEnhance + 校验登录 token
       final error = await LyricCompanionService.instance.probe(
         checkKey: true,
       );

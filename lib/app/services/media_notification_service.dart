@@ -113,6 +113,27 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   String? _coverDirPath;
   String? _lastCoverId;
   Uri? _cachedCoverUri;
+
+  /// 当前曲目封面本地文件路径。当前曲目的 Metadata 用 `file://` 指向它
+  /// （对齐 NagoMusic 实机验证方案），audio_service 按 artCacheFile 让原生
+  /// 侧内嵌 ALBUM_ART Bitmap；妙播媒体卡片读内嵌 Bitmap 显示封面。
+  String? _cachedCoverPath;
+
+  /// 切歌时是否正在解析当前歌曲封面。解析期间抑制 [_syncMediaItem]，
+  /// 避免把「无 Bitmap」的 Metadata 先发布给系统（HyperOS 妙播卡片一旦
+  /// 以无封面状态渲染，后续 artUri 更新不会刷新）。
+  bool _coverResolving = false;
+
+  /// 切歌时等待封面解析的最大时长。缓存命中是瞬时操作；超时后回退远程
+  /// URL 兜底，避免封面下载拖慢媒体卡片的标题/歌手显示。
+  static const Duration _coverResolveTimeout = Duration(seconds: 2);
+
+  /// 媒体会话封面下载尺寸。120px 会被小米图像管线判为「small resolution」
+  /// （日志：JpegXmCodec::isSupported returns false for small resolution），
+  /// 妙播媒体卡片不渲染。用 512px 内嵌 Bitmap（客户端按需缩放）并作为
+  /// ALBUM_ART_URI 指向的较大版本。
+  static const int _systemCoverSize = 512;
+
   final Map<String, _CarBrowseSong> _browseSongs = <String, _CarBrowseSong>{};
   Future<void>? _apiAuthReady;
 
@@ -190,7 +211,7 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   Future<Uri?> _getLocalCoverUri(String coverId, {int? updatedAt}) async {
     final url = FeiNiuApiClient.instance.coverUrl(
       coverId,
-      size: 120,
+      size: _systemCoverSize,
       updatedAt: updatedAt,
     );
     _debugLog('getLocalCoverUri coverId=$coverId url=$url');
@@ -276,7 +297,12 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
 
   // ---- MediaItem / PlaybackState 构建 ----
 
-  MediaItem _itemFromSong(SongEntity song) {
+  /// [current] 为 true 表示构建「当前播放曲目」的 MediaItem：artUri 用
+  /// file:// 本地路径（对齐 NagoMusic 实机验证的方案），audio_service 按
+  /// artCacheFile 让原生侧内嵌 ALBUM_ART Bitmap，妙播媒体卡片直接读内嵌
+  /// Bitmap。队列/浏览条目（[current] 为 false）仍用 content://，供
+  /// Android Auto 等外部进程读取。
+  MediaItem _itemFromSong(SongEntity song, {bool current = false}) {
     final lyricLine = MediaNotificationSettings.showLyrics.value
         ? _currentLyricLine
         : null;
@@ -287,17 +313,21 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
         : '$titleText · $artistText';
     final albumName = song.albumDisplayName;
 
-    // artUri: Android 优先使用本地文件 URI。
+    // artUri: 当前曲目优先 file:// 本地路径；队列/浏览用 content://。
     Uri? artUri;
     if (song.coverId != null && song.coverId!.isNotEmpty) {
-      if (_cachedCoverUri != null) {
+      if (current &&
+          _cachedCoverPath != null &&
+          _cachedCoverPath!.isNotEmpty) {
+        artUri = Uri.file(_cachedCoverPath!);
+      } else if (_cachedCoverUri != null) {
         artUri = _cachedCoverUri;
       } else {
         // 本地封面尚未就绪时发远程 URL，audio_service 会自动下载并缓存
         artUri = Uri.tryParse(
           FeiNiuApiClient.instance.coverUrl(
             song.coverId!,
-            size: 120,
+            size: _systemCoverSize,
             updatedAt: song.updatedAt,
           ),
         );
@@ -903,19 +933,22 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
       _debugLog('song changed to ${snap.song?.title ?? 'none'}');
     }
 
-    // 先发布带认证头的 MediaItem，再在后台将封面复制到专用缓存并
-    // 替换为 content:// URI。后者可供 Android Auto 等外部进程读取。
     if (songChanged) {
       final song = snap.song;
       _cachedCoverUri = null;
       if (song != null && song.coverId != null && song.coverId!.isNotEmpty) {
         _lastCoverId = song.coverId;
-        // 先发送带认证头的 MediaItem，避免等待封面下载阻塞播放状态。
-        _syncQueue(snap);
-        _syncMediaItem();
-        // 后台下载封面，缓存后通过只读 Provider 发布 content:// URI。
         if (io.Platform.isAndroid) {
-          unawaited(_syncAndUpdateCover(song));
+          // HyperOS 媒体卡片只在首次渲染 Metadata 时读取 ALBUM_ART（Bitmap），
+          // 之后仅更新 artUri（哪怕换成 content://）也不会刷新封面图。
+          // 因此这里等本地封面解析完成（content:// / file://，audio_service
+          // 原生侧会把它转成 Bitmap 嵌入 Metadata）再发布队列 + 当前曲目，
+          // 避免任何「无 Bitmap」的 Metadata 先进入系统被妙播固定成无封面。
+          // 解析期间 _syncMediaItem 由 _coverResolving 抑制。
+          _publishWithLocalArt(song);
+        } else {
+          _syncQueue(snap);
+          _syncMediaItem();
         }
       } else {
         _syncQueue(snap);
@@ -928,27 +961,104 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
     _syncPlaybackState(snap);
     if (songChanged) {
       _refreshFavoriteState();
+      _prewarmQueueCovers(snap);
     }
   }
 
-  /// 封面缓存完成后刷新媒体项，使车机和系统媒体客户端读取 content:// URI。
+  /// 后台预下载队列接下来几首歌的封面（按 [_systemCoverSize]）。封面首请求
+  /// 会触发服务端生成、可能 >2s；切歌时 `_resolveLocalArtUri` 只有 2s 超时。
+  /// 预下载后切到这些歌时封面已在本地缓存，解析瞬时完成，妙播/通知拿到内嵌
+  /// Bitmap 的 Metadata，而不是回退远程 URL。
+  void _prewarmQueueCovers(PlaybackSnapshot snap) {
+    final queue = snap.queue;
+    if (queue.length < 2) return;
+    final next = queue.skip(1).take(3);
+    for (final song in next) {
+      final coverId = song.coverId;
+      if (coverId == null || coverId.isEmpty) continue;
+      unawaited(
+        CoverLocalCache.downloadToLocal(
+          coverId,
+          updatedAt: song.updatedAt,
+          size: _systemCoverSize,
+        ),
+      );
+    }
+  }
+
+  /// 封面就绪后再发布队列 + MediaItem，保证首次进入系统的 Metadata 内含
+  /// ALBUM_ART Bitmap（HyperOS 需要）。最多等 [_coverResolveTimeout]，
+  /// 超时/失败回退远程 URL（Android Auto 仍有 audio_service 自带下载兜底），
+  /// 并后台继续解析、完成后重发本地封面。
+  Future<void> _publishWithLocalArt(SongEntity song) async {
+    _coverResolving = true;
+    ({String? path, Uri? contentUri})? resolved;
+    try {
+      resolved = await _resolveLocalCover(song).timeout(_coverResolveTimeout);
+    } catch (_) {
+      _debugLog('resolve cover timeout, fallback to remote artUri');
+    } finally {
+      _coverResolving = false;
+    }
+    if (song.id != _lastSongId) return; // 已切歌，丢弃过期结果
+    final localPath = resolved?.path;
+    final hasLocal = localPath != null && localPath.isNotEmpty;
+    if (hasLocal) {
+      _cachedCoverPath = localPath;
+      _cachedCoverUri = resolved?.contentUri;
+    }
+    // 队列与当前曲目都改用本地封面（_syncQueue 的 artUri 去重键保证这次会
+    // 重新发布）：当前曲目 Metadata 用 file://（内嵌 Bitmap 供妙播），队列
+    // 条目用 content://（供 Android Auto 跨进程读取）。
+    _syncQueue(player.snapshot.value);
+    _syncMediaItem();
+    if (!hasLocal) {
+      // 本地封面未就绪：已按远程 URL 发布兜底，后台完成后重发本地封面。
+      unawaited(_syncAndUpdateCover(song));
+    }
+  }
+
+  /// 解析封面到本地：返回本地文件路径 + 给外部进程（Android Auto）的
+  /// content:// URI。路径用于当前曲目 Metadata 的 file:// artUri
+  /// （audio_service 按 artCacheFile 让原生侧内嵌 ALBUM_ART Bitmap，
+  /// 妙播媒体卡片读内嵌 Bitmap）。失败返回 (path: null, contentUri: null)。
+  Future<({String? path, Uri? contentUri})> _resolveLocalCover(
+    SongEntity song,
+  ) async {
+    final localPath = await CoverLocalCache.downloadToLocal(
+      song.coverId!,
+      updatedAt: song.updatedAt,
+      size: _systemCoverSize,
+    );
+    if (localPath != null && localPath.isNotEmpty) {
+      final contentUri = await CoverLocalCache.contentUriForPath(localPath);
+      return (path: localPath, contentUri: contentUri);
+    }
+    // 回退：老路径下载（file:// 或 null）。
+    final fallbackUri = await _getLocalCoverUri(
+      song.coverId!,
+      updatedAt: song.updatedAt,
+    );
+    if (fallbackUri != null && fallbackUri.scheme == 'file') {
+      return (path: fallbackUri.toFilePath(), contentUri: null);
+    }
+    return (path: null, contentUri: fallbackUri);
+  }
+
+  /// 封面缓存完成后刷新媒体项，使车机和系统媒体客户端读取本地封面。
   Future<void> _syncAndUpdateCover(SongEntity song) async {
     if (song.coverId == null || song.coverId!.isEmpty) return;
     try {
       _debugLog(
         'syncAndUpdateCover song=${song.title} coverId=${song.coverId}',
       );
-      final localPath = await CoverLocalCache.downloadToLocal(
-        song.coverId!,
-        updatedAt: song.updatedAt,
+      final resolved = await _resolveLocalCover(song);
+      _debugLog(
+        'syncAndUpdateCover path=${resolved.path} contentUri=${resolved.contentUri}',
       );
-      final contentUri = await CoverLocalCache.contentUriForPath(localPath);
-      final localUri =
-          contentUri ??
-          await _getLocalCoverUri(song.coverId!, updatedAt: song.updatedAt);
-      _debugLog('syncAndUpdateCover localUri=$localUri');
-      if (localUri != null && song.id == _lastSongId) {
-        _cachedCoverUri = localUri;
+      if (resolved.path != null && song.id == _lastSongId) {
+        _cachedCoverPath = resolved.path;
+        _cachedCoverUri = resolved.contentUri;
       }
       // 拿到本地封面（或返回 null）后再同步队列和当前曲目
       _syncQueue(player.snapshot.value);
@@ -961,11 +1071,17 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   /// 将应用内播放队列发布给系统媒体会话。
   void _syncQueue(PlaybackSnapshot snap) {
     final sessionQueue = _queueForMediaSession(snap);
-    final queueKey = sessionQueue.map((song) => song.id).join('|');
+    final items = sessionQueue.map(_itemFromSong).toList();
+    // 去重键包含 artUri：封面解析完成后（远程 URL → content://）必须重新
+    // 发布队列，否则外部客户端（Android Auto / 妙播）读到的队列条目仍是
+    // 无法加载的远程 URL，卡片不显示封面。
+    final queueKey = items
+        .map((i) => '${i.id}|${i.artUri?.toString() ?? ''}')
+        .join('|');
     if (queueKey == _lastQueueKey) return;
     _lastQueueKey = queueKey;
     _publishedQueueIds = sessionQueue.map((song) => song.id).toList();
-    queue.add(sessionQueue.map(_itemFromSong).toList());
+    queue.add(items);
   }
 
   List<SongEntity> _queueForMediaSession(PlaybackSnapshot snap) {
@@ -984,7 +1100,19 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
 
   void _syncMediaItem() {
     final current = player.snapshot.value.song;
-    final item = current != null ? _itemFromSong(current) : null;
+    // 封面解析中：等 _publishWithLocalArt 拿到本地封面（content://，原生侧
+    // 会内嵌 ALBUM_ART Bitmap）再发布。此刻若发布，artUri 是远程 URL、
+    // Metadata 无 Bitmap，HyperOS 妙播卡片一旦以无封面渲染就不再刷新。
+    if (current != null &&
+        current.coverId != null &&
+        current.coverId!.isNotEmpty &&
+        io.Platform.isAndroid &&
+        _coverResolving) {
+      return;
+    }
+    final item = current != null
+        ? _itemFromSong(current, current: true)
+        : null;
     // itemKey 必须包含车载歌词行：当「通知显示歌词」关闭时，title/artist/
     // displaySubtitle 不含歌词，连续歌词行会产生相同 itemKey 被去重吞掉，
     // 导致车机收不到歌词更新。
