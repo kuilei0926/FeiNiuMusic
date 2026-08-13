@@ -610,7 +610,7 @@ class _PlaylistsPageState extends State<PlaylistsPage>
         key: _scaffoldKey,
         extendBodyBehindAppBar: true,
         appBar: AppTopBar(
-          title: '我的歌单',
+          title: '歌单',
           isRefreshing: _isRefreshing.value,
           leading: useBottomNavigation || AppLayoutSettings.tvMode.value
               ? null
@@ -1624,6 +1624,10 @@ class _SlideRevealAction extends StatefulWidget {
 class _SlideRevealActionState extends State<_SlideRevealAction>
     with SingleTickerProviderStateMixin {
   static const double _actionWidth = 88;
+  // 判定为「点击」的位移阈值：鼠标/触控板点击天然带 1~3px 抖动，而外层行拖动
+  // 识别器对精确指针只需 1px 即可抢占手势竞技场，导致 InkWell 的 onTap 被取消
+  // （点击删除按钮无反应）。这里用裸指针事件兜底，位移不超过该阈值即视为点击。
+  static const double _tapSlop = 10;
 
   late final AnimationController _controller = AnimationController(
     vsync: this,
@@ -1632,6 +1636,12 @@ class _SlideRevealActionState extends State<_SlideRevealAction>
 
   /// 当前内容左移距离（0 = 闭合，[_actionWidth] = 完全露出删除按钮）。
   double get _offset => _controller.value * _actionWidth;
+
+  /// 记录在删除按钮上按下时的指针位置（全局坐标），用于抬起时判定是否点击。
+  Offset? _pressPos;
+
+  /// 防重入：同一次点击既走 InkWell onTap 又走 Listener 兜底时只执行一次删除。
+  bool _deletePending = false;
 
   @override
   void dispose() {
@@ -1657,9 +1667,35 @@ class _SlideRevealActionState extends State<_SlideRevealAction>
     }
   }
 
+  void _handleButtonPointerDown(PointerDownEvent event) {
+    _pressPos = event.position;
+  }
+
+  void _handleButtonPointerUp(PointerUpEvent event) {
+    final start = _pressPos;
+    _pressPos = null;
+    if (start == null) return;
+    // 位移极小（点击而非拖动）→ 视为点击删除按钮。绕过手势竞技场：
+    // Listener 在 pointerRouter 分发阶段回调，先于 arena 裁决，不受
+    // 外层横向拖动识别器抢占影响（鼠标 1px 抖动即可抢占，导致 onTap 丢失）。
+    if ((event.position - start).distance <= _tapSlop) {
+      _handleDelete();
+    }
+  }
+
+  void _handleButtonPointerCancel(PointerCancelEvent event) {
+    _pressPos = null;
+  }
+
   Future<void> _handleDelete() async {
-    final done = await widget.onDelete();
-    if (mounted && done) _close();
+    if (_deletePending) return;
+    _deletePending = true;
+    try {
+      final done = await widget.onDelete();
+      if (mounted && done) _close();
+    } finally {
+      _deletePending = false;
+    }
   }
 
   @override
@@ -1679,28 +1715,34 @@ class _SlideRevealActionState extends State<_SlideRevealAction>
               alignment: Alignment.centerRight,
               child: Opacity(
                 opacity: _controller.value,
-                child: Container(
-                  width: _actionWidth,
-                  height: double.infinity,
-                  color: Colors.red,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: _handleDelete,
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.delete_outline_rounded,
-                            color: Colors.white,
-                            size: 22,
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            '删除',
-                            style: TextStyle(color: Colors.white, fontSize: 12),
-                          ),
-                        ],
+                child: Listener(
+                  onPointerDown: _handleButtonPointerDown,
+                  onPointerUp: _handleButtonPointerUp,
+                  onPointerCancel: _handleButtonPointerCancel,
+                  child: Container(
+                    width: _actionWidth,
+                    height: double.infinity,
+                    color: Colors.red,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _handleDelete,
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.delete_outline_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              '删除',
+                              style:
+                                  TextStyle(color: Colors.white, fontSize: 12),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -2087,7 +2129,7 @@ class _PlaylistImportDialogState extends State<_PlaylistImportDialog> {
                     onSubmitted: (_) => _submit(),
                     style: const TextStyle(fontSize: 13),
                     decoration: InputDecoration(
-                      hintText: 'https://music.163.com/...',
+                      hintText: '',
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
                         tooltip: '从剪贴板粘贴',

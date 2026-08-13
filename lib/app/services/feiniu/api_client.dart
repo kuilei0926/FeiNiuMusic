@@ -1192,7 +1192,7 @@ class FeiNiuApiClient {
   ) async {
     final data = await _post(
       '/playlist/remove-track',
-      data: {'guid': playlistGuid, 'trackGUID': trackGUID},
+      data: {'guid': playlistGuid, 'trackGUIDs': [trackGUID]},
     );
     final response = FeiNiuResponse.fromJson(data, null);
     if (!response.isSuccess) {
