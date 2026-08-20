@@ -245,7 +245,7 @@ class _AlbumsPageState extends State<AlbumsPage>
     final headers = FeiNiuApiClient.imageAuthHeaders();
     for (final g in groups.take(count)) {
       if (g.coverId != null && g.coverId!.isNotEmpty) {
-        final url = api.coverUrl(g.coverId!, size: 300, updatedAt: null);
+        final url = api.coverUrl(g.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: null);
         unawaited(precacheImage(
           CachedNetworkImageProvider(url, headers: headers),
           context,
@@ -397,12 +397,17 @@ class _AlbumsPageState extends State<AlbumsPage>
                   !AppLayoutSettings.tvMode.value) {
                 return const SizedBox.shrink();
               }
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  // TV 大屏给更多列选项（4/5/6），手机保持 2/3/4。
-                  child: SegmentedButton<int>(
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SheetSectionTitle('列数'),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      // TV 大屏给更多列选项（4/5/6），手机保持 2/3/4。
+                      child: SegmentedButton<int>(
                     segments: AppLayoutSettings.tvMode.value
                         ? const [
                             ButtonSegment(
@@ -445,8 +450,10 @@ class _AlbumsPageState extends State<AlbumsPage>
                       _savePrefs();
                     },
                     showSelectedIcon: false,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               );
             },
           ),
@@ -719,7 +726,7 @@ class _AlbumCover extends StatelessWidget {
       );
     }
     final coverUrl =
-        FeiNiuApiClient.instance.coverUrl(coverId!, size: 300);
+        FeiNiuApiClient.instance.coverUrl(coverId!, size: FeiNiuApiClient.coverRequestSize);
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: CachedNetworkImage(

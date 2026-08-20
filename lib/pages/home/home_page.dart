@@ -231,29 +231,29 @@ class _HomePageState extends State<HomePage>
           _heroSong!.coverId!.isNotEmpty)
         api.coverUrl(
           _heroSong!.coverId!,
-          size: 800,
+          size: FeiNiuApiClient.coverRequestSize,
           updatedAt: _heroSong!.updatedAt,
         ),
       // 收藏歌曲封面
       for (final s in _favoriteSongs.value.take(9))
         if (s.coverId != null && s.coverId!.isNotEmpty)
-          api.coverUrl(s.coverId!, size: 120, updatedAt: s.updatedAt),
+          api.coverUrl(s.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: s.updatedAt),
       // 最近播放封面
       for (final s in _recentSongs.value.take(9))
         if (s.coverId != null && s.coverId!.isNotEmpty)
-          api.coverUrl(s.coverId!, size: 120, updatedAt: s.updatedAt),
+          api.coverUrl(s.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: s.updatedAt),
       // 最近添加歌曲封面
       for (final s in _recentTracks.value.take(9))
         if (s.coverId != null && s.coverId!.isNotEmpty)
-          api.coverUrl(s.coverId!, size: 120, updatedAt: s.updatedAt),
+          api.coverUrl(s.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: s.updatedAt),
       // 专辑封面 — FeiNiuAlbum 无 updatedAt
       for (final a in _recentAlbums.value.take(10))
         if (a.coverId != null && a.coverId!.isNotEmpty)
-          api.coverUrl(a.coverId!, size: 300),
+          api.coverUrl(a.coverId!, size: FeiNiuApiClient.coverRequestSize),
       // 歌单封面
       for (final p in _playlists.value.take(10))
         if (p.coverId != null && p.coverId!.isNotEmpty)
-          api.coverUrl(p.coverId!, size: 300, updatedAt: p.updatedAt),
+          api.coverUrl(p.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: p.updatedAt),
     ];
     for (final url in coverUrls) {
       if (!mounted) break;
@@ -313,13 +313,15 @@ class _HomePageState extends State<HomePage>
       final song = await _fetchNextRoamSong(deviceId, currentRoamId);
       if (song == null || !mounted) return;
       _roamSong.value = song;
-      // 正在漫游播放时，把新歌插到当前之后，播完自然接上
+      // 正在漫游播放时，把新歌插到当前之后，播完自然接上（不打断当前播放）
       if (_player.isPlaying.value && _player.queueExtender != null) {
         await _player.insertNext([song]);
-        _roamQueue.value = [..._roamQueue.value, song];
-      } else {
-        _roamQueue.value = [song];
       }
+      // 无论是否正在播放，_roamQueue 都以「当前显示的漫游歌」为队首：
+      // 点播放时播的就是 Banner 上这首歌。此前播放中刷新会把新歌 append
+      // 进 _roamQueue，队列变成 [旧歌, 新歌]，点播放仍从旧歌开始——表现为
+      // 「刷新后点播放，播的还是上一次刷新的歌」。
+      _roamQueue.value = [song];
     } catch (e, stack) {
       debugPrint('[HomePage] refresh roam error: $e\n$stack');
     }
@@ -339,7 +341,9 @@ class _HomePageState extends State<HomePage>
       }
       final next = await _api.getRoamNext(deviceId, currentRoamId);
       if (next.next == null) return null;
-      _roamId.value = next.next!.roamId;
+      // 推进 roamId：roam-next 返回 previous/current/next。下一次请求应基于
+      // current 的 roamId（与 PlayerService 实测一致），用 next.roamId 会跳过歌曲。
+      _roamId.value = next.current?.roamId ?? next.next!.roamId;
       return _trackService.trackToSongEntity(next.next!.track.toJson());
     } catch (e) {
       debugPrint('[HomePage] fetch next roam error: $e');
@@ -447,8 +451,9 @@ class _HomePageState extends State<HomePage>
       final response = await _api.getRoamNext(deviceId, roamId);
       if (response.next == null) return [];
 
-      // 更新 roamId 以便下一次扩展
-      _roamId.value = response.next!.roamId;
+      // 更新 roamId 以便下一次扩展：基于 current 的 roamId（与 PlayerService
+      // 一致），用 next.roamId 会跳过歌曲。
+      _roamId.value = response.current?.roamId ?? response.next!.roamId;
 
       final song = _trackService.trackToSongEntity(
         response.next!.track.toJson(),

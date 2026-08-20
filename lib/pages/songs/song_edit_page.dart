@@ -468,7 +468,7 @@ class _SongEditPageState extends State<SongEditPage> {
           currentAlbum: _albumController.text.trim(),
           currentYear: _yearController.text.trim(),
           currentCoverUrl: _displayCoverId != null && _displayCoverId!.isNotEmpty
-              ? _api.coverUrl(_displayCoverId!, size: 120)
+              ? _api.coverUrl(_displayCoverId!, size: FeiNiuApiClient.coverRequestSize)
               : null,
           currentLyrics: _lyricsController.text,
           currentTrackNo: _trackNoController.text.trim(),
@@ -815,7 +815,7 @@ class _SongEditPageState extends State<SongEditPage> {
       image = CachedNetworkImage(
         imageUrl: _api.coverUrl(
           _displayCoverId!,
-          size: 320,
+          size: FeiNiuApiClient.coverRequestSize,
           updatedAt: widget.song.updatedAt,
         ),
         httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
@@ -1727,7 +1727,7 @@ class _ArtistAvatarWidget extends StatelessWidget {
     final radius = size / 2;
     final initial = name.isNotEmpty ? name.characters.first : '?';
     if (coverId != null && coverId!.isNotEmpty) {
-      final coverUrl = FeiNiuApiClient.instance.coverUrl(coverId!, size: 120);
+      final coverUrl = FeiNiuApiClient.instance.coverUrl(coverId!, size: FeiNiuApiClient.coverRequestSize);
       // 有封面时不叠加名字首字，仅显示头像图片。
       return CircleAvatar(
         radius: radius,

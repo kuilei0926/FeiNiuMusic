@@ -162,7 +162,7 @@ class _ArtistsPageState extends State<ArtistsPage>
     final headers = FeiNiuApiClient.imageAuthHeaders();
     for (final g in groups.take(count)) {
       if (g.artist.coverId != null && g.artist.coverId!.isNotEmpty) {
-        final url = api.coverUrl(g.artist.coverId!, size: 120, updatedAt: null);
+        final url = api.coverUrl(g.artist.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: null);
         unawaited(precacheImage(
           CachedNetworkImageProvider(url, headers: headers),
           context,
@@ -469,7 +469,7 @@ class _ArtistAvatar extends StatelessWidget {
     if (coverId != null && coverId!.isNotEmpty) {
       final coverUrl = FeiNiuApiClient.instance.coverUrl(
         coverId!,
-        size: 120,
+        size: FeiNiuApiClient.coverRequestSize,
       );
       // 有封面图：完整显示图片，不叠加首字母
       return CircleAvatar(

@@ -117,7 +117,7 @@ class _CarouselCard extends StatelessWidget {
                       child: CachedNetworkImage(
                         imageUrl: FeiNiuApiClient.instance.coverUrl(
                           coverId,
-                          size: 400,
+                          size: FeiNiuApiClient.coverRequestSize,
                           updatedAt: item.updatedAt,
                         ),
                         httpHeaders: authHeaders,

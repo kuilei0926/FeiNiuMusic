@@ -157,14 +157,14 @@ class ReportSnapshotBuilder {
 
   /// 下载单张封面并转 data URL。
   ///
-  /// 用 `size:300`（与 payload 里 pic 一致，保证清晰度，不是切歌悬浮窗的 120px）
-  /// 经 [FeiNiuApiClient.fetchBytes] 带鉴权头下载。
+  /// 用 canonical 尺寸（[FeiNiuApiClient.coverRequestSize]，与 payload 里 pic 一致，
+  /// 保证清晰度）经 [FeiNiuApiClient.fetchBytes] 带鉴权头下载。
   Future<String?> _downloadCoverDataUrl(
     FeiNiuApiClient api,
     String coverId,
   ) async {
     try {
-      final url = api.coverUrl(coverId, size: 300);
+      final url = api.coverUrl(coverId, size: FeiNiuApiClient.coverRequestSize);
       final bytes = await api.fetchBytes(url);
       if (bytes == null || bytes.isEmpty) return null;
       return 'data:image/jpeg;base64,${base64Encode(bytes)}';
@@ -333,7 +333,7 @@ class ReportSnapshotBuilder {
     return (String? coverId) {
       if (coverId == null || coverId.isEmpty) return '';
       try {
-        return api.coverUrl(coverId, size: 300);
+        return api.coverUrl(coverId, size: FeiNiuApiClient.coverRequestSize);
       } catch (_) {
         return '';
       }

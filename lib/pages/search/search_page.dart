@@ -345,7 +345,7 @@ class _SearchPageState extends State<SearchPage> {
               children: _albums.map((album) {
                 final coverUrl =
                     album.coverId != null && album.coverId!.isNotEmpty
-                    ? _api.coverUrl(album.coverId!, size: 48)
+                    ? _api.coverUrl(album.coverId!, size: FeiNiuApiClient.coverRequestSize)
                     : null;
                 return ListTile(
                   leading: coverUrl != null
@@ -392,7 +392,7 @@ class _SearchPageState extends State<SearchPage> {
               children: _artists.map((artist) {
                 final coverUrl =
                     artist.coverId != null && artist.coverId!.isNotEmpty
-                    ? _api.coverUrl(artist.coverId!, size: 48)
+                    ? _api.coverUrl(artist.coverId!, size: FeiNiuApiClient.coverRequestSize)
                     : null;
                 return ListTile(
                   leading: CircleAvatar(

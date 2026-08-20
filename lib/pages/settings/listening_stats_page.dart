@@ -854,7 +854,7 @@ class _ArtistCoverTile extends StatelessWidget {
     if (coverId != null && coverId!.isNotEmpty) {
       final coverUrl = FeiNiuApiClient.instance.coverUrl(
         coverId!,
-        size: (size * MediaQuery.devicePixelRatioOf(context)).round().clamp(120, 800),
+        size: FeiNiuApiClient.coverRequestSize,
       );
       return ClipOval(
         child: SizedBox(

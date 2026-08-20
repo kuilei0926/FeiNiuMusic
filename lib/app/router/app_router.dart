@@ -247,12 +247,29 @@ class _PrimaryNavigationShellState extends State<_PrimaryNavigationShell> {
                 child: PrimaryNavigationScope(
                   currentIndex: _currentIndex,
                   onSelected: _select,
-                  child: IndexedStack(
-                    index: _currentIndex,
-                    children: List.generate(
-                      _pages.length,
-                      (index) => _pages[index] ?? const SizedBox.shrink(),
-                    ),
+                  child: Stack(
+                    children: [
+                      IndexedStack(
+                        index: _currentIndex,
+                        children: List.generate(
+                          _pages.length,
+                          (index) =>
+                              _pages[index] ?? const SizedBox.shrink(),
+                        ),
+                      ),
+                      // 共享底栏：整个 shell 只渲染一份，跨 tab 切换保持常驻，
+                      // TabIndicator 的内部弹簧状态（tabXAlign）因此始终连续——
+                      // 点击时胶囊从「当前 tab」弹向目标 tab，与 demo 一致。
+                      // 若每个 tab 页面各自渲染一份底栏（各自持有独立的
+                      // TabIndicatorState），切换后胶囊会从各页预热/上次访问时
+                      // 的过期位置起跳，看起来就像「闪一下之前的选中项」。
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: ModernNavigationBar(onTap: _select),
+                      ),
+                    ],
                   ),
                 ),
               ),

@@ -346,7 +346,7 @@ class _ArtistAlbumEditPageState extends State<ArtistAlbumEditPage> {
         ),
       );
     } else if (widget.coverId != null && widget.coverId!.isNotEmpty) {
-      final coverUrl = _api.coverUrl(widget.coverId!, size: 320);
+      final coverUrl = _api.coverUrl(widget.coverId!, size: FeiNiuApiClient.coverRequestSize);
       child = ClipRRect(
         borderRadius: shape,
         child: CachedNetworkImage(

@@ -691,7 +691,7 @@ class _GenreCover extends StatelessWidget {
         if (coverId != null && coverId!.isNotEmpty) {
           final coverUrl = FeiNiuApiClient.instance.coverUrl(
             coverId!,
-            size: 300,
+            size: FeiNiuApiClient.coverRequestSize,
           );
           centerCover = ClipOval(
             child: CachedNetworkImage(

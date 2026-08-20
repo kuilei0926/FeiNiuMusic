@@ -25,6 +25,7 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
     AppLayoutSettings.ensureLoaded();
     AppThemeSettings.ensureLoaded();
     AppBackgroundSettings.ensureLoaded();
+    AppGlassSettings.ensureLoaded();
   }
 
   String _themeLabel(ThemeMode mode) {
@@ -570,12 +571,83 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
                   );
                 },
               ),
+              // 液体玻璃：与「高斯模糊」互斥。开启时各界面使用液体玻璃材质
+              // （iOS 26 风格 shader 毛玻璃/高光/折射）并自动关闭高斯模糊；
+              // 关闭后回退为下方「高斯模糊/模糊强度」控制的 BackdropFilter 方案。
+              // TV 模式恒不生效（见 AppGlassSettings.effectiveEnabled）。
+              ValueListenableBuilder<bool>(
+                valueListenable: AppGlassSettings.liquidGlassEnabled,
+                builder: (context, glassEnabled, _) {
+                  return AppSettingSwitchTile(
+                    title: '液体玻璃',
+                    subtitle: glassEnabled
+                        ? '导航栏、面板、控件等使用液体玻璃材质，可调节下方模糊强度与厚度'
+                        : '关闭后回退为原有的高斯模糊/实色面板',
+                    value: glassEnabled,
+                    onChanged: (value) {
+                      AppGlassSettings.setLiquidGlassEnabled(value);
+                    },
+                  );
+                },
+              ),
+              // 玻璃参数：仅液体玻璃开启时显示，调节即时生效。
+              ValueListenableBuilder<bool>(
+                valueListenable: AppGlassSettings.liquidGlassEnabled,
+                builder: (context, glassEnabled, _) {
+                  if (!glassEnabled) return const SizedBox.shrink();
+                  return Column(
+                    children: [
+                      const SizedBox(height: 8),
+                      ValueListenableBuilder<double>(
+                        valueListenable: AppGlassSettings.glassBlurStrength,
+                        builder: (context, value, _) {
+                          return AppSettingSlider(
+                            title: '玻璃模糊强度',
+                            description: '0 = 无模糊，16 = 最强模糊',
+                            value: value,
+                            min: 0,
+                            max: 16,
+                            divisions: 16,
+                            valueText: value == 0
+                                ? '关闭'
+                                : value.toStringAsFixed(0),
+                            onChanged: (next) {
+                              AppGlassSettings.setGlassBlur(next);
+                            },
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 4),
+                      ValueListenableBuilder<double>(
+                        valueListenable: AppGlassSettings.glassThickness,
+                        builder: (context, value, _) {
+                          return AppSettingSlider(
+                            title: '玻璃厚度',
+                            description: '影响折射强度与边缘高光',
+                            value: value,
+                            min: 0,
+                            max: 30,
+                            divisions: 30,
+                            valueText: value.toStringAsFixed(0),
+                            onChanged: (next) {
+                              AppGlassSettings.setGlassThickness(next);
+                            },
+                          );
+                        },
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
               ValueListenableBuilder<bool>(
                 valueListenable: AppBackgroundSettings.panelBlurEnabled,
                 builder: (context, blurEnabled, _) {
                   return AppSettingSwitchTile(
                     title: '高斯模糊',
-                    subtitle: blurEnabled ? '面板、底部音乐条等使用毛玻璃效果' : '关闭后所有高斯模糊渲染',
+                    subtitle: blurEnabled
+                        ? '面板、底部音乐条等使用毛玻璃效果（会关闭液体玻璃）'
+                        : '关闭后所有高斯模糊渲染',
                     value: blurEnabled,
                     onChanged: (value) {
                       AppBackgroundSettings.setPanelBlurEnabled(value);

@@ -1282,7 +1282,7 @@ class PlayerService with WidgetsBindingObserver {
             CachedNetworkImageProvider(
               FeiNiuApiClient.instance.coverUrl(
                 song.coverId!,
-                size: 800,
+                size: FeiNiuApiClient.coverRequestSize,
                 updatedAt: song.updatedAt,
               ),
               headers: FeiNiuApiClient.imageAuthHeaders(),
@@ -2846,7 +2846,7 @@ class PlayerService with WidgetsBindingObserver {
             CachedNetworkImageProvider(
               FeiNiuApiClient.instance.coverUrl(
                 song.coverId!,
-                size: 800,
+                size: FeiNiuApiClient.coverRequestSize,
                 updatedAt: song.updatedAt,
               ),
               headers: FeiNiuApiClient.imageAuthHeaders(),
@@ -3467,7 +3467,7 @@ class PlayerService with WidgetsBindingObserver {
               CachedNetworkImageProvider(
                 FeiNiuApiClient.instance.coverUrl(
                   song.coverId!,
-                  size: 800,
+                  size: FeiNiuApiClient.coverRequestSize,
                   updatedAt: song.updatedAt,
                 ),
                 headers: FeiNiuApiClient.imageAuthHeaders(),

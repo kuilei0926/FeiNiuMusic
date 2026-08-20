@@ -400,7 +400,7 @@ class DlnaCastService {
   Future<String?> _resolveCastCover(SongEntity song) async {
     final coverId = song.coverId;
     if (coverId == null || coverId.isEmpty) return null;
-    final coverUrl = FeiNiuApiClient.instance.coverUrl(coverId, size: 512);
+    final coverUrl = FeiNiuApiClient.instance.coverUrl(coverId, size: FeiNiuApiClient.coverRequestSize);
     return MediaStreamProxy.instance.registerResource(
       coverUrl,
       headers: FeiNiuApiClient.imageAuthHeaders(),

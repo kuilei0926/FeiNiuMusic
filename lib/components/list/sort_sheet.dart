@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/state/settings_layout_state.dart';
+import '../common/app_list_tile.dart';
 import '../common/sheet_panels.dart';
 
 class SortOption {
@@ -96,104 +97,23 @@ class _SortSheetState extends State<SortSheet> {
       widget.onSelectAscending(value);
     }
 
-    Widget sectionTitle(String text) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: secondaryTextColor,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      );
-    }
-
-    Widget buildGridOption({
+    // 整行选项：图标 + 名称居左，选中项右侧打勾并高亮为主题色。
+    Widget optionRow({
       required String label,
       required IconData icon,
       required bool selected,
       required VoidCallback onTap,
-      bool alignRight = false,
     }) {
       final color = selected ? primaryColor : secondaryTextColor;
-      final bgColor = selected
-          ? primaryColor.withValues(alpha: isDark ? 0.18 : 0.12)
-          : Colors.transparent;
-      return InkWell(
+      return AppListTile(
+        leading: Icon(icon, size: 20, color: color),
+        title: label,
+        titleColor: color,
+        trailing: selected
+            ? Icon(Icons.check_rounded, size: 20, color: primaryColor)
+            : null,
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 18, color: color),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: alignRight ? TextAlign.right : TextAlign.left,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
       );
-    }
-
-    Widget row(Widget left, Widget right) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: SizedBox(
-          width: double.infinity,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              left,
-              right,
-            ],
-          ),
-        ),
-      );
-    }
-
-    List<Widget> buildOptionRows() {
-      final rows = <Widget>[];
-      for (var i = 0; i < widget.options.length; i += 2) {
-        final left = widget.options[i];
-        final right = i + 1 < widget.options.length ? widget.options[i + 1] : null;
-        rows.add(
-          row(
-            buildGridOption(
-              label: left.label,
-              icon: left.icon,
-              selected: _currentKey == left.key,
-              onTap: () => updateKey(left.key),
-            ),
-            right == null
-                ? const SizedBox.shrink()
-                : buildGridOption(
-                    label: right.label,
-                    icon: right.icon,
-                    selected: _currentKey == right.key,
-                    onTap: () => updateKey(right.key),
-                    alignRight: true,
-                  ),
-          ),
-        );
-      }
-      return rows;
     }
 
     return AppSheetPanel(
@@ -201,54 +121,25 @@ class _SortSheetState extends State<SortSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final maxWidth = constraints.maxWidth;
-              final contentWidth =
-                  (maxWidth - 56).clamp(0.0, maxWidth).toDouble();
-              return Align(
-                alignment: Alignment.center,
-                child: SizedBox(
-                  width: contentWidth,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: buildOptionRows(),
-                  ),
-                ),
-              );
-            },
+          for (final option in widget.options)
+            optionRow(
+              label: option.label,
+              icon: option.icon,
+              selected: _currentKey == option.key,
+              onTap: () => updateKey(option.key),
+            ),
+          const SheetSectionTitle('排序方式'),
+          optionRow(
+            label: '升序',
+            icon: Icons.arrow_upward,
+            selected: _ascending,
+            onTap: () => updateAscending(true),
           ),
-          sectionTitle('排序方式'),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final maxWidth = constraints.maxWidth;
-              final contentWidth =
-                  (maxWidth - 96).clamp(0.0, maxWidth).toDouble();
-              return Align(
-                alignment: Alignment.center,
-                child: SizedBox(
-                  width: contentWidth,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      buildGridOption(
-                        label: '升序',
-                        icon: Icons.arrow_upward,
-                        selected: _ascending,
-                        onTap: () => updateAscending(true),
-                      ),
-                      buildGridOption(
-                        label: '降序',
-                        icon: Icons.arrow_downward,
-                        selected: !_ascending,
-                        onTap: () => updateAscending(false),
-                        alignRight: true,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+          optionRow(
+            label: '降序',
+            icon: Icons.arrow_downward,
+            selected: !_ascending,
+            onTap: () => updateAscending(false),
           ),
           if (widget.extra != null) widget.extra!,
           const SizedBox(height: 12),

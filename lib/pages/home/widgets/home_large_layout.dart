@@ -450,7 +450,7 @@ class _PlaylistCard extends StatelessWidget {
                     child: CachedNetworkImage(
                       imageUrl: FeiNiuApiClient.instance.coverUrl(
                         coverId,
-                        size: 400,
+                        size: FeiNiuApiClient.coverRequestSize,
                         updatedAt: playlist.updatedAt,
                       ),
                       httpHeaders: FeiNiuApiClient.imageAuthHeaders(),

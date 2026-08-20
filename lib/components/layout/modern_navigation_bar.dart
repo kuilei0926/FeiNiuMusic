@@ -1,9 +1,13 @@
 import 'dart:ui' as ui;
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../app/router/app_router.dart';
 import '../../app/state/settings_state.dart';
+import '../../app/theme/app_glass_theme.dart';
+import '../common/glass_gate.dart';
 
 const _primaryNavigationRoutes = <String>[
   AppRoutes.home,
@@ -12,6 +16,13 @@ const _primaryNavigationRoutes = <String>[
   AppRoutes.favorites,
   AppRoutes.profile,
 ];
+
+/// 玻璃底栏胶囊上方的悬浮空隙（= [GlassTabBar.bottom] 的 verticalPadding）。
+///
+/// 胶囊只占槽位中间（上下各留此空隙）；AppPageScaffold 计算迷你播放器停靠
+/// 位置时减去它、对齐胶囊顶，否则胶囊上方的空隙会被误当成迷你播放器与
+/// 底栏的间隙（观感上离得远）。
+const double kGlassNavPillTopGap = 14;
 
 final ValueNotifier<int> primaryNavigationIndex = ValueNotifier<int>(0);
 bool primaryNavigationShellActive = false;
@@ -86,14 +97,13 @@ class AppNavigationModeBuilder extends StatelessWidget {
 }
 
 class ModernNavigationBar extends StatelessWidget {
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
   const ModernNavigationBar({
     super.key,
-    required this.currentIndex,
     required this.onTap,
   });
+
+  /// 底部导航点击回调（导航到对应 tab）。
+  final ValueChanged<int> onTap;
 
   static const List<String> _labels = ['首页', '歌单', '歌曲', '收藏', '我的'];
   static const List<IconData> _icons = [
@@ -104,8 +114,32 @@ class ModernNavigationBar extends StatelessWidget {
     Icons.person_rounded,
   ];
 
+  /// 液体玻璃分支：SF Symbols 字形（包内置 demo 同款 CupertinoIcons 实心图标）。
+  static const List<IconData> _glassIcons = [
+    CupertinoIcons.house_fill,
+    CupertinoIcons.square_stack_fill,
+    CupertinoIcons.music_note_list,
+    CupertinoIcons.heart_fill,
+    CupertinoIcons.person_fill,
+  ];
+
   @override
   Widget build(BuildContext context) {
+    // 高亮索引统一由全局 [primaryNavigationIndex] 驱动，而不是各页面传入的
+    // currentIndex（bottomNavIndex）。二级详情页把 bottomNavIndex 硬编码成 0，
+    // 从其它 tab 进入详情页时底栏会错误高亮「首页」；shell 每次切页（_select）
+    // 与 navigateToPrimaryDestination 都会同步 primaryNavigationIndex，这里
+    // 监听它即可始终反映真实激活的 tab（含 push 出的详情页）。
+    return ValueListenableBuilder<int>(
+      valueListenable: primaryNavigationIndex,
+      builder: (context, index, _) => GlassGate(
+        original: _buildOriginal(context, index),
+        glass: _buildGlass(context, index),
+      ),
+    );
+  }
+
+  Widget _buildOriginal(BuildContext context, int currentIndex) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -132,7 +166,7 @@ class ModernNavigationBar extends StatelessWidget {
           child: SafeArea(
             top: false,
             child: SizedBox(
-              height: 60,
+              height: 84,
               child: Row(
                 children: List.generate(_labels.length, (index) {
                   final selected = currentIndex == index;
@@ -166,6 +200,50 @@ class ModernNavigationBar extends StatelessWidget {
           },
         );
       },
+    );
+  }
+
+  /// 液体玻璃变体：iOS 26 风格浮动玻璃胶囊底部导航。
+  ///
+  /// 大体沿用包内置 demo 的参考配置（见 liquid_glass_widgets example.dart）：
+  /// 实心 SF Symbols 图标（CupertinoIcons）+ 图标/文字着色走包默认（label 色），
+  /// 只显式补一个 [GlassTabBar.indicatorColor]（10% label 灰）——MaterialApp
+  /// 下包默认的动态色解析可能让选中胶囊不可见，显式指定后与 CupertinoApp 里
+  /// demo 的克制浅灰胶囊观感一致。
+  ///
+  /// 尺寸：胶囊 56 + 上下悬浮空隙 14×2 = 84，正好等于
+  /// [AppPageScaffold.modernNavHeight]，槽位/迷你播放器抬升/滚动留白数学零改动。
+  /// 胶囊无内部 SafeArea，外层补 `SafeArea(top: false)` 悬浮在 Home 指示条上方。
+  Widget _buildGlass(BuildContext context, int index) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // 选中胶囊色：与包内置 demo（CupertinoApp）一致 —— label 色 10% 半透明。
+    // MaterialApp 下没有显式 CupertinoTheme，包默认的动态色 .withValues 可能
+    // 解析出不可见的胶囊，这里显式按明暗取 10% 黑/白，保证亮暗都清晰可见。
+    final pillColor = isDark
+        ? Colors.white.withValues(alpha: 0.10)
+        : Colors.black.withValues(alpha: 0.10);
+    return SafeArea(
+      top: false,
+      child: GlassTabBar.bottom(
+        tabs: [
+          for (var i = 0; i < _labels.length; i++)
+            GlassTab(
+              icon: Icon(_glassIcons[i]),
+              label: _labels[i],
+            ),
+        ],
+        selectedIndex: index,
+        onTabSelected: onTap,
+        // 显式传入共享表面参数（见 kAppGlassSurfaceSettings）：与全局其它玻璃
+        // 统一观感，并防止包升级改动内部默认值导致底栏漂移。
+        settings: kAppGlassSurfaceSettings,
+        // 悬浮：胶囊上下各留 kGlassNavPillTopGap 空隙（槽位 56 + 14×2 = 84），
+        // 内容从胶囊四周透出，视觉上像 demo（GlassScaffold 底栏）一样飘浮。
+        barHeight: 56,
+        verticalPadding: kGlassNavPillTopGap,
+        horizontalPadding: 20,
+        indicatorColor: pillColor,
+      ),
     );
   }
 }

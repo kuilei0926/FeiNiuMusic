@@ -463,10 +463,20 @@ class FeiNiuApiClient {
 
   // region 6. 封面图
 
+  /// 全 App 统一的封面请求尺寸（像素）。
+  ///
+  /// 所有封面显示场景（列表缩略图、播放页大图、通知栏、投屏等）共用这一个
+  /// 尺寸构造 URL。CachedNetworkImage / flutter_cache_manager 按 URL 缓存，
+  /// 同一封面若各处按各自显示尺寸请求（48/120/300/400/800…）会得到互不相同
+  /// 的 URL，磁盘缓存与解码缓存互相不命中 → 「列表已显示封面、播放页还在
+  /// 转圈」。统一后同一封面只有一份缓存，任一处加载完成其余场景立即可用；
+  /// 缩略图用 memCacheWidth 解码小图省内存，URL 不变仍共享磁盘缓存。
+  static const int coverRequestSize = 800;
+
   /// 构造封面图 URL
   /// CachedNetworkImage 按 URL 缓存，图片不变 URL 不变即命中磁盘缓存。
   /// [updatedAt] 可选，传入服务端更新时间戳将追加 `&t=` 参数实现缓存失效（cache busting）。
-  String coverUrl(String coverId, {int size = 320, int? updatedAt}) {
+  String coverUrl(String coverId, {int size = coverRequestSize, int? updatedAt}) {
     var url = '/static/cover?coverId=$coverId&size=$size';
     if (updatedAt != null && updatedAt > 0) {
       url += '&t=$updatedAt';

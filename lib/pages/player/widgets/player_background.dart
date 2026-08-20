@@ -265,6 +265,8 @@ class _PlayerBackgroundState extends State<PlayerBackground> {
   Future<Color?> _computeDominantColor(String coverId) async {
     try {
       final api = FeiNiuApiClient.instance;
+      // 仅用于取主色调的下采样（非显示），刻意用小图 40px 节省带宽与解码；
+      // 不参与封面显示的缓存复用。
       final url = api.coverUrl(coverId, size: 40);
       final dio = Dio();
       final response = await dio.get(

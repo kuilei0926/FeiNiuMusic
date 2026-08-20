@@ -10,8 +10,6 @@ class ArtworkWidget extends StatefulWidget {
   final double size;
   final double borderRadius;
   final Widget? placeholder;
-  final bool preferOriginal;
-  final bool keepPreviousUntilLoaded;
 
   /// 封面显示状态回调：true = 正在显示真实封面图；
   /// false = 无封面 / 加载中 / 加载失败（占位文字图或骨架）。
@@ -25,8 +23,6 @@ class ArtworkWidget extends StatefulWidget {
     required this.size,
     required this.borderRadius,
     this.placeholder,
-    this.preferOriginal = false,
-    this.keepPreviousUntilLoaded = false,
     this.onCoverAvailableChanged,
   });
 
@@ -93,17 +89,14 @@ class _ArtworkWidgetState extends State<ArtworkWidget> with SignalsMixin {
 
     Widget child;
     if (coverId != null && coverId.isNotEmpty) {
-      // 封面源图尺寸：按显示逻辑尺寸 × 设备 DPR 请求，保证在 2x/3x 屏上清晰。
-      // 此前写死 120px，在详情页大封面（110 逻辑 px）上被放大 2~3 倍导致模糊。
-      // preferOriginal（播放页大图）直接用 800px 原图。
-      final dpr = MediaQuery.devicePixelRatioOf(context);
-      final requestSize = widget.preferOriginal
-          ? 800
-          : (size * dpr).round().clamp(120, 800);
+      // 封面源图统一用 canonical 尺寸（800px）请求：全 App 同一 coverId 永远
+      // 构造同一个 URL → 共享同一份磁盘缓存与解码缓存。此前按显示尺寸×DPR
+      // 动态请求（列表 120 起步、播放页 800），同一封面在不同页面产生多个
+      // 不同 URL 的缓存，已显示过的地方命中缓存、另一处仍在转圈下载。
       final coverUrl =
           FeiNiuApiClient.instance.coverUrl(
             coverId,
-            size: requestSize,
+            size: FeiNiuApiClient.coverRequestSize,
             updatedAt: widget.song.updatedAt,
           );
       child = ClipRRect(

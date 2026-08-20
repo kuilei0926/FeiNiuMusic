@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/state/settings_state.dart';
+import '../../../app/utils/primary_shell_scope.dart';
 import 'app_background.dart';
 import '../../player/mini_player/mini_player_bar.dart';
 import '../modern_navigation_bar.dart';
 
 class AppPageScaffold extends StatefulWidget {
-  static const double modernNavHeight = 60.0;
+  static const double modernNavHeight = 84.0;
 
   static double scrollableBottomPadding(
     BuildContext context, {
@@ -157,11 +158,13 @@ class AppPageScaffoldState extends State<AppPageScaffold>
 
     final hasBottomNav =
         widget.bottomNavIndex != null && widget.onBottomNavTap != null;
-    final bottomBar = hasBottomNav
-        ? ModernNavigationBar(
-            currentIndex: widget.bottomNavIndex!,
-            onTap: widget.onBottomNavTap!,
-          )
+    // shell 主 tab 页由 shell 渲染唯一一份共享底栏（见 app_router.dart 的
+    // _PrimaryNavigationShell），页面自身不再渲染，否则 IndexedStack 里每个
+    // tab 页各持一份 GlassTabBar / TabIndicatorState，切换后胶囊会从各页
+    // 过期的 tabXAlign 起跳（闪一下旧选中项）。Detail/独立路由页面不在
+    // PrimaryShellMarker 内，仍按各自 bottomNavIndex 渲染自己的底栏。
+    final bottomBar = hasBottomNav && !PrimaryShellMarker.isInside(context)
+        ? ModernNavigationBar(onTap: widget.onBottomNavTap!)
         : null;
     final miniPlayer = widget.showMiniPlayer
         ? MiniPlayerBar(
@@ -172,32 +175,59 @@ class AppPageScaffoldState extends State<AppPageScaffold>
         : null;
 
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    // 底部控制栏相对底部的额外抬升量：离开屏幕大圆角/手势条区域，
-    // 让底栏悬浮更透气，不被大圆角边缘裁切。
-    const miniPlayerLift = 8.0;
+    // 有底栏时迷你播放器停在胶囊上方，此值即与胶囊顶的间隙（贴近不重叠）。
+    const miniPlayerLift = 5.0;
+    // 无底栏时底部没有胶囊，迷你播放器需要额外抬离底部，避开系统手势条 /
+    // 大圆角边缘，悬浮更透气。
+    const miniPlayerBottomLift = 10.0;
+    final lift = hasBottomNav ? miniPlayerLift : miniPlayerBottomLift;
+    // 玻璃开启时胶囊只占槽位中间（上方留 kGlassNavPillTopGap 空隙），迷你
+    // 播放器对齐胶囊顶（减去该空隙），避免把空隙误当成间隙；非玻璃分支是
+    // 占满槽位的实色栏，不减。该值随开关/TV 变化由下方 ListenableBuilder
+    // 触发重算。
+    final glassPillTopGap = AppGlassSettings.effectiveEnabled
+        ? kGlassNavPillTopGap
+        : 0.0;
     final miniPlayerBottom = hasBottomNav
-        ? (AppPageScaffold.modernNavHeight + bottomInset)
+        ? (AppPageScaffold.modernNavHeight - glassPillTopGap + bottomInset)
         : bottomInset;
     final keyboardInset = widget.resizeToAvoidBottomInset
         ? MediaQuery.viewInsetsOf(context).bottom
         : 0.0;
     final effectiveMiniPlayerBottom = (widget.keepBottomOverlayFixed
         ? miniPlayerBottom - keyboardInset
-        : miniPlayerBottom) + miniPlayerLift;
+        : miniPlayerBottom) + lift;
 
     final drawerWidth = (MediaQuery.sizeOf(context).width * 0.56).clamp(
       200.0,
       300.0,
     );
 
-    return ValueListenableBuilder<bool>(
-      valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
-      builder: (context, tabletMode, _) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        AppLayoutSettings.effectiveTabletModeNotifier,
+        AppGlassSettings.liquidGlassEnabled,
+        AppLayoutSettings.tvMode,
+      ]),
+      builder: (context, _) {
+        final tabletMode =
+            AppLayoutSettings.effectiveTabletModeNotifier.value;
         Widget buildBody({required bool includeMiniPlayer}) {
           return Stack(
             clipBehavior: Clip.none,
             children: [
               content,
+              // 底栏悬浮 overlay：叠在页面内容上方而非 Scaffold 的
+              // bottomNavigationBar 槽位，玻璃层因此能实时采样到背后的
+              // 页面内容（透明空隙透出页面 = 真正的 iOS 26 悬浮胶囊），
+              // 而不是停在槽位里采样到空白层（表现为白色背景）。
+              if (bottomBar != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: bottomBar,
+                ),
               if (miniPlayer != null && includeMiniPlayer)
                 Positioned(
                   left: 0,
@@ -211,14 +241,10 @@ class AppPageScaffoldState extends State<AppPageScaffold>
 
         Widget page = Scaffold(
           resizeToAvoidBottomInset: widget.resizeToAvoidBottomInset,
-          extendBody: bottomBar != null,
           extendBodyBehindAppBar: widget.extendBodyBehindAppBar,
           backgroundColor: Colors.transparent,
           appBar: widget.appBar,
           body: buildBody(includeMiniPlayer: !tabletMode),
-          bottomNavigationBar: bottomBar == null
-              ? null
-              : Material(type: MaterialType.transparency, child: bottomBar),
         );
 
         if (tabletMode || !_hasDrawer) {
@@ -227,14 +253,10 @@ class AppPageScaffoldState extends State<AppPageScaffold>
         if (miniPlayer != null) {
           page = Scaffold(
             resizeToAvoidBottomInset: widget.resizeToAvoidBottomInset,
-            extendBody: bottomBar != null,
             extendBodyBehindAppBar: widget.extendBodyBehindAppBar,
             backgroundColor: Colors.transparent,
             appBar: widget.appBar,
             body: buildBody(includeMiniPlayer: false),
-            bottomNavigationBar: bottomBar == null
-                ? null
-                : Material(type: MaterialType.transparency, child: bottomBar),
           );
         }
         final stack = AppBackground(

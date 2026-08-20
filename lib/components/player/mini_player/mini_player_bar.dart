@@ -1,14 +1,16 @@
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../../app/services/lyrics/lyrics_service.dart';
 import '../../../app/services/player_service.dart';
 import '../../../app/router/app_router.dart';
 import '../../../app/state/settings_state.dart';
 import '../../../app/state/song_state.dart';
+import '../../../app/theme/app_glass_theme.dart';
 import '../../common/artwork_widget.dart';
+import '../../common/glass_gate.dart';
 import '../../player/lyric_preview.dart';
 import '../../../pages/player/player_page.dart';
 import '../../../pages/player/widgets/player_bottom_panel.dart';
@@ -102,90 +104,117 @@ class MiniPlayerBar extends StatelessWidget {
           ),
         ];
 
+        // 内容层（不含背景）：Material + InkWell + 内部 Row。
+        // 玻璃分支直接放进 GlassContainer，由 shader 提供背景；实色分支
+        // 外套带底色容器。共用同一子树保证两种外观内容一致。
+        final inner = Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(borderRadius),
+            onTap: openPlayer,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 7,
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // When the drawer squeezes this bar, drop the trailing
+                  // queue button and shrink the artwork/play button so the
+                  // Row never overflows (which painted overflow stripes).
+                  final tight = constraints.maxWidth < 91;
+                  final compact = tight || constraints.maxWidth < 145;
+                  final resolvedArtworkSize = tight
+                      ? 36.0
+                      : (compact ? 40.0 : artworkSize);
+                  final resolvedArtworkRadius = compact ? 9.0 : 10.0;
+                  final playSize = compact ? 34.0 : 38.0;
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: MiniPlayerInfo(
+                          song: song,
+                          enableSwipe: enableSwipe,
+                          player: player,
+                          onOpenPlayer: openPlayer,
+                          // 封面一并放入滑动区域：左右滑动切歌时封面随标题/歌词
+                          // 一起位移，而不是只有文字滑动。
+                          artwork: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(
+                                resolvedArtworkRadius,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                            child: MiniPlayerArtwork(
+                              song: song,
+                              size: resolvedArtworkSize,
+                              borderRadius: resolvedArtworkRadius,
+                            ),
+                          ),
+                          artworkGap: tight ? 8 : 11,
+                        ),
+                      ),
+                      SizedBox(width: tight ? 4 : 6),
+                      MiniPlayerPlayButton(
+                        player: player,
+                        size: playSize,
+                        enabled: hasSong,
+                      ),
+                      if (!compact) ...[
+                        const SizedBox(width: 4),
+                        trailing ??
+                            MiniPlayerQueueButton(
+                              onPressed: hasSong ? openQueue : null,
+                              color: scheme.onSurface,
+                            ),
+                        const SizedBox(width: 2),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+
         final content = Container(
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(borderRadius),
             border: border,
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(borderRadius),
-              onTap: openPlayer,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    // When the drawer squeezes this bar, drop the trailing
-                    // queue button and shrink the artwork/play button so the
-                    // Row never overflows (which painted overflow stripes).
-                    final tight = constraints.maxWidth < 91;
-                    final compact = tight || constraints.maxWidth < 145;
-                    final resolvedArtworkSize = tight
-                        ? 36.0
-                        : (compact ? 40.0 : artworkSize);
-                    final resolvedArtworkRadius = compact ? 9.0 : 10.0;
-                    final playSize = compact ? 34.0 : 38.0;
-                    return Row(
-                      children: [
-                        Expanded(
-                          child: MiniPlayerInfo(
-                            song: song,
-                            enableSwipe: enableSwipe,
-                            player: player,
-                            onOpenPlayer: openPlayer,
-                            // 封面一并放入滑动区域：左右滑动切歌时封面随标题/歌词
-                            // 一起位移，而不是只有文字滑动。
-                            artwork: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(
-                                  resolvedArtworkRadius,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(
-                                      alpha: 0.12,
-                                    ),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 1),
-                                  ),
-                                ],
-                              ),
-                              child: MiniPlayerArtwork(
-                                song: song,
-                                size: resolvedArtworkSize,
-                                borderRadius: resolvedArtworkRadius,
-                              ),
-                            ),
-                            artworkGap: tight ? 8 : 11,
-                          ),
-                        ),
-                        SizedBox(width: tight ? 4 : 6),
-                        MiniPlayerPlayButton(
-                          player: player,
-                          size: playSize,
-                          enabled: hasSong,
-                        ),
-                        if (!compact) ...[
-                          const SizedBox(width: 4),
-                          trailing ??
-                              MiniPlayerQueueButton(
-                                onPressed: hasSong ? openQueue : null,
-                                color: scheme.onSurface,
-                              ),
-                          const SizedBox(width: 2),
-                        ],
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
+          child: inner,
+        );
+
+        // 玻璃面只作为「背景层」：GlassContainer 内不放内容，只放一个占满的
+        // 空子层贡献玻璃形状/尺寸。内容（inner，含逐字歌词/进度环）作为
+        // Stack 中的兄弟层叠在玻璃之上，与玻璃自己的 RepaintBoundary 分离。
+        // 否则逐字歌词每帧重绘都在玻璃的 RepaintBoundary 内，会带动整块
+        // 玻璃 blur+shader 重新采样（与下方 original 分支把 BackdropFilter
+        // 与内容分层、避免动画触发整页重新模糊是同一思路）。
+        final glassSurface = GlassContainer(
+          shape: LiquidRoundedRectangle(borderRadius: borderRadius),
+          clipBehavior: Clip.antiAlias,
+          // 与底栏同款深折射参数，但玻璃罩更透（白 24% → 白 10%）：迷你播放器
+          // 是大面积全宽面板，同样不透明度会罩成一片白雾（「像高斯模糊」），
+          // 降低罩子后背后内容透出更多、折射可见，才有玻璃的通透感。
+          settings: kAppGlassSurfaceSettings.copyWith(
+            glassColor: const Color(0x1AFFFFFF),
           ),
+          // 独立渲染层 + 尽量走 premium 完整折射管线（Lightweight 2D shader
+          // 折射弱，容易退化成只有模糊）。
+          useOwnLayer: true,
+          quality: GlassQuality.premium,
+          child: const SizedBox.expand(),
         );
 
         return Padding(
@@ -197,28 +226,40 @@ class MiniPlayerBar extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(borderRadius),
-              // 毛玻璃与内容分层：BackdropFilter 只负责把底下的页面背景模糊，
-              // 内容（含逐字歌词）作为锐利层叠在毛玻璃之上。若把内容放进
-              // BackdropFilter 内部，逐字歌词每帧动画都会触发整页重新模糊，
-              // 底栏就会卡顿；分层后动画重绘只重绘内容层，不碰模糊层。
-              child: isBlurred
-                  ? Stack(
-                      children: [
-                        Positioned.fill(
-                          child: RepaintBoundary(
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(
-                                sigmaX: blurStrength,
-                                sigmaY: blurStrength,
+              child: GlassGate(
+                original: isBlurred
+                    ? Stack(
+                        children: [
+                          // 毛玻璃与内容分层：BackdropFilter 只负责把底下的
+                          // 页面背景模糊，内容（含逐字歌词）作为锐利层叠在毛玻璃
+                          // 之上。若把内容放进 BackdropFilter 内部，逐字歌词每帧
+                          // 动画都会触发整页重新模糊，底栏就会卡顿；分层后动画
+                          // 重绘只重绘内容层，不碰模糊层。
+                          Positioned.fill(
+                            child: RepaintBoundary(
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(
+                                  sigmaX: blurStrength,
+                                  sigmaY: blurStrength,
+                                ),
+                                child: const SizedBox.expand(),
                               ),
-                              child: const SizedBox.expand(),
                             ),
                           ),
-                        ),
-                        content,
-                      ],
-                    )
-                  : content,
+                          content,
+                        ],
+                      )
+                    : content,
+                // 液体玻璃变体：玻璃面采样背后的页面背景做实时模糊，内容层
+                // （含逐字歌词动画）作为锐利层叠在玻璃之上、独立于玻璃的
+                // RepaintBoundary —— 动画重绘不触发玻璃重新采样。
+                glass: Stack(
+                  children: [
+                    Positioned.fill(child: glassSurface),
+                    inner,
+                  ],
+                ),
+              ),
             ),
           ),
         );

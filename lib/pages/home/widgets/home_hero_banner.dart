@@ -55,7 +55,7 @@ class HomeHeroBanner extends StatelessWidget {
             CachedNetworkImage(
               imageUrl: FeiNiuApiClient.instance.coverUrl(
                 coverId,
-                size: 800,
+                size: FeiNiuApiClient.coverRequestSize,
                 updatedAt: song?.updatedAt,
               ),
               httpHeaders: FeiNiuApiClient.imageAuthHeaders(),

@@ -620,6 +620,14 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "6.1.0"
+  liquid_glass_widgets:
+    dependency: "direct main"
+    description:
+      name: liquid_glass_widgets
+      sha256: "72ca31d9d0dba80a91b16de1cd69e8ab531b8c5603cca1f9486a849841fea578"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "0.30.1"
   logging:
     dependency: transitive
     description:

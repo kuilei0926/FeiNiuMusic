@@ -108,3 +108,35 @@ class _AppSheetPanelState extends State<AppSheetPanel> {
     );
   }
 }
+
+/// 底部面板内的分组小标题（如排序面板里的「排序方式」「列数」）。
+class SheetSectionTitle extends StatelessWidget {
+  final String text;
+
+  const SheetSectionTitle(this.text, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final secondaryTextColor = isDark
+        ? Colors.white70
+        : const Color.fromARGB(255, 100, 100, 100);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      // 强制全宽 + 居中，避免渲染结果依赖父级 Column 的对齐方式。
+      child: SizedBox(
+        width: double.infinity,
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: secondaryTextColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -124,7 +124,7 @@ class _SongsPageState extends State<SongsPage>
     int loaded = 0, skipped = 0;
     for (final song in songs.take(count)) {
       if (song.coverId != null && song.coverId!.isNotEmpty) {
-        final url = api.coverUrl(song.coverId!, size: 120, updatedAt: song.updatedAt);
+        final url = api.coverUrl(song.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: song.updatedAt);
         unawaited(precacheImage(
           CachedNetworkImageProvider(url, headers: headers),
           context,

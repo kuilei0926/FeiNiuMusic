@@ -395,7 +395,7 @@ class _SongDetailSheetState extends State<SongDetailSheet> {
   Widget _buildCover(ThemeData theme, SongEntity song) {
     if (song.coverId != null && song.coverId!.isNotEmpty) {
       final coverUrl =
-          FeiNiuApiClient.instance.coverUrl(song.coverId!, size: 52, updatedAt: song.updatedAt);
+          FeiNiuApiClient.instance.coverUrl(song.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: song.updatedAt);
       return CachedNetworkImage(
         imageUrl: coverUrl,
         httpHeaders: FeiNiuApiClient.imageAuthHeaders(),

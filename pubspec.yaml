@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.5.6+1
+version: 1.5.7+1
 
 environment:
   sdk: ^3.10.8
@@ -76,6 +76,7 @@ dependencies:
   # Windows 桌面端 sqflite 需走 ffi（系统 winsqlite3.dll）。从 dev 提升为
   # 正式依赖：仅 Windows 构建/运行时使用，Android 不受影响。
   sqflite_common_ffi: ^2.4.2
+  liquid_glass_widgets: ^0.30.1
 
 dev_dependencies:
   flutter_test:

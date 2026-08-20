@@ -110,7 +110,7 @@ class _PlaylistsPageState extends State<PlaylistsPage>
     final headers = FeiNiuApiClient.imageAuthHeaders();
     for (final p in items.take(count)) {
       if (p.coverId != null && p.coverId!.isNotEmpty) {
-        final url = api.coverUrl(p.coverId!, size: 300, updatedAt: p.updatedAt);
+        final url = api.coverUrl(p.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: p.updatedAt);
         unawaited(
           precacheImage(
             CachedNetworkImageProvider(url, headers: headers),
@@ -545,11 +545,16 @@ class _PlaylistsPageState extends State<PlaylistsPage>
                   !AppLayoutSettings.tvMode.value) {
                 return const SizedBox.shrink();
               }
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<int>(
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SheetSectionTitle('列数'),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<int>(
                     // TV 大屏给更多列选项（4/5/6），手机/平板保持 2/3/4。
                     segments: AppLayoutSettings.tvMode.value
                         ? const [
@@ -593,8 +598,10 @@ class _PlaylistsPageState extends State<PlaylistsPage>
                       _savePrefs();
                     },
                     showSelectedIcon: false,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               );
             },
           ),
@@ -901,7 +908,7 @@ class _PlaylistCover extends StatelessWidget {
     }
     final coverUrl = FeiNiuApiClient.instance.coverUrl(
       coverId!,
-      size: 300,
+      size: FeiNiuApiClient.coverRequestSize,
       updatedAt: updatedAt,
     );
     return ClipRRect(
@@ -1846,7 +1853,7 @@ class _PlaylistPickerSheetState extends State<PlaylistPickerSheet>
                                 child: CachedNetworkImage(
                                   imageUrl: FeiNiuApiClient.instance.coverUrl(
                                     p.coverId!,
-                                    size: 48,
+                                    size: FeiNiuApiClient.coverRequestSize,
                                     updatedAt: p.updatedAt,
                                   ),
                                   httpHeaders:
@@ -1939,7 +1946,7 @@ Future<bool> showAddToPlaylistDialog(
                               child: CachedNetworkImage(
                                 imageUrl: FeiNiuApiClient.instance.coverUrl(
                                   playlist.coverId!,
-                                  size: 48,
+                                  size: FeiNiuApiClient.coverRequestSize,
                                   updatedAt: playlist.updatedAt,
                                 ),
                                 httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
@@ -2381,7 +2388,7 @@ class _PlaylistNameDialogState extends State<_PlaylistNameDialog> {
                           CachedNetworkImage(
                             imageUrl: FeiNiuApiClient.instance.coverUrl(
                               _coverId!,
-                              size: 200,
+                              size: FeiNiuApiClient.coverRequestSize,
                             ),
                             httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
                             fit: BoxFit.cover,

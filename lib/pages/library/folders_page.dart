@@ -901,12 +901,13 @@ class _FoldersPageState extends State<FoldersPage>
         size: 26,
       );
     }
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final size = (48 * dpr).round().clamp(120, 800);
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
       child: CachedNetworkImage(
-        imageUrl: FeiNiuApiClient.instance.coverUrl(coverId, size: size),
+        imageUrl: FeiNiuApiClient.instance.coverUrl(
+          coverId,
+          size: FeiNiuApiClient.coverRequestSize,
+        ),
         httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
         width: 40,
         height: 40,

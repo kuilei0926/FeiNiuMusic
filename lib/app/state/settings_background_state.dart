@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'settings_glass_state.dart';
+
 class AppBackgroundSettings {
   static const String _prefsBackgroundImagePath =
       'setting_background_image_path';
@@ -88,5 +90,9 @@ class AppBackgroundSettings {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefsPanelBlurEnabled, enabled);
     panelBlurEnabled.value = enabled;
+    // 与液体玻璃互斥：开启高斯模糊时关闭液体玻璃。
+    if (enabled) {
+      await AppGlassSettings.setLiquidGlassEnabled(false);
+    }
   }
 }

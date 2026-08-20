@@ -739,8 +739,6 @@ class _PosterArtwork extends StatelessWidget {
                 // 海报模式为大封面全屏布局：无论「圆形封面」开关如何
                 // 均整幅方形铺满、不旋转（旋转仅对圆形封面有意义）。
                 borderRadius: 0,
-                preferOriginal: true,
-                keepPreviousUntilLoaded: true,
                 placeholder: Skeletonizer(
                   enabled: true,
                   child: _ArtworkPlaceholder(
@@ -1192,8 +1190,6 @@ class _PlayerArtwork extends StatelessWidget {
                                 song: song,
                                 size: size,
                                 borderRadius: borderRadius,
-                                preferOriginal: true,
-                                keepPreviousUntilLoaded: true,
                                 onCoverAvailableChanged: onCoverAvailable,
                                 placeholder: _ArtworkPlaceholder(
                                   border: border,

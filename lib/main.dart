@@ -4,10 +4,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app/app.dart';
+import 'app/theme/app_glass_theme.dart';
 import 'app/services/audio/stream_cache_service.dart';
 import 'app/services/backup/backup_service.dart';
 import 'app/services/debug_log_service.dart';
@@ -126,6 +128,8 @@ Future<void> main() async {
   }());
   await LyricCompanionSettings.ensureLoaded();
   await AppBackgroundSettings.ensureLoaded();
+  // 液体玻璃设置需在首帧前加载：首帧即尊重持久化的关闭态，避免闪一帧玻璃。
+  await AppGlassSettings.ensureLoaded();
   await AppFnConnectionSettings.ensureLoaded();
   // 已保存账号列表初始化：迁移/校正当前账号，并注册 401 token 同步回调。
   // 需在 AuthService.init（恢复激活槽位）与 AppFnConnectionSettings.ensureLoaded
@@ -143,7 +147,32 @@ Future<void> main() async {
   // 自动备份：每天首次打开 App 时静默备份到已配置的 WebDAV 目标。
   // fire-and-forget，失败不阻塞启动。
   unawaited(BackupService.instance.maybeAutoBackupOnLaunch());
-  runApp(const FeiNiuMusicApp());
+  // 液体玻璃：预热 shader（非阻塞异步磁盘 I/O，0.30.x 保证 runApp 前零 GPU
+  // 调用，首帧不卡顿）。开关只决定渲染哪个组件分支，此处始终初始化。
+  await LiquidGlassWidgets.initialize();
+  // 用 LiquidGlassWidgets.wrap 包裹整个 App：
+  // - brightnessResolver: Theme.maybeBrightnessOf —— MaterialApp 必须传，
+  //   否则暗色模式下玻璃阴影/描边会消失；
+  // - theme: 全局玻璃主题。监听主题种子色 + 玻璃可调参数（模糊/厚度），
+  //   变化时重建 wrap（GlassTheme 是 InheritedWidget，重建安全、树形不变）；
+  // - adaptiveQuality: 自动按设备性能封顶质量。
+  runApp(
+    ListenableBuilder(
+      listenable: Listenable.merge([
+        AppThemeSettings.themeSeedColor,
+        AppGlassSettings.glassBlurStrength,
+        AppGlassSettings.glassThickness,
+      ]),
+      builder: (context, _) => LiquidGlassWidgets.wrap(
+        child: const FeiNiuMusicApp(),
+        brightnessResolver: Theme.maybeBrightnessOf,
+        theme: appGlassTheme(
+          AppThemeSettings.themeSeedColor.value ?? const Color(0xFF3B82F6),
+        ),
+        adaptiveQuality: true,
+      ),
+    ),
+  );
   // Fire-and-forget warm-ups that run in parallel with the first frame so
   // per-page initState calls don't have to pay for these cold starts:
   //   - SharedPreferences.getInstance() reads its backing file once, then

@@ -132,7 +132,7 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   /// （日志：JpegXmCodec::isSupported returns false for small resolution），
   /// 妙播媒体卡片不渲染。用 512px 内嵌 Bitmap（客户端按需缩放）并作为
   /// ALBUM_ART_URI 指向的较大版本。
-  static const int _systemCoverSize = 512;
+  static const int _systemCoverSize = FeiNiuApiClient.coverRequestSize;
 
   final Map<String, _CarBrowseSong> _browseSongs = <String, _CarBrowseSong>{};
   Future<void>? _apiAuthReady;
