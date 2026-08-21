@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write
 
+# 同一分支出现新提交时自动取消仍在跑的旧构建，避免挤占 runner 和产物混乱
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -20,6 +25,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
       - name: 提取版本号
         shell: powershell
         run: |
@@ -52,6 +58,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -132,9 +139,91 @@ jobs:
             FnMusicEnhance-*.fpk
             pubspec.yaml
 
+  # macOS：随 release 发布（绿色版 zip，内含 feiniumusic.app）。
+  # 未做签名公证，用户首次打开需 右键 → 打开 绕过 Gatekeeper。
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: 提取版本号
+        shell: bash
+        run: |
+          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          VERSION=${FULL_VERSION%%+*}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: 构建并打包 macOS（dmg + zip）
+        shell: bash
+        run: |
+          flutter pub get
+          flutter build macos --release
+          cd build/macos/Build/Products/Release
+          # 1) 绿色版 zip（便携，免安装；ditto 保留 .app 内符号链接）
+          ditto -c -k --sequesterRsrc --keepParent feiniumusic.app \
+            "${GITHUB_WORKSPACE}/FeiNiuMusic-MacOS-${VERSION}.zip"
+          # 2) 安装版 dmg（标准分发格式：挂载后拖入"应用程序"）
+          STAGE="${GITHUB_WORKSPACE}/dmg-stage"
+          rm -rf "$STAGE" && mkdir -p "$STAGE"
+          cp -R feiniumusic.app "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "FeiNiuMusic" -srcfolder "$STAGE" \
+            -ov -format UDZO \
+            "${GITHUB_WORKSPACE}/FeiNiuMusic-MacOS-${VERSION}.dmg"
+      - name: 上传 macOS 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            FeiNiuMusic-MacOS-*.zip
+            FeiNiuMusic-MacOS-*.dmg
+            pubspec.yaml
+
+  # iOS：未签名 .ipa，供用户下载后自行签名安装（Sideloadly / AltStore /
+  # Xcode 免费账号等，7 天过期需重签）。未配置 Apple 开发者签名，
+  # 故不参与发布门槛：构建失败不影响其他平台发布。
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: 提取版本号
+        shell: bash
+        run: |
+          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          VERSION=${FULL_VERSION%%+*}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: 构建未签名 iOS 应用（.ipa 供自行签名）
+        shell: bash
+        run: |
+          flutter pub get
+          flutter build ios --release --no-codesign
+          # 手工组装 .ipa（Payload 结构）。未签名无内置描述文件，
+          # 由签名工具（Sideloadly/AltStore 等）注入免费开发者签名。
+          STAGE="${GITHUB_WORKSPACE}/ipa-stage"
+          rm -rf "$STAGE" && mkdir -p "$STAGE/Payload"
+          cp -R build/ios/iphoneos/Runner.app "$STAGE/Payload/"
+          cd "$STAGE"
+          ditto -c -k --sequesterRsrc --keepParent Payload \
+            "${GITHUB_WORKSPACE}/FeiNiuMusic-iOS-${VERSION}-unsigned.ipa"
+      - name: 上传 iOS 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: FeiNiuMusic-iOS-*-unsigned.ipa
+
   publish:
     runs-on: ubuntu-latest
-    needs: [build-windows, build-android]
+    needs: [build-windows, build-android, build-macos]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -150,6 +239,17 @@ jobs:
           if [ ! -s release_notes.txt ]; then
             echo "- ${GITHUB_SHA}" > release_notes.txt
           fi
+      - name: 追加平台使用说明
+        run: |
+          cat >> release_notes.txt <<'EOF'
+
+          ---
+          **安装说明**
+          - **macOS**：打开 dmg 把 feiniumusic.app 拖入"应用程序"，或解压 zip 后直接运行。
+            未签名应用首次打开需 右键 → 打开 确认。
+          - **iOS（未签名 ipa）**：需自行签名安装，可用 Sideloadly / AltStore / Xcode
+            免费账号（免费签名 7 天过期需重新安装）。
+          EOF
       - name: 下载 Windows 产物
         uses: actions/download-artifact@v4
         with:
@@ -160,6 +260,16 @@ jobs:
         with:
           name: android-build
           path: android-artifact/
+      - name: 下载 macOS 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: macos-artifact/
+      - name: 下载 iOS 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-build
+          path: ios-artifact/
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
@@ -169,3 +279,6 @@ jobs:
             android-artifact/FeiNiuMusic-v*.apk
             android-artifact/FnMusicEnhance-*.fpk
             windows-artifact/FeiNiuMusic-Windows-*.zip
+            macos-artifact/FeiNiuMusic-MacOS-*.dmg
+            macos-artifact/FeiNiuMusic-MacOS-*.zip
+            ios-artifact/FeiNiuMusic-iOS-*-unsigned.ipa

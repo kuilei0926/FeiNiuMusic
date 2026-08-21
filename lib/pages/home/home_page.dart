@@ -304,8 +304,10 @@ class _HomePageState extends State<HomePage>
 
   /// 漫游刷新：换一首漫游歌曲（不打断播放）。
   ///
-  /// 用 roam-next 拉取下一首，更新 Banner 显示与 _roamId 供队列扩展器使用。
-  /// 若当前正在漫游播放，则把新歌插入「下一首」，播完当前后自然接上。
+  /// 用 roam-next 拉取下一首，更新 Banner 显示、_roamId 与 _roamQueue。
+  /// 不触碰正在播放的队列——历史问题：播放中刷新把新歌 insertNext 进播放
+  /// 队列会重建当前 run，打断正在播放的音乐。需要播放新歌时由用户点 Banner
+  /// 触发 [_extendAndPlay]（以当前显示歌为队首重开队列）。
   Future<void> _refreshRoam() async {
     final currentRoamId = _roamId.value;
     try {
@@ -313,10 +315,6 @@ class _HomePageState extends State<HomePage>
       final song = await _fetchNextRoamSong(deviceId, currentRoamId);
       if (song == null || !mounted) return;
       _roamSong.value = song;
-      // 正在漫游播放时，把新歌插到当前之后，播完自然接上（不打断当前播放）
-      if (_player.isPlaying.value && _player.queueExtender != null) {
-        await _player.insertNext([song]);
-      }
       // 无论是否正在播放，_roamQueue 都以「当前显示的漫游歌」为队首：
       // 点播放时播的就是 Banner 上这首歌。此前播放中刷新会把新歌 append
       // 进 _roamQueue，队列变成 [旧歌, 新歌]，点播放仍从旧歌开始——表现为

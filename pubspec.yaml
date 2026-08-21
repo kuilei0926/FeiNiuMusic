@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.5.7+1
+version: 1.5.8+1
 
 environment:
   sdk: ^3.10.8
@@ -147,6 +147,13 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/icon/app_icon.png"
   min_sdk_android: 21
+  # iOS 图标不允许带 alpha（透明）通道，否则 App Store 审核会被拒；
+  # 透明区域填充为白色，由 iOS 自行套圆角。
+  remove_alpha_ios: true
+  # macOS 应用图标：从同一张源图生成 AppIcon（16~1024 多尺寸）。
+  # 运行 `dart run flutter_launcher_icons` 生效。
+  macos:
+    generate: true
   # Windows 桌面图标：从同一张源图生成 app_icon.ico（含 16/32/48/256 多分辨率），
   # 打包进 exe 作为程序/任务栏图标。运行 `dart run flutter_launcher_icons` 生效。
   windows:
