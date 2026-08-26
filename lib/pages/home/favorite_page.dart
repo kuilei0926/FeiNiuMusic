@@ -86,6 +86,13 @@ class _FavoritePageState extends State<FavoritePage>
     if (mounted) await _load();
   }
 
+  @override
+  void onPrimaryTabDeactivated() {
+    // 返回键切到首页时 IndexedStack 不会销毁本页，多选状态残留会让全局
+    // 计数不清零、共享底栏一直隐藏；切走即退出多选。
+    if (isMultiSelecting) exitMultiSelect();
+  }
+
   void _handleScroll() {
     if (!_scrollController.hasClients || !_hasMore || _loadingMore.value) return;
     final maxScroll = _scrollController.position.maxScrollExtent;

@@ -260,6 +260,7 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
         extendBodyBehindAppBar: false,
         useSafeArea: false,
         showMiniPlayer: !isMultiSelecting,
+        hideBottomNav: isMultiSelecting,
         appBar: AppTopBar(
           title: isMultiSelecting ? '已选 $selectedCount 首' : _artistName,
           leading: isMultiSelecting
@@ -789,6 +790,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
         extendBodyBehindAppBar: false,
         useSafeArea: false,
         showMiniPlayer: !isMultiSelecting,
+        hideBottomNav: isMultiSelecting,
         appBar: AppTopBar(
           title: isMultiSelecting ? '已选 $selectedCount 首' : _albumName,
           leading: isMultiSelecting

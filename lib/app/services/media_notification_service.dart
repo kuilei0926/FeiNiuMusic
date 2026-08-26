@@ -853,10 +853,17 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   PlaybackState _stateFromSnap(PlaybackSnapshot snap) {
     final playing = snap.isPlaying;
     final queueIndex = _publishedQueueIds.indexOf(snap.song?.id ?? '');
+    // 自定义按键（关闭/收藏）只有 Android 通知栏有实现。iOS/macOS 的
+    // MPRemoteCommandCenter 没有 custom action：若把 MediaControl.custom
+    // 放进 controls，其 action 枚举恰好落到 changeRepeatMode 命令位，
+    // 锁屏/控制中心会出现一个点按无响应的「单曲循环」按钮。故仅 Android 下发。
+    final isAndroid = io.Platform.isAndroid;
     final showClose =
+        isAndroid &&
         _supportsCustomActions &&
         MediaNotificationSettings.showCloseAction.value;
     final showFavorite =
+        isAndroid &&
         _supportsCustomActions &&
         MediaNotificationSettings.showFavoriteAction.value;
     final favoriteIcon = _isFavorite

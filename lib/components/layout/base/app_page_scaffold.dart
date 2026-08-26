@@ -35,6 +35,10 @@ class AppPageScaffold extends StatefulWidget {
   final Widget? drawer;
   final bool showMiniPlayer;
 
+  /// 隐藏底部导航栏（如多选时：导航栏悬浮在页面内容上方，会盖住底部
+  /// 多选操作栏，与 [showMiniPlayer] 同理按需隐藏）。
+  final bool hideBottomNav;
+
   const AppPageScaffold({
     super.key,
     this.appBar,
@@ -48,6 +52,7 @@ class AppPageScaffold extends StatefulWidget {
     this.onBottomNavTap,
     this.drawer,
     this.showMiniPlayer = true,
+    this.hideBottomNav = false,
   });
 
   @override
@@ -156,8 +161,9 @@ class AppPageScaffoldState extends State<AppPageScaffold>
       );
     }
 
-    final hasBottomNav =
-        widget.bottomNavIndex != null && widget.onBottomNavTap != null;
+    final hasBottomNav = !widget.hideBottomNav &&
+        widget.bottomNavIndex != null &&
+        widget.onBottomNavTap != null;
     // shell 主 tab 页由 shell 渲染唯一一份共享底栏（见 app_router.dart 的
     // _PrimaryNavigationShell），页面自身不再渲染，否则 IndexedStack 里每个
     // tab 页各持一份 GlassTabBar / TabIndicatorState，切换后胶囊会从各页

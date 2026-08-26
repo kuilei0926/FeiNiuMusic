@@ -48,6 +48,26 @@ bool mediaKitIsTrailingDecodeError({
   return duration - position <= const Duration(seconds: 2);
 }
 
+/// CUE 整轨曲目用 `Media(start:)` 裁剪播放时，mpv 上报的 position 是**整轨
+/// 文件**的绝对时间（如第 3 首从 50 分钟起，position 就报 50:00+），而时长
+/// 同样是整轨的。时间轴需要把 mpv 绝对时间换算成裁剪段内的相对时间：
+/// `normalizeCroppedPosition` 做 position 换算（不低于 0），`seek` 反向加回
+/// 起始偏移得到 mpv 需要的整轨绝对位置。非裁剪曲目（start 为 null/零）原样
+/// 透传，行为不变。just_audio 端由 ClippingAudioSource 天然上报相对时间，
+/// 无需此换算。
+@visibleForTesting
+Duration normalizeCroppedPosition(Duration raw, Duration? start) {
+  if (start == null || start <= Duration.zero) return raw;
+  final normalized = raw - start;
+  return normalized < Duration.zero ? Duration.zero : normalized;
+}
+
+@visibleForTesting
+Duration absoluteCroppedSeekTarget(Duration relative, Duration? start) {
+  if (start == null || start <= Duration.zero) return relative;
+  return relative + start;
+}
+
 /// [PlayerEngine] 的 media_kit（libmpv + FFmpeg）实现。
 ///
 /// 负责 ExoPlayer 受限的格式（FLAC 32KB 帧缓冲上限、DSF/DSD/APE/WMA 等）。
@@ -91,11 +111,13 @@ class MediaKitEngine implements PlayerEngine {
       ),
     );
     _player = player;
-    // media_kit 默认启用 mpv cache-on-disk。macOS 沙盒下 mpv 无法创建其默认
-    // 文件缓存（日志为 "Failed to create file cache"），随后 FLAC 流可能在
-    // 曲末报 invalid frame header。关闭磁盘层，仅保留既有 32MB 内存 demux
-    // 缓存；应用自己的 StreamCacheService 仍负责完整歌曲落盘。
-    if (defaultTargetPlatform == TargetPlatform.macOS) {
+    // media_kit 默认启用 mpv cache-on-disk。macOS 沙盒与部分 Windows 环境
+    // （无法访问 mpv 默认缓存目录）下 mpv 创建其文件缓存失败，日志为
+    // "Failed to create file cache"，随后 FLAC 流可能在曲末报 invalid frame
+    // header。关闭磁盘层，仅保留既有 32MB 内存 demux 缓存；应用自己的
+    // StreamCacheService 仍负责完整歌曲落盘。
+    if (defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows) {
       try {
         final dynamic nativePlayer = player.platform;
         await nativePlayer.setProperty('cache-on-disk', 'no');
@@ -114,7 +136,10 @@ class MediaKitEngine implements PlayerEngine {
 
   void _wire(mk.Player player) {
     player.stream.position.listen((v) {
-      if (!_positionCtl.isClosed) _positionCtl.add(v);
+      if (!_positionCtl.isClosed) {
+        // CUE 裁剪曲目：mpv 报整轨绝对位置，换算为裁剪段内相对时间。
+        _positionCtl.add(normalizeCroppedPosition(v, _currentItemStart()));
+      }
     });
     player.stream.duration.listen((v) {
       if (!_durationCtl.isClosed) _durationCtl.add(v);
@@ -233,6 +258,20 @@ class MediaKitEngine implements PlayerEngine {
     });
   }
 
+  /// 当前播放项若带 `Media(start:)` 裁剪（CUE 整轨曲目），返回其起始偏移；
+  /// 否则返回 null。mpv 的 position/duration 都是整轨绝对时间，裁剪段内
+  /// 的时间轴以该偏移为基准换算（见 [normalizeCroppedPosition]）。
+  Duration? _currentItemStart() {
+    final p = _player;
+    if (p == null) return null;
+    final medias = p.state.playlist.medias;
+    final idx = p.state.playlist.index;
+    if (idx < 0 || idx >= medias.length) return null;
+    final start = medias[idx].start;
+    if (start == null || start <= Duration.zero) return null;
+    return start;
+  }
+
   Future<void> _recoverIntermediateEof(
     mk.Player player, {
     required int completedIndex,
@@ -333,7 +372,11 @@ class MediaKitEngine implements PlayerEngine {
         .open(mk.Playlist(medias, index: safeIndex), play: false)
         .timeout(openTimeout);
     if (initialPosition != null && initialPosition > Duration.zero) {
-      await player.seek(initialPosition);
+      // 恢复播放位置对 CUE 曲目是相对时间：加回该曲起始偏移换算成整轨
+      // 绝对位置再让 mpv 定位（否则会 seek 到整轨文件前面的部分）。
+      await player.seek(
+        absoluteCroppedSeekTarget(initialPosition, medias[safeIndex].start),
+      );
     }
   }
 
@@ -368,7 +411,9 @@ class MediaKitEngine implements PlayerEngine {
   Future<void> seek(Duration position) async {
     final p = _player;
     if (p == null) return;
-    await p.seek(position);
+    // CUE 裁剪曲目：相对 seek 目标换算回整轨绝对位置，mpv 才能定位到
+    // 裁剪段内正确的点（否则会落到整轨文件的前面部分）。
+    await p.seek(absoluteCroppedSeekTarget(position, _currentItemStart()));
   }
 
   @override
@@ -459,7 +504,8 @@ class MediaKitEngine implements PlayerEngine {
   @override
   Duration get position {
     final p = _player;
-    return p?.state.position ?? Duration.zero;
+    if (p == null) return Duration.zero;
+    return normalizeCroppedPosition(p.state.position, _currentItemStart());
   }
 
   @override

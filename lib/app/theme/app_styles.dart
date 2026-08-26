@@ -20,7 +20,7 @@ class AppScrollBehavior extends MaterialScrollBehavior {
   /// 允许鼠标拖拽滚动。
   ///
   /// MaterialScrollBehavior 默认 dragDevices 不含鼠标（只有触屏/触笔），
-  /// 导致桌面端横向列表（首页推荐歌单/最新专辑等）无法用鼠标拖拽滑动。
+  /// 导致桌面端横向列表（首页我的歌单/最新专辑等）无法用鼠标拖拽滑动。
   /// 覆写后鼠标可拖拽任何滚动方向；同时保留触屏/触笔，行为不变。
   @override
   Set<PointerDeviceKind> get dragDevices => {
