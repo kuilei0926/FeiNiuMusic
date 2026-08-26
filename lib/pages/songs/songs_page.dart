@@ -93,6 +93,13 @@ class _SongsPageState extends State<SongsPage>
   }
 
   @override
+  void onPrimaryTabDeactivated() {
+    // 返回键切到首页时 IndexedStack 不会销毁本页，多选状态残留会让全局
+    // 计数不清零、共享底栏一直隐藏；切走即退出多选。
+    if (isMultiSelecting) exitMultiSelect();
+  }
+
+  @override
   void dispose() {
     PlayerService.instance.currentSong.removeListener(_handlePlayerSongChanged);
     _listController.removeListener(_handleScroll);
