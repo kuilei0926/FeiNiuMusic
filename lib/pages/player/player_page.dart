@@ -180,9 +180,7 @@ class _PlayerPageState extends State<PlayerPage>
           },
           child: Stack(
             children: [
-              RepaintBoundary(
-                child: PlayerBackground(songSignal: _player.currentSongSignal),
-              ),
+              PlayerBackground(songSignal: _player.currentSongSignal),
               PlayerTheme(
                 child: ValueListenableBuilder<PlayerStylePreset>(
                   valueListenable: PlayerStyleSettings.stylePreset,

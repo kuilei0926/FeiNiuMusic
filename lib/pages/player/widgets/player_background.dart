@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +11,14 @@ import 'package:signals_flutter/signals_flutter.dart' hide computed;
 import '../../../app/services/feiniu/api_client.dart';
 import '../../../app/state/song_state.dart';
 import '../../../app/utils/route_visibility.dart';
+
+@visibleForTesting
+int dynamicGradientFramesPerSecond(TargetPlatform platform) {
+  return switch (platform) {
+    TargetPlatform.macOS || TargetPlatform.windows || TargetPlatform.linux => 8,
+    _ => 15,
+  };
+}
 
 class PlayerBackgroundSettings {
   static const String _prefsPlaybackThemeMode = 'setting_playback_theme_mode';
@@ -404,12 +413,10 @@ class _DynamicGradientBackground extends StatefulWidget {
 
 class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
     with SingleTickerProviderStateMixin, AppRouteVisibilityMixin {
-  // ~30fps over the 22s loop. Quantizing the animation phase lets the painter's
-  // shouldRepaint skip the full-screen multi-shader repaint between steps, while
-  // the very slow drift stays visually smooth.
-  static const int _phaseSteps = 22 * 30;
+  static const Duration _animationDuration = Duration(seconds: 22);
 
   late AnimationController _controller;
+  late final int _phaseSteps;
 
   @override
   AnimationController get visibilityController => _controller;
@@ -417,11 +424,12 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
   @override
   void initState() {
     super.initState();
+    _phaseSteps =
+        _animationDuration.inSeconds *
+        dynamicGradientFramesPerSecond(defaultTargetPlatform);
     // One slow loop drives all blob drift; long period keeps it calm/premium.
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 22),
-    )..repeat();
+    _controller = AnimationController(vsync: this, duration: _animationDuration)
+      ..repeat();
   }
 
   @override
@@ -433,24 +441,22 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) {
-          final t =
-              (_controller.value * _phaseSteps).floorToDouble() / _phaseSteps;
-          return CustomPaint(
-            size: Size.infinite,
-            painter: _AuroraPainter(
-              t: t,
-              base: widget.baseColor,
-              saturation: widget.saturation,
-              hueShift: widget.hueShift,
-              isDark: isDark,
-            ),
-          );
-        },
-      ),
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final t =
+            (_controller.value * _phaseSteps).floorToDouble() / _phaseSteps;
+        return CustomPaint(
+          size: Size.infinite,
+          painter: _AuroraPainter(
+            t: t,
+            base: widget.baseColor,
+            saturation: widget.saturation,
+            hueShift: widget.hueShift,
+            isDark: isDark,
+          ),
+        );
+      },
     );
   }
 }
