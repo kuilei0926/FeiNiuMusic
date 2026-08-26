@@ -13,12 +13,10 @@ import '../../../app/state/song_state.dart';
 import '../../../app/utils/route_visibility.dart';
 
 @visibleForTesting
-int dynamicGradientFramesPerSecond(TargetPlatform platform) {
-  return switch (platform) {
-    TargetPlatform.macOS || TargetPlatform.windows || TargetPlatform.linux => 8,
-    _ => 15,
-  };
-}
+const int dynamicGradientFramesPerSecond = 8;
+
+@visibleForTesting
+const int dynamicGradientTextureDimension = 640;
 
 class PlayerBackgroundSettings {
   static const String _prefsPlaybackThemeMode = 'setting_playback_theme_mode';
@@ -417,6 +415,9 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
 
   late AnimationController _controller;
   late final int _phaseSteps;
+  ui.Image? _texture;
+  bool? _textureIsDark;
+  int _textureGeneration = 0;
 
   @override
   AnimationController get visibilityController => _controller;
@@ -424,36 +425,117 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
   @override
   void initState() {
     super.initState();
-    _phaseSteps =
-        _animationDuration.inSeconds *
-        dynamicGradientFramesPerSecond(defaultTargetPlatform);
+    _phaseSteps = _animationDuration.inSeconds * dynamicGradientFramesPerSecond;
     // One slow loop drives all blob drift; long period keeps it calm/premium.
     _controller = AnimationController(vsync: this, duration: _animationDuration)
       ..repeat();
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    if (_textureIsDark != isDark) {
+      _textureIsDark = isDark;
+      _regenerateTexture(isDark);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _DynamicGradientBackground oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.baseColor != widget.baseColor ||
+        oldWidget.saturation != widget.saturation ||
+        oldWidget.hueShift != widget.hueShift) {
+      _regenerateTexture(
+        _textureIsDark ?? Theme.of(context).brightness == Brightness.dark,
+      );
+    }
+  }
+
+  Future<void> _regenerateTexture(bool isDark) async {
+    final generation = ++_textureGeneration;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final size = Size.square(dynamicGradientTextureDimension.toDouble());
+    _AuroraPainter(
+      t: 0.18,
+      base: widget.baseColor,
+      saturation: widget.saturation,
+      hueShift: widget.hueShift,
+      isDark: isDark,
+    ).paint(canvas, size);
+    final picture = recorder.endRecording();
+    late final ui.Image image;
+    try {
+      image = await picture.toImage(
+        dynamicGradientTextureDimension,
+        dynamicGradientTextureDimension,
+      );
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Failed to create player background texture: $error');
+      }
+      return;
+    } finally {
+      picture.dispose();
+    }
+    if (!mounted || generation != _textureGeneration) {
+      image.dispose();
+      return;
+    }
+    final previous = _texture;
+    setState(() => _texture = image);
+    if (previous != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
+    }
+  }
+
+  @override
   void dispose() {
+    _textureGeneration++;
+    _texture?.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final t =
-            (_controller.value * _phaseSteps).floorToDouble() / _phaseSteps;
-        return CustomPaint(
-          size: Size.infinite,
-          painter: _AuroraPainter(
-            t: t,
-            base: widget.baseColor,
-            saturation: widget.saturation,
-            hueShift: widget.hueShift,
-            isDark: isDark,
+    final texture = _texture;
+    if (texture == null) {
+      return ColoredBox(color: widget.baseColor);
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return ClipRect(
+          child: AnimatedBuilder(
+            animation: _controller,
+            child: RepaintBoundary(
+              child: SizedBox.expand(
+                child: RawImage(
+                  image: texture,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.low,
+                ),
+              ),
+            ),
+            builder: (context, child) {
+              final t =
+                  (_controller.value * _phaseSteps).floorToDouble() /
+                  _phaseSteps;
+              final angle = 0.025 * math.sin(2 * math.pi * t);
+              final offset = Offset(
+                constraints.maxWidth * 0.025 * math.sin(2 * math.pi * t),
+                constraints.maxHeight * 0.025 * math.cos(2 * math.pi * t),
+              );
+              return Transform.translate(
+                offset: offset,
+                child: Transform.rotate(
+                  angle: angle,
+                  child: Transform.scale(scale: 1.12, child: child),
+                ),
+              );
+            },
           ),
         );
       },
