@@ -5,6 +5,30 @@ import 'package:media_kit/media_kit.dart' as mk;
 
 import 'player_engine.dart';
 
+const _desktopAudioOnlyProperties = <String, String>{
+  'cache-on-disk': 'no',
+  'audio-display': 'no',
+  'vid': 'no',
+};
+
+/// Apply the libmpv properties required by the desktop audio-only player.
+///
+/// Each property is isolated so an unsupported option in one libmpv build does
+/// not prevent the remaining memory-safety options from being applied.
+@visibleForTesting
+Future<void> configureMediaKitDesktopAudioOnly({
+  required Future<void> Function(String property, String value) setProperty,
+  void Function(String property, Object error)? onError,
+}) async {
+  for (final entry in _desktopAudioOnlyProperties.entries) {
+    try {
+      await setProperty(entry.key, entry.value);
+    } catch (error) {
+      onError?.call(entry.key, error);
+    }
+  }
+}
+
 /// media_kit 会在播放列表中的**每一首**结束时短暂上报 completed=true，
 /// 随后自行推进到下一项；业务层只应在物理播放列表最后一项结束时处理完成，
 /// 否则会与 media_kit 的自动推进叠加，造成一次跳过两首。
@@ -111,19 +135,25 @@ class MediaKitEngine implements PlayerEngine {
       ),
     );
     _player = player;
-    // media_kit 默认启用 mpv cache-on-disk。macOS 沙盒与部分 Windows 环境
-    // （无法访问 mpv 默认缓存目录）下 mpv 创建其文件缓存失败，日志为
-    // "Failed to create file cache"，随后 FLAC 流可能在曲末报 invalid frame
-    // header。关闭磁盘层，仅保留既有 32MB 内存 demux 缓存；应用自己的
-    // StreamCacheService 仍负责完整歌曲落盘。
+    // 桌面端这个 libmpv 实例只用于音频：
+    // - 关闭 cache-on-disk，避免沙盒内创建 mpv 默认文件缓存失败；
+    // - 关闭 audio-display/vid，避免 mpv 把 DSD/FLAC 的高分辨率内嵌封面
+    //   当作视频轨解码，切歌后继续占用 VideoToolbox/GPU 图形内存。
+    // 应用自己的 StreamCacheService 仍负责完整歌曲落盘，Flutter UI
+    // 使用服务器封面，因此禁用 mpv 封面显示不会影响播放页。
     if (defaultTargetPlatform == TargetPlatform.macOS ||
         defaultTargetPlatform == TargetPlatform.windows) {
-      try {
-        final dynamic nativePlayer = player.platform;
-        await nativePlayer.setProperty('cache-on-disk', 'no');
-      } catch (e) {
-        debugPrint('[MediaKitEngine] disable disk cache failed: $e');
-      }
+      final dynamic nativePlayer = player.platform;
+      await configureMediaKitDesktopAudioOnly(
+        setProperty: (property, value) async {
+          await nativePlayer.setProperty(property, value);
+        },
+        onError: (property, error) {
+          debugPrint(
+            '[MediaKitEngine] set desktop property $property failed: $error',
+          );
+        },
+      );
     }
     // 订阅 mpv 原生日志：仅保留错误级别（PlayerConfiguration.logLevel=error），
     // 诊断加载/解码失败的具体原因。不依赖 kDebugMode：release 版经 DebugLogService

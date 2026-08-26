@@ -4,6 +4,42 @@ import 'package:feiniu_music/app/services/player/media_kit_engine.dart';
 import 'package:feiniu_music/app/services/player/player_engine.dart';
 
 void main() {
+  group('configureMediaKitDesktopAudioOnly', () {
+    test('禁用 mpv 磁盘缓存、内嵌封面显示和视频轨', () async {
+      final applied = <String, String>{};
+
+      await configureMediaKitDesktopAudioOnly(
+        setProperty: (property, value) async {
+          applied[property] = value;
+        },
+      );
+
+      expect(applied, {
+        'cache-on-disk': 'no',
+        'audio-display': 'no',
+        'vid': 'no',
+      });
+    });
+
+    test('单个 mpv 属性失败时继续应用其余保护项', () async {
+      final attempted = <String>[];
+      final errors = <String>[];
+
+      await configureMediaKitDesktopAudioOnly(
+        setProperty: (property, value) async {
+          attempted.add(property);
+          if (property == 'audio-display') {
+            throw UnsupportedError(property);
+          }
+        },
+        onError: (property, error) => errors.add(property),
+      );
+
+      expect(attempted, ['cache-on-disk', 'audio-display', 'vid']);
+      expect(errors, ['audio-display']);
+    });
+  });
+
   group('mediaKitCompletedPlaylistIndex', () {
     test('completed 回调使用已交付索引而不是抢跑到下一首的原生索引', () {
       expect(
