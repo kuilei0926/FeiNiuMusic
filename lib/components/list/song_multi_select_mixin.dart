@@ -17,6 +17,14 @@ import 'multi_select_bottom_bar.dart';
 /// 已用 `showMiniPlayer: !isMultiSelecting` 自行控制，互不影响）。
 final ValueNotifier<int> globalMultiSelectActive = ValueNotifier(0);
 
+/// 底栏 shell 返回键多选时的取消请求信号。
+///
+/// shell 的 PopScope 收到返回键且发现任一页面多选时 bump 一次：返回键在多选
+/// 状态下的语义是「取消多选、留在当前页」，而不是切 tab / 退出页面。各多选页
+/// （[SongMultiSelectMixin] 内）监听后退出多选；详情页是独立路由，由各自的
+/// PopScope 处理，不需要此信号。
+final ValueNotifier<int> requestCancelMultiSelect = ValueNotifier(0);
+
 /// 歌曲列表页多选通用能力。
 ///
 /// 为歌曲/收藏/最近播放/歌手详情/专辑详情/风格详情等页面提供：
@@ -62,7 +70,20 @@ mixin SongMultiSelectMixin<T extends StatefulWidget>
   }
 
   @override
+  void initState() {
+    super.initState();
+    // 底栏 shell 返回键多选时的取消请求（见 requestCancelMultiSelect）。
+    requestCancelMultiSelect.addListener(_handleCancelMultiSelectRequest);
+  }
+
+  void _handleCancelMultiSelectRequest() {
+    // 返回键语义 = 取消多选，留在当前页（不切 tab、不退出页面）。
+    if (_multiSelect.value) exitMultiSelect();
+  }
+
+  @override
   void dispose() {
+    requestCancelMultiSelect.removeListener(_handleCancelMultiSelectRequest);
     // 页面在多选状态下被销毁（如切换账号重建外壳/直接返回）时，释放全局
     // 计数，避免迷你播放器被永久隐藏。页面自身的 dispose 走 super 到这里。
     // 延迟到帧后：dispose 常在 widget tree 锁定期执行，同步 notify 会触发

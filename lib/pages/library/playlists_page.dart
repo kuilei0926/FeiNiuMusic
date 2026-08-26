@@ -1212,9 +1212,17 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage>
       builder: (context, useBottomNavigation) => AppPageScaffold(
         extendBodyBehindAppBar: true,
         showMiniPlayer: !_multiSelect.value,
+        hideBottomNav: _multiSelect.value,
+        cancelMultiSelectOnBack: _multiSelect.value,
+        onCancelMultiSelect: () {
+          if (_multiSelect.value) _toggleMultiSelect();
+        },
         appBar: AppTopBar(
           title: widget.playlistName,
           centerTitle: true,
+          // 底部导航栏模式下详情页仍显示底栏，左上角返回按钮冗余，隐藏；
+          // 抽屉模式下详情页无底栏，保留返回按钮。
+          showBackButton: !useBottomNavigation,
           backgroundColor: Colors.transparent,
           elevation: 0,
         ),

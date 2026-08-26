@@ -91,6 +91,14 @@ class StreamAudioCacheSource extends StreamAudioSource {
         req.fail(e, st);
       }
       _requests.clear();
+      // 失败路径同样关闭并清空进行中的下载缓冲流：这些控制器本应在下载
+      // 完成时 close；失败不清理的话，消费方（just_audio）会一直等数据而
+      // 不报错 → 悬挂且实例无法回收。主动 close 让消费方立即收到 EOF，
+      // 由上层错误恢复机制（有重试上限）处理截断流。
+      for (final r in _inProgressResponses) {
+        if (!r.controller.isClosed) r.controller.close();
+      }
+      _inProgressResponses.clear();
       if (!_downloadCompleter.isCompleted) {
         _downloadCompleter.completeError(e, st);
       }

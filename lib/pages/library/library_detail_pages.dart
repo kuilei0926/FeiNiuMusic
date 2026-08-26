@@ -260,8 +260,13 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
         extendBodyBehindAppBar: false,
         useSafeArea: false,
         showMiniPlayer: !isMultiSelecting,
+        hideBottomNav: isMultiSelecting,
+        cancelMultiSelectOnBack: isMultiSelecting,
+        onCancelMultiSelect: exitMultiSelect,
         appBar: AppTopBar(
           title: isMultiSelecting ? '已选 $selectedCount 首' : _artistName,
+          // 底部导航栏模式下详情页仍显示底栏，返回按钮冗余，隐藏。
+          showBackButton: !useBottomNavigation,
           leading: isMultiSelecting
               ? IconButton(
                   icon: const Icon(Icons.close_rounded),
@@ -789,8 +794,13 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
         extendBodyBehindAppBar: false,
         useSafeArea: false,
         showMiniPlayer: !isMultiSelecting,
+        hideBottomNav: isMultiSelecting,
+        cancelMultiSelectOnBack: isMultiSelecting,
+        onCancelMultiSelect: exitMultiSelect,
         appBar: AppTopBar(
           title: isMultiSelecting ? '已选 $selectedCount 首' : _albumName,
+          // 底部导航栏模式下详情页仍显示底栏，返回按钮冗余，隐藏。
+          showBackButton: !useBottomNavigation,
           leading: isMultiSelecting
               ? IconButton(
                   icon: const Icon(Icons.close_rounded),

@@ -122,7 +122,8 @@ class _PlayerControlsSettingsPageState
                     title: '不与其他应用一起播放',
                     subtitle:
                         '开启后将不会与其他应用一起播放，注意此功能可能受你的设备系统影响而不起作用，'
-                        '如 Hyper OS 中在声音助手中开启允许多声音选项会导致此开启状态失效',
+                        '如 Hyper OS 中在声音助手中开启允许多声音选项会导致此开启状态失效。'
+                        'iOS 端默认开启：关闭后 iOS 锁屏/控制中心/AirPods 的播放控制可能失效',
                     trailing: Switch.adaptive(
                       value: enabled,
                       onChanged: (value) {

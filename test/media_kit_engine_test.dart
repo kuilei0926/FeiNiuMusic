@@ -119,4 +119,59 @@ void main() {
       );
     });
   });
+
+  group('normalizeCroppedPosition', () {
+    test('非裁剪曲目（无 start / start 为零）原样透传', () {
+      expect(
+        normalizeCroppedPosition(const Duration(minutes: 53), null),
+        const Duration(minutes: 53),
+      );
+      expect(
+        normalizeCroppedPosition(
+          const Duration(minutes: 53),
+          Duration.zero,
+        ),
+        const Duration(minutes: 53),
+      );
+    });
+
+    test('CUE 裁剪曲目把整轨绝对位置换算为裁剪段内相对时间', () {
+      expect(
+        normalizeCroppedPosition(
+          const Duration(minutes: 53),
+          const Duration(minutes: 50),
+        ),
+        const Duration(minutes: 3),
+      );
+    });
+
+    test('位置不低于零（裁剪起始前的瞬时上报被夹到 0）', () {
+      expect(
+        normalizeCroppedPosition(
+          const Duration(seconds: 30),
+          const Duration(minutes: 50),
+        ),
+        Duration.zero,
+      );
+    });
+  });
+
+  group('absoluteCroppedSeekTarget', () {
+    test('非裁剪曲目（无 start）原样透传', () {
+      expect(
+        absoluteCroppedSeekTarget(const Duration(minutes: 3), null),
+        const Duration(minutes: 3),
+      );
+    });
+
+    test('CUE 裁剪曲目相对 seek 目标换算回整轨绝对位置', () {
+      expect(
+        absoluteCroppedSeekTarget(
+          const Duration(minutes: 3),
+          const Duration(minutes: 50),
+        ),
+        const Duration(minutes: 53),
+      );
+    });
+  });
 }
