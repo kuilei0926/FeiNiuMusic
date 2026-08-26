@@ -1212,6 +1212,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage>
       builder: (context, useBottomNavigation) => AppPageScaffold(
         extendBodyBehindAppBar: true,
         showMiniPlayer: !_multiSelect.value,
+        hideBottomNav: _multiSelect.value,
         appBar: AppTopBar(
           title: widget.playlistName,
           centerTitle: true,

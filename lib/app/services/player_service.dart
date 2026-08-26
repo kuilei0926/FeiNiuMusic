@@ -445,9 +445,19 @@ class PlayerService with WidgetsBindingObserver {
       if (!identical(engine, _activeEngine)) return;
       // 投屏遥控模式：时长沿用投屏起始歌曲，忽略引擎的时长事件。
       if (isCasting.value) return;
-      duration.value = value;
       final song = currentSong.value;
-      final ms = value?.inMilliseconds ?? 0;
+      // CUE 整轨曲目：media_kit（Windows/FLAC 直连）用 Media(start/end) 裁剪，
+      // 但 mpv 上报的是**整轨文件**时长而非裁剪段时长，时长显示会变成整轨的。
+      // 位置部分已在 media_kit 引擎层按 Media.start 换算成裁剪段内相对时间
+      //（normalizeCroppedPosition），这里按曲目自身 duration 覆盖时长，与
+      // just_audio 的 ClippingAudioSource（上报裁剪后时长）行为一致；也避免
+      // 把整轨时长误持久化进曲目。
+      final effective =
+          song != null && song.isCue && (song.durationMs ?? 0) > 0
+              ? Duration(milliseconds: song.durationMs!)
+              : value;
+      duration.value = effective;
+      final ms = effective?.inMilliseconds ?? 0;
       if (song != null && ms > 0) {
         _maybePersistPlaybackDuration(song, ms);
       }
@@ -655,14 +665,14 @@ class PlayerService with WidgetsBindingObserver {
     final results = await Future.wait(
       songs.map((s) async {
         if (_mediaKitEscalateSongIds.contains(s.id)) {
-          _debugLog('engineKind ${s.title} -> mediaKit (escalated)');
+          // _debugLog('engineKind ${s.title} -> mediaKit (escalated)');
           return (kind: EngineKind.mediaKit, transcode: false);
         }
         // 用户手动指定的解码器（歌曲信息面板点解码 tag 切换）。放在 escalate
         // 之后：自动升级（解码失败/无声）仍优先，手动切换失败由现有兜底接管。
         final forced = _forcedEngineKinds[s.id];
         if (forced != null) {
-          _debugLog('engineKind ${s.title} -> ${forced.name} (manual)');
+          // _debugLog('engineKind ${s.title} -> ${forced.name} (manual)');
           return (kind: forced, transcode: false);
         }
         // 转码歌强制 just_audio（HLS 只能 ExoPlayer 播）。转码失败标记后
@@ -679,9 +689,9 @@ class PlayerService with WidgetsBindingObserver {
         // 确诊「为什么普通歌进了 media_kit」。
         if (kDebugMode && kind == EngineKind.mediaKit) {
           final fmt = FeiNiuTranscodeService.instance.resolvedFormatForSync(s);
-          debugPrint(
-            '[PlayerService] engineKind ${s.title} fmt=$fmt -> mediaKit',
-          );
+          // debugPrint(
+          //   '[PlayerService] engineKind ${s.title} fmt=$fmt -> mediaKit',
+          // );
         }
         return (kind: kind, transcode: false);
       }),
@@ -928,19 +938,8 @@ class PlayerService with WidgetsBindingObserver {
     bool waitForLocal = false,
   }) async {
     if (kind == EngineKind.mediaKit) {
-      if (kDebugMode) {
-        debugPrint(
-          '[PlayerService] resolveEngineItem ${song.title} -> mediaKit '
-          'waitLocal=$waitForLocal',
-        );
-      }
       return MediaKitItem(
         await _mediaForSong(song, waitForLocal: waitForLocal),
-      );
-    }
-    if (kDebugMode) {
-      debugPrint(
-        '[PlayerService] resolveEngineItem ${song.title} -> justAudio',
       );
     }
     return JustAudioItem(await _sourceForSong(song));
@@ -982,12 +981,6 @@ class PlayerService with WidgetsBindingObserver {
           song: song,
         );
         if (existing != null) {
-          if (kDebugMode) {
-            debugPrint(
-              '[PlayerService] mediaForSong ${song.title} -> LOCAL '
-              'path=${existing.path}',
-            );
-          }
           return mk.Media(existing.path);
         }
       } catch (_) {}
@@ -996,12 +989,6 @@ class PlayerService with WidgetsBindingObserver {
     // 2) 默认：直连原始文件流（mpv 用 FFmpeg 原生解码 DSF/APE/WMA…）。
     //    不使用转码 HLS（mpv 的 FFmpeg 音频库无 HLS demuxer，播不了 fMP4）。
     final uri = FeiNiuApiClient.instance.streamUrl(song.id);
-    if (kDebugMode) {
-      debugPrint(
-        '[PlayerService] mediaForSong ${song.title} waitLocal=$waitForLocal '
-        'uri=$uri',
-      );
-    }
     // 仅为当前激活歌曲后台下载完整缓存。run 内其它歌曲只创建轻量 Media，
     // 下一首由既有链式预缓存负责；否则 macOS 全队列走 media_kit 时会把整段
     // 队列一次性排入下载，DSD 大文件会让待下载任务长期积压。

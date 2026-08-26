@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -346,10 +348,14 @@ class AppLaunchNavigationSettings {
 
 /// 「不与其他应用一起播放」（音频焦点）。
 ///
-/// 关闭（默认）时与其他应用混播：Android 用 `gainTransientMayDuck`（启动时把
+/// 关闭时与其他应用混播：Android 用 `gainTransientMayDuck`（启动时把
 /// 其他应用压低音量而不暂停），iOS 附加 `mixWithOthers`。
 /// 开启后独占音频焦点（`gain`）：启动播放会暂停其他应用的音频。
 /// 受设备系统影响可能不生效（如 Hyper OS 声音助手「允许多声音」开启会使本开关失效）。
+///
+/// **iOS 默认开启**：`mixWithOthers` 会让系统不把本 App 当作当前「正在播放」
+/// 应用，锁屏/控制中心/AirPods 的播放控制可能不响应。iOS 首次安装默认走
+/// 独占焦点（纯 `.playback`）以保证锁屏控制可用；用户仍可在设置里关闭。
 class AppPlaybackAudioFocusSettings {
   static const String _prefsExclusive = 'player_exclusive_audio_focus';
 
@@ -361,7 +367,8 @@ class AppPlaybackAudioFocusSettings {
 
   static Future<void> _doLoad() async {
     final prefs = await SharedPreferences.getInstance();
-    exclusiveFocus.value = prefs.getBool(_prefsExclusive) ?? false;
+    // 未保存过该设置的平台相关默认：iOS 默认开启（见类注释），其余平台关闭。
+    exclusiveFocus.value = prefs.getBool(_prefsExclusive) ?? Platform.isIOS;
   }
 
   static Future<void> setExclusiveFocus(bool enabled) async {
