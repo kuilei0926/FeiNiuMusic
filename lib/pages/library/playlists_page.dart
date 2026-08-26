@@ -108,12 +108,17 @@ class _PlaylistsPageState extends State<PlaylistsPage>
     if (items.isEmpty || !mounted) return;
     final api = FeiNiuApiClient.instance;
     final headers = FeiNiuApiClient.imageAuthHeaders();
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, 160);
     for (final p in items.take(count)) {
       if (p.coverId != null && p.coverId!.isNotEmpty) {
         final url = api.coverUrl(p.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: p.updatedAt);
         unawaited(
           precacheImage(
-            CachedNetworkImageProvider(url, headers: headers),
+            ResizeImage.resizeIfNeeded(
+              memoryCacheSize,
+              memoryCacheSize,
+              CachedNetworkImageProvider(url, headers: headers),
+            ),
             context,
           ),
         );
@@ -892,6 +897,7 @@ class _PlaylistCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, size);
     if (coverId == null || coverId!.isEmpty) {
       return SizedBox(
         width: size,
@@ -922,6 +928,8 @@ class _PlaylistCover extends StatelessWidget {
         httpHeaders: _authHeaders(),
         width: size,
         height: size,
+        memCacheWidth: memoryCacheSize,
+        memCacheHeight: memoryCacheSize,
         fit: BoxFit.cover,
         placeholder: (context, url) =>
             SizedBox(width: size, height: size, child: placeholder),

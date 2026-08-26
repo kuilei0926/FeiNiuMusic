@@ -7,6 +7,7 @@ import '../../../app/services/feiniu/api_models.dart';
 import '../../../app/state/settings_layout_state.dart';
 import '../../../app/state/song_state.dart';
 import '../../../components/common/artwork_widget.dart';
+import '../../../components/common/cover_image_cache.dart';
 import '../../../components/focus/tv_focusable.dart';
 import 'home_cover_carousel.dart';
 import 'home_hero_banner.dart';
@@ -431,6 +432,7 @@ class _PlaylistCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final coverId = playlist.coverId;
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, 150);
     final card = SizedBox(
       width: 150,
       child: Column(
@@ -454,6 +456,8 @@ class _PlaylistCard extends StatelessWidget {
                         updatedAt: playlist.updatedAt,
                       ),
                       httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
+                      memCacheWidth: memoryCacheSize,
+                      memCacheHeight: memoryCacheSize,
                       fit: BoxFit.cover,
                       placeholder: (_, _) => _placeholder(context),
                       errorWidget: (_, _, _) => _placeholder(context),
@@ -538,4 +542,3 @@ class _LargeEmpty extends StatelessWidget {
     );
   }
 }
-

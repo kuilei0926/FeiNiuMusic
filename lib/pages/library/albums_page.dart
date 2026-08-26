@@ -243,11 +243,16 @@ class _AlbumsPageState extends State<AlbumsPage>
     if (groups.isEmpty || !mounted) return;
     final api = FeiNiuApiClient.instance;
     final headers = FeiNiuApiClient.imageAuthHeaders();
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, 160);
     for (final g in groups.take(count)) {
       if (g.coverId != null && g.coverId!.isNotEmpty) {
         final url = api.coverUrl(g.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: null);
         unawaited(precacheImage(
-          CachedNetworkImageProvider(url, headers: headers),
+          ResizeImage.resizeIfNeeded(
+            memoryCacheSize,
+            memoryCacheSize,
+            CachedNetworkImageProvider(url, headers: headers),
+          ),
           context,
         ));
       }
@@ -704,6 +709,7 @@ class _AlbumCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, size);
     if (coverId == null || coverId!.isEmpty) {
       return SizedBox(
         width: size,
@@ -734,6 +740,8 @@ class _AlbumCover extends StatelessWidget {
         httpHeaders: _authHeaders(),
         width: size,
         height: size,
+        memCacheWidth: memoryCacheSize,
+        memCacheHeight: memoryCacheSize,
         fit: BoxFit.cover,
         placeholder: (context, url) =>
             SizedBox(width: size, height: size, child: placeholder),

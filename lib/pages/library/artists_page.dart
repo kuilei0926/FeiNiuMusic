@@ -160,11 +160,16 @@ class _ArtistsPageState extends State<ArtistsPage>
     if (groups.isEmpty || !mounted) return;
     final api = FeiNiuApiClient.instance;
     final headers = FeiNiuApiClient.imageAuthHeaders();
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, 160);
     for (final g in groups.take(count)) {
       if (g.artist.coverId != null && g.artist.coverId!.isNotEmpty) {
         final url = api.coverUrl(g.artist.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: null);
         unawaited(precacheImage(
-          CachedNetworkImageProvider(url, headers: headers),
+          ResizeImage.resizeIfNeeded(
+            memoryCacheSize,
+            memoryCacheSize,
+            CachedNetworkImageProvider(url, headers: headers),
+          ),
           context,
         ));
       }
@@ -465,6 +470,7 @@ class _ArtistAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final radius = size / 2;
     final initial = name.isNotEmpty ? name.characters.first : '?';
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, size);
 
     if (coverId != null && coverId!.isNotEmpty) {
       final coverUrl = FeiNiuApiClient.instance.coverUrl(
@@ -474,9 +480,13 @@ class _ArtistAvatar extends StatelessWidget {
       // 有封面图：完整显示图片，不叠加首字母
       return CircleAvatar(
         radius: radius,
-        backgroundImage: CachedNetworkImageProvider(
-          coverUrl,
-          headers: FeiNiuApiClient.imageAuthHeaders(),
+        backgroundImage: ResizeImage.resizeIfNeeded(
+          memoryCacheSize,
+          memoryCacheSize,
+          CachedNetworkImageProvider(
+            coverUrl,
+            headers: FeiNiuApiClient.imageAuthHeaders(),
+          ),
         ),
       );
     }

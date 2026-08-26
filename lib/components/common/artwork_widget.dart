@@ -4,6 +4,7 @@ import 'package:signals_flutter/signals_flutter.dart';
 
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/state/song_state.dart';
+import 'cover_image_cache.dart';
 
 class ArtworkWidget extends StatefulWidget {
   final SongEntity song;
@@ -75,6 +76,7 @@ class _ArtworkWidgetState extends State<ArtworkWidget> with SignalsMixin {
     final coverId = widget.song.coverId;
     final size = widget.size;
     final borderRadius = widget.borderRadius;
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, size);
 
     final placeholder =
         widget.placeholder ??
@@ -93,12 +95,11 @@ class _ArtworkWidgetState extends State<ArtworkWidget> with SignalsMixin {
       // 构造同一个 URL → 共享同一份磁盘缓存与解码缓存。此前按显示尺寸×DPR
       // 动态请求（列表 120 起步、播放页 800），同一封面在不同页面产生多个
       // 不同 URL 的缓存，已显示过的地方命中缓存、另一处仍在转圈下载。
-      final coverUrl =
-          FeiNiuApiClient.instance.coverUrl(
-            coverId,
-            size: FeiNiuApiClient.coverRequestSize,
-            updatedAt: widget.song.updatedAt,
-          );
+      final coverUrl = FeiNiuApiClient.instance.coverUrl(
+        coverId,
+        size: FeiNiuApiClient.coverRequestSize,
+        updatedAt: widget.song.updatedAt,
+      );
       child = ClipRRect(
         borderRadius: BorderRadius.circular(borderRadius),
         child: CachedNetworkImage(
@@ -106,6 +107,8 @@ class _ArtworkWidgetState extends State<ArtworkWidget> with SignalsMixin {
           httpHeaders: _authHeaders(),
           width: size,
           height: size,
+          memCacheWidth: memoryCacheSize,
+          memCacheHeight: memoryCacheSize,
           fit: BoxFit.cover,
           // 真实封面解码成功 → 上报可用（供播放页判断是否旋转）
           imageBuilder: (context, imageProvider) {

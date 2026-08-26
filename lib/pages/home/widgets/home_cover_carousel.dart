@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/services/feiniu/api_client.dart';
 import '../../../app/state/settings_layout_state.dart';
+import '../../../components/common/cover_image_cache.dart';
 import '../../../components/focus/tv_focusable.dart';
 
 /// 横向封面轮播单项数据
@@ -95,6 +96,7 @@ class _CarouselCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final coverId = item.coverId;
     final isTv = AppLayoutSettings.tvMode.value;
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, coverSize);
     final card = SizedBox(
       width: coverSize,
       child: GestureDetector(
@@ -123,6 +125,8 @@ class _CarouselCard extends StatelessWidget {
                         httpHeaders: authHeaders,
                         width: coverSize,
                         height: coverSize,
+                        memCacheWidth: memoryCacheSize,
+                        memCacheHeight: memoryCacheSize,
                         fit: BoxFit.cover,
                         placeholder: (_, _) => _coverPlaceholder(),
                         errorWidget: (_, _, _) => _coverPlaceholder(),
