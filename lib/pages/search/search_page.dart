@@ -260,6 +260,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildResults(ThemeData theme, bool isDark) {
+    final listCoverCacheSize = coverMemoryCacheDimensionOf(context, 48);
     final q = _query.trim();
 
     if (q.isEmpty) {
@@ -358,6 +359,8 @@ class _SearchPageState extends State<SearchPage> {
                             httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
                             width: 48,
                             height: 48,
+                            memCacheWidth: listCoverCacheSize,
+                            memCacheHeight: listCoverCacheSize,
                             fit: BoxFit.cover,
                             errorWidget: (_, _, _) => _albumPlaceholder(theme),
                           ),
@@ -400,9 +403,13 @@ class _SearchPageState extends State<SearchPage> {
                   leading: CircleAvatar(
                     radius: 24,
                     backgroundImage: coverUrl != null
-                        ? CachedNetworkImageProvider(
-                            coverUrl,
-                            headers: FeiNiuApiClient.imageAuthHeaders(),
+                        ? ResizeImage.resizeIfNeeded(
+                            listCoverCacheSize,
+                            listCoverCacheSize,
+                            CachedNetworkImageProvider(
+                              coverUrl,
+                              headers: FeiNiuApiClient.imageAuthHeaders(),
+                            ),
                           )
                         : null,
                     child: coverUrl == null

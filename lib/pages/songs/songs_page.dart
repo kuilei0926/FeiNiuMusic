@@ -121,12 +121,18 @@ class _SongsPageState extends State<SongsPage>
     if (songs.isEmpty || !mounted) return;
     final api = FeiNiuApiClient.instance;
     final headers = FeiNiuApiClient.imageAuthHeaders();
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, 48);
     int loaded = 0, skipped = 0;
     for (final song in songs.take(count)) {
       if (song.coverId != null && song.coverId!.isNotEmpty) {
         final url = api.coverUrl(song.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: song.updatedAt);
-        unawaited(precacheImage(
+        final provider = ResizeImage.resizeIfNeeded(
+          memoryCacheSize,
+          memoryCacheSize,
           CachedNetworkImageProvider(url, headers: headers),
+        );
+        unawaited(precacheImage(
+          provider,
           context,
         ).then((_) => loaded++).catchError((e) {
           debugPrint('[SongsPage] cover precache failed song=${song.title} coverId=${song.coverId}: $e');

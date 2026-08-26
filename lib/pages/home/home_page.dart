@@ -223,6 +223,7 @@ class _HomePageState extends State<HomePage>
     if (!mounted) return;
     final api = FeiNiuApiClient.instance;
     final headers = FeiNiuApiClient.imageAuthHeaders();
+    final memoryCacheSize = coverMemoryCacheDimensionOf(context, 160);
     // 预加载首页所有可见封面（最多 40 张）
     final coverUrls = <String>[
       // Hero Banner 主视觉 — 大尺寸首帧
@@ -276,7 +277,11 @@ class _HomePageState extends State<HomePage>
       try {
         unawaited(
           precacheImage(
-            CachedNetworkImageProvider(url, headers: headers),
+            ResizeImage.resizeIfNeeded(
+              memoryCacheSize,
+              memoryCacheSize,
+              CachedNetworkImageProvider(url, headers: headers),
+            ),
             context,
           ),
         );
