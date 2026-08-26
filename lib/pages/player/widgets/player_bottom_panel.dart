@@ -645,9 +645,7 @@ class _PlayerSheetView extends StatelessWidget {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
         child: Stack(
           children: [
-            RepaintBoundary(
-              child: PlayerBackground(songSignal: player.currentSongSignal),
-            ),
+            PlayerBackground(songSignal: player.currentSongSignal),
             RepaintBoundary(
               child: ValueListenableBuilder<bool>(
                 valueListenable: AppBackgroundSettings.panelBlurEnabled,
