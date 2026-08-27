@@ -13,10 +13,15 @@ import '../../../app/state/song_state.dart';
 import '../../../app/utils/route_visibility.dart';
 
 @visibleForTesting
-const int dynamicGradientFramesPerSecond = 8;
+const int dynamicGradientTextureDimension = 640;
 
 @visibleForTesting
-const int dynamicGradientTextureDimension = 640;
+const int dynamicGradientMaxResidentTextures = 2;
+
+@visibleForTesting
+const Duration dynamicGradientColorTransitionDuration = Duration(
+  milliseconds: 1500,
+);
 
 class PlayerBackgroundSettings {
   static const String _prefsPlaybackThemeMode = 'setting_playback_theme_mode';
@@ -270,12 +275,12 @@ class _PlayerBackgroundState extends State<PlayerBackground> {
   }
 
   Future<Color?> _computeDominantColor(String coverId) async {
+    final dio = Dio();
     try {
       final api = FeiNiuApiClient.instance;
       // 仅用于取主色调的下采样（非显示），刻意用小图 40px 节省带宽与解码；
       // 不参与封面显示的缓存复用。
       final url = api.coverUrl(coverId, size: 40);
-      final dio = Dio();
       final response = await dio.get(
         url,
         options: Options(
@@ -284,9 +289,11 @@ class _PlayerBackgroundState extends State<PlayerBackground> {
         ),
       );
       final bytes = response.data as Uint8List;
-      return averageImageColor(bytes);
+      return await averageImageColor(bytes);
     } catch (_) {
       return null;
+    } finally {
+      dio.close(force: true);
     }
   }
 }
@@ -300,25 +307,33 @@ Future<Color?> averageImageColor(Uint8List bytes) async {
     targetWidth: 40,
     targetHeight: 40,
   );
-  final frame = await codec.getNextFrame();
-  final image = frame.image;
-  final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-  if (data == null) return null;
-  final list = data.buffer.asUint8List();
-  int r = 0;
-  int g = 0;
-  int b = 0;
-  int count = 0;
-  for (var i = 0; i + 3 < list.length; i += 4) {
-    final a = list[i + 3];
-    if (a < 10) continue;
-    r += list[i];
-    g += list[i + 1];
-    b += list[i + 2];
-    count += 1;
+  try {
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (data == null) return null;
+      final list = data.buffer.asUint8List();
+      int r = 0;
+      int g = 0;
+      int b = 0;
+      int count = 0;
+      for (var i = 0; i + 3 < list.length; i += 4) {
+        final a = list[i + 3];
+        if (a < 10) continue;
+        r += list[i];
+        g += list[i + 1];
+        b += list[i + 2];
+        count += 1;
+      }
+      if (count == 0) return null;
+      return Color.fromARGB(255, r ~/ count, g ~/ count, b ~/ count);
+    } finally {
+      image.dispose();
+    }
+  } finally {
+    codec.dispose();
   }
-  if (count == 0) return null;
-  return Color.fromARGB(255, r ~/ count, g ~/ count, b ~/ count);
 }
 
 /// Dominant color of a bundled asset image, for previews that want the aurora to
@@ -326,7 +341,7 @@ Future<Color?> averageImageColor(Uint8List bytes) async {
 Future<Color?> dominantColorFromAsset(String assetPath) async {
   try {
     final data = await rootBundle.load(assetPath);
-    return averageImageColor(data.buffer.asUint8List());
+    return await averageImageColor(data.buffer.asUint8List());
   } catch (_) {
     return null;
   }
@@ -410,12 +425,13 @@ class _DynamicGradientBackground extends StatefulWidget {
 }
 
 class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
-    with SingleTickerProviderStateMixin, AppRouteVisibilityMixin {
+    with TickerProviderStateMixin, AppRouteVisibilityMixin {
   static const Duration _animationDuration = Duration(seconds: 22);
 
-  late AnimationController _controller;
-  late final int _phaseSteps;
+  late final AnimationController _controller;
+  late final AnimationController _colorTransitionController;
   ui.Image? _texture;
+  ui.Image? _previousTexture;
   bool? _textureIsDark;
   int _textureGeneration = 0;
 
@@ -423,12 +439,26 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
   AnimationController get visibilityController => _controller;
 
   @override
+  Iterable<AnimationController> get additionalVisibilityControllers => [
+    _colorTransitionController,
+  ];
+
+  @override
   void initState() {
     super.initState();
-    _phaseSteps = _animationDuration.inSeconds * dynamicGradientFramesPerSecond;
     // One slow loop drives all blob drift; long period keeps it calm/premium.
     _controller = AnimationController(vsync: this, duration: _animationDuration)
       ..repeat();
+    _colorTransitionController =
+        AnimationController(
+          vsync: this,
+          duration: dynamicGradientColorTransitionDuration,
+          value: 1,
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.completed) {
+            _disposePreviousTexture();
+          }
+        });
   }
 
   @override
@@ -437,7 +467,7 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_textureIsDark != isDark) {
       _textureIsDark = isDark;
-      _regenerateTexture(isDark);
+      _regenerateTexture(isDark, animateTransition: _texture != null);
     }
   }
 
@@ -447,13 +477,18 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
     if (oldWidget.baseColor != widget.baseColor ||
         oldWidget.saturation != widget.saturation ||
         oldWidget.hueShift != widget.hueShift) {
+      final baseColorChanged = oldWidget.baseColor != widget.baseColor;
       _regenerateTexture(
         _textureIsDark ?? Theme.of(context).brightness == Brightness.dark,
+        animateTransition: baseColorChanged,
       );
     }
   }
 
-  Future<void> _regenerateTexture(bool isDark) async {
+  Future<void> _regenerateTexture(
+    bool isDark, {
+    bool animateTransition = false,
+  }) async {
     final generation = ++_textureGeneration;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
@@ -484,17 +519,55 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
       image.dispose();
       return;
     }
-    final previous = _texture;
-    setState(() => _texture = image);
-    if (previous != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
+    final current = _texture;
+    if (animateTransition && current != null) {
+      final superseded = _previousTexture;
+      setState(() {
+        _previousTexture = current;
+        _texture = image;
+      });
+      _colorTransitionController.forward(from: 0);
+      if (superseded != null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => superseded.dispose(),
+        );
+      }
+    } else {
+      final previous = _previousTexture;
+      _previousTexture = null;
+      setState(() => _texture = image);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        previous?.dispose();
+        current?.dispose();
+      });
+    }
+  }
+
+  void _disposePreviousTexture() {
+    final previous = _previousTexture;
+    if (previous == null) return;
+    if (mounted) {
+      setState(() => _previousTexture = null);
+    } else {
+      _previousTexture = null;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
+  }
+
+  @override
+  void resumeVisibilityAnimation() {
+    _controller.repeat();
+    if (_colorTransitionController.value < 1) {
+      _colorTransitionController.forward();
     }
   }
 
   @override
   void dispose() {
     _textureGeneration++;
+    _previousTexture?.dispose();
     _texture?.dispose();
+    _colorTransitionController.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -509,20 +582,12 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
       builder: (context, constraints) {
         return ClipRect(
           child: AnimatedBuilder(
-            animation: _controller,
-            child: RepaintBoundary(
-              child: SizedBox.expand(
-                child: RawImage(
-                  image: texture,
-                  fit: BoxFit.cover,
-                  filterQuality: FilterQuality.low,
-                ),
-              ),
-            ),
+            animation: Listenable.merge([
+              _controller,
+              _colorTransitionController,
+            ]),
             builder: (context, child) {
-              final t =
-                  (_controller.value * _phaseSteps).floorToDouble() /
-                  _phaseSteps;
+              final t = _controller.value;
               final angle = 0.025 * math.sin(2 * math.pi * t);
               final offset = Offset(
                 constraints.maxWidth * 0.025 * math.sin(2 * math.pi * t),
@@ -532,13 +597,41 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
                 offset: offset,
                 child: Transform.rotate(
                   angle: angle,
-                  child: Transform.scale(scale: 1.12, child: child),
+                  child: Transform.scale(
+                    scale: 1.12,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (_previousTexture != null)
+                          Opacity(
+                            opacity: 1 - _colorTransitionController.value,
+                            child: _textureWidget(_previousTexture!),
+                          ),
+                        Opacity(
+                          opacity: _previousTexture == null
+                              ? 1
+                              : _colorTransitionController.value,
+                          child: _textureWidget(texture),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               );
             },
           ),
         );
       },
+    );
+  }
+
+  Widget _textureWidget(ui.Image image) {
+    return RepaintBoundary(
+      child: RawImage(
+        image: image,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.low,
+      ),
     );
   }
 }

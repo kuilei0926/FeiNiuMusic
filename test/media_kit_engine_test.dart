@@ -163,10 +163,7 @@ void main() {
         const Duration(minutes: 53),
       );
       expect(
-        normalizeCroppedPosition(
-          const Duration(minutes: 53),
-          Duration.zero,
-        ),
+        normalizeCroppedPosition(const Duration(minutes: 53), Duration.zero),
         const Duration(minutes: 53),
       );
     });
