@@ -9,15 +9,17 @@ final RouteObserver<ModalRoute<void>> appRouteObserver =
 
 /// 让动画控制器在路由被覆盖时自动暂停、重新可见时恢复。
 ///
-/// 用法：让持有常驻动画的 State 同时 `with SingleTickerProviderStateMixin,
+/// 用法：让持有常驻动画的 State 同时 `with TickerProviderStateMixin,
 /// AppRouteVisibilityMixin`，并覆写 [resumeVisibilityAnimation] 定义恢复行为
 /// （默认 `controller.repeat()`）。当页面被 push 到其上（didPushNext）时暂停，
 /// 回到当前页（didPopNext）时恢复。页面本身可见时动画不受影响。
-mixin AppRouteVisibilityMixin<T extends StatefulWidget>
-    on State<T>, SingleTickerProviderStateMixin<T>
+mixin AppRouteVisibilityMixin<T extends StatefulWidget> on State<T>
     implements RouteAware {
   /// 需要随可见性暂停/恢复的动画控制器。
   AnimationController get visibilityController;
+
+  /// 需要一起暂停的额外控制器（例如背景换色过渡）。
+  Iterable<AnimationController> get additionalVisibilityControllers => const [];
 
   /// 页面重新成为当前路由时如何恢复动画。默认重新 repeat；
   /// 需要条件恢复（如仅播放中旋转封面）时覆写此方法。
@@ -35,6 +37,9 @@ mixin AppRouteVisibilityMixin<T extends StatefulWidget>
   void didPushNext() {
     // 被其它路由覆盖：暂停动画，停止消耗 GPU 帧预算。
     visibilityController.stop();
+    for (final controller in additionalVisibilityControllers) {
+      controller.stop();
+    }
   }
 
   @override
