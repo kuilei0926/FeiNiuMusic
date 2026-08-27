@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -52,6 +53,23 @@ Future<void> main() async {
     debugPrint('MediaKit.ensureInitialized failed: $e');
   }
   await DebugLogService.instance.ensureLoaded();
+  // 全局异常捕获：release 下 Flutter 默认只输出无信息的
+  // “Another exception was thrown: Instance of 'DiagnosticsProperty<void>'”
+  // 级联产物，真异常（含堆栈）被吞，无法定位闪退根因。这里把首条异常
+  // + 堆栈写入调试日志（设置→版本信息→导出日志可见），同时转发给原 handler。
+  final originalFlutterError = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) {
+    DebugLogService.instance
+        .add('[FlutterError] ${details.exceptionAsString()}\n'
+            '${details.stack ?? ''}');
+    originalFlutterError?.call(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    DebugLogService.instance
+        .add('[PlatformDispatcher] $error\n$stack');
+    // 返回 false：仅记录，不拦截默认崩溃处理（避免掩盖真正的进程级错误）
+    return false;
+  };
   // TV 检测必须在 runApp 前完成，避免首帧后再切换布局造成闪变。
   // TV 面板固定 60Hz，强制高刷无意义甚至闪烁，因此高刷调用跳过 TV。
   await TvDetection.ensureLoaded();
