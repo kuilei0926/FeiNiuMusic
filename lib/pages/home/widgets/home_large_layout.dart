@@ -473,16 +473,7 @@ class _PlaylistCard extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
         ),
-        const SizedBox(height: 1),
-        Text(
-          '${playlist.trackCount} 首',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 11,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
+        // 接口不返回歌单数量（trackCount 恒为 0），不显示「0 首」。
       ],
       ),
     );

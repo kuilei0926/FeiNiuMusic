@@ -208,7 +208,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       builder: (context, enabled, _) {
                         return AppSettingSwitchTile(
                           title: '状态栏播放状态',
-                          subtitle: '在 macOS 菜单栏显示当前歌曲与播放控制',
+                          subtitle: '播放时显示当前歌词，无歌词或暂停时显示歌曲名',
                           value: enabled,
                           onChanged: (value) {
                             StatusBarSettings.setEnabled(value);

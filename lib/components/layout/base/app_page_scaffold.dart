@@ -267,18 +267,20 @@ class AppPageScaffoldState extends State<AppPageScaffold>
 
         Widget result;
         if (tabletMode || !_hasDrawer) {
+          // 无抽屉/平板：纯内容页，绝不进入下方抽屉分支（否则会把无抽屉页面
+          // 包进抽屉 Stack 的横向拖拽 GestureDetector，拦截 iOS 右滑返回手势）。
           result = AppBackground(child: page);
-        }
-        if (miniPlayer != null) {
-          page = Scaffold(
-            resizeToAvoidBottomInset: widget.resizeToAvoidBottomInset,
-            extendBodyBehindAppBar: widget.extendBodyBehindAppBar,
-            backgroundColor: Colors.transparent,
-            appBar: widget.appBar,
-            body: buildBody(includeMiniPlayer: false),
-          );
-        }
-        final stack = AppBackground(
+        } else {
+          if (miniPlayer != null) {
+            page = Scaffold(
+              resizeToAvoidBottomInset: widget.resizeToAvoidBottomInset,
+              extendBodyBehindAppBar: widget.extendBodyBehindAppBar,
+              backgroundColor: Colors.transparent,
+              appBar: widget.appBar,
+              body: buildBody(includeMiniPlayer: false),
+            );
+          }
+          final stack = AppBackground(
           child: Stack(
             clipBehavior: Clip.none,
             children: [
@@ -406,6 +408,7 @@ class AppPageScaffoldState extends State<AppPageScaffold>
           },
           child: stack,
         );
+        }
         // 多选中：返回键取消多选，留在当前页（不退出页面）。
         if (widget.cancelMultiSelectOnBack &&
             widget.onCancelMultiSelect != null) {

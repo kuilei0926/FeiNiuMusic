@@ -238,18 +238,21 @@ class MiniPlayerBar extends StatelessWidget {
                           // 之上。若把内容放进 BackdropFilter 内部，逐字歌词每帧
                           // 动画都会触发整页重新模糊，底栏就会卡顿；分层后动画
                           // 重绘只重绘内容层，不碰模糊层。
+                          //
+                          // BackdropFilter 不能放进 RepaintBoundary：它的结果依赖
+                          // 背后已经绘制的画面，桌面端窗口缩放/侧栏动画时若缓存
+                          // 该层，会复用旧位置的背景采样，形成整条播放栏重影。
                           Positioned.fill(
-                            child: RepaintBoundary(
-                              child: BackdropFilter(
-                                filter: ImageFilter.blur(
-                                  sigmaX: blurStrength,
-                                  sigmaY: blurStrength,
-                                ),
-                                child: const SizedBox.expand(),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(
+                                sigmaX: blurStrength,
+                                sigmaY: blurStrength,
                               ),
+                              child: const SizedBox.expand(),
                             ),
                           ),
-                          content,
+                          // 缓存锐利的前景内容，而不是依赖背景采样的模糊层。
+                          RepaintBoundary(child: content),
                         ],
                       )
                     : content,

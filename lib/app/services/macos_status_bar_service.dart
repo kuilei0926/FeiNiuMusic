@@ -5,6 +5,20 @@ import 'package:flutter/services.dart';
 
 import '../services/player_service.dart';
 import '../state/settings_state.dart';
+import 'lyrics/lyrics_service.dart';
+
+String resolveMacosStatusBarText({
+  required String songTitle,
+  required String? currentLyric,
+  required bool isPlaying,
+}) {
+  final normalizedTitle = songTitle.trim();
+  final normalizedLyric = currentLyric?.trim() ?? '';
+  if (isPlaying && normalizedLyric.isNotEmpty) {
+    return normalizedLyric;
+  }
+  return normalizedTitle;
+}
 
 /// macOS 菜单栏（状态栏）播放状态指示器。
 ///
@@ -33,6 +47,7 @@ class MacosStatusBarService {
     final state = AppPlayerState.instance;
     state.isPlaying.addListener(_pushState);
     state.currentSong.addListener(_pushState);
+    LyricsService.instance.currentLineText.addListener(_pushState);
 
     // Dart main() 与 AppDelegate 的 MethodChannel 注册没有固定先后顺序。
     // 主动握手并在失败后重试，避免首次 setState/hide 落在原生通道注册前，
@@ -84,9 +99,15 @@ class MacosStatusBarService {
     final state = AppPlayerState.instance;
     final song = state.currentSongSignal.value;
     final isPlaying = state.isPlayingSignal.value;
+    final currentLyric = LyricsService.instance.currentLineText.value;
     _send('setState', <String, Object?>{
       'title': song?.title ?? '',
       'artist': song?.artistDisplayName ?? '',
+      'displayText': resolveMacosStatusBarText(
+        songTitle: song?.title ?? '',
+        currentLyric: currentLyric,
+        isPlaying: isPlaying,
+      ),
       'isPlaying': isPlaying,
       'isIdle': song == null,
     });

@@ -66,6 +66,7 @@ private final class MacosStatusBarController: NSObject {
   private let methodChannel: FlutterMethodChannel
   private var lastTitle = "飞牛音乐"
   private var lastArtist = ""
+  private var displayText = "飞牛音乐"
   private var isPlaying = false
   private var isIdle = true
   private var isStatusItemVisible = true
@@ -151,6 +152,7 @@ private final class MacosStatusBarController: NSObject {
       if let args = call.arguments as? [String: Any] {
         lastTitle = (args["title"] as? String) ?? "飞牛音乐"
         lastArtist = (args["artist"] as? String) ?? ""
+        displayText = (args["displayText"] as? String) ?? lastTitle
         isPlaying = (args["isPlaying"] as? Bool) ?? false
         isIdle = (args["isIdle"] as? Bool) ?? false
         updateStatusItemTitle()
@@ -182,7 +184,7 @@ private final class MacosStatusBarController: NSObject {
   private func updateStatusItemTitle() {
     stopMarquee()
 
-    let title = isIdle || lastTitle.isEmpty ? "飞牛音乐" : lastTitle
+    let title = isIdle || displayText.isEmpty ? "飞牛音乐" : displayText
     guard let button = statusItem.button else { return }
     button.setAccessibilityLabel(title)
 

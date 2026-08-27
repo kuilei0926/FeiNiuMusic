@@ -22,14 +22,6 @@ mixin PrimaryTabRefreshMixin<T extends StatefulWidget> on State<T> {
   /// 页面被切到前台时执行的刷新。
   Future<void> onPrimaryTabActivated();
 
-  /// 页面被切到后台时执行（如退出多选）。默认无操作。
-  ///
-  /// 底栏模式下 IndexedStack 缓存各 tab 的 State，切走时页面不销毁、多选等
-  /// 瞬时状态会残留（见 multiSelect 的全局计数），借此钩子收尾。
-  /// 注意：本回调在帧后触发（见 [didChangeDependencies]），实现里同步改
-  /// ValueNotifier 是安全的。
-  void onPrimaryTabDeactivated() {}
-
   @override
   void initState() {
     super.initState();
@@ -49,13 +41,6 @@ mixin PrimaryTabRefreshMixin<T extends StatefulWidget> on State<T> {
     final current = scope.currentIndex;
     if (current != primaryTabIndex) {
       _lastSeenIndex = current; // 切到别的 tab，记住位置
-      // 延迟到帧后回调：didChangeDependencies 处于 build 阶段，若实现里同步
-      // 修改 ValueNotifier（如退出多选时改 globalMultiSelectActive），会通知
-      // 其监听者（如 shell 的共享底栏 ValueListenableBuilder，不在当前 build
-      // 作用域内）触发 "setState() or markNeedsBuild() called during build"。
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) onPrimaryTabDeactivated();
-      });
       return;
     }
     if (_lastSeenIndex == primaryTabIndex) return; // 本来就在当前 tab

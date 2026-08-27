@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:feiniu_music/app/services/player_service.dart';
+import 'package:feiniu_music/app/state/settings_state.dart';
 import 'package:feiniu_music/app/state/song_state.dart';
 import 'package:feiniu_music/components/player/mini_player/mini_player_bar.dart';
 
@@ -39,7 +40,6 @@ void main() {
 
     // 初始无提示（opacity 0）
     Opacity opacityOf(String text) {
-      final textWidget = tester.widget<Text>(find.text(text));
       final opacity = tester.widget<Opacity>(
         find.ancestor(of: find.text(text), matching: find.byType(Opacity)).first,
       );
@@ -78,5 +78,30 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(opacityOf('下一曲').opacity, 0);
+  });
+
+  testWidgets('高斯模糊层不被缓存，避免桌面窗口变换时播放栏重影', (tester) async {
+    AppGlassSettings.liquidGlassEnabled.value = false;
+    AppBackgroundSettings.panelBlurEnabled.value = true;
+    AppBackgroundSettings.panelBlurStrength.value = 20;
+
+    await tester.pumpWidget(buildBar());
+    await tester.pump();
+
+    final backdrop = find.byType(BackdropFilter);
+    expect(backdrop, findsOneWidget);
+    var backdropCachedInsideBar = false;
+    tester.element(backdrop).visitAncestorElements((element) {
+      if (element.widget is MiniPlayerBar) return false;
+      if (element.widget is RepaintBoundary) backdropCachedInsideBar = true;
+      return true;
+    });
+    expect(backdropCachedInsideBar, isFalse);
+
+    final contentBoundary = find.descendant(
+      of: find.byType(MiniPlayerBar),
+      matching: find.byType(RepaintBoundary),
+    );
+    expect(contentBoundary, findsWidgets);
   });
 }
