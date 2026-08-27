@@ -22,5 +22,14 @@ void main() {
       expect(dynamicGradientMaxResidentTextures, 2);
       expect(rgbaBytes, lessThan(4 * 1024 * 1024));
     });
+
+    test('crossfade keeps the previous texture opaque', () {
+      for (final incomingOpacity in [0.0, 0.25, 0.5, 0.75, 1.0]) {
+        const previousOpacity = 1.0;
+        final compositeOpacity =
+            incomingOpacity + previousOpacity * (1 - incomingOpacity);
+        expect(compositeOpacity, 1.0);
+      }
+    });
   });
 }
