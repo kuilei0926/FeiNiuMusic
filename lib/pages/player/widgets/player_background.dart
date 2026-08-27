@@ -603,10 +603,7 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
                       fit: StackFit.expand,
                       children: [
                         if (_previousTexture != null)
-                          Opacity(
-                            opacity: 1 - _colorTransitionController.value,
-                            child: _textureWidget(_previousTexture!),
-                          ),
+                          _textureWidget(_previousTexture!),
                         Opacity(
                           opacity: _previousTexture == null
                               ? 1
