@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:feiniu_music/app/services/feiniu/api_client.dart';
 import 'package:feiniu_music/app/services/feiniu/transcode_service.dart';
+import 'package:feiniu_music/app/services/network_connection_service.dart';
 import 'package:feiniu_music/app/state/settings_transcode_state.dart';
 import 'package:feiniu_music/app/state/song_state.dart';
 
@@ -45,6 +47,7 @@ void main() {
 
   setUp(() {
     FeiNiuTranscodeService.instance.resetForTest();
+    NetworkConnectionService.instance.resetForTest();
     FeiNiuApiClient.instance.setDioForTest(
       _mockDio((o) => {
         'code': 0,
@@ -511,6 +514,66 @@ void main() {
       // 无损源 flac + 有损目标 mp3（真降级）→ 转码
       final song = _song('id-t1', format: 'flac');
       expect(await FeiNiuTranscodeService.instance.shouldTranscode(song), isTrue);
+    });
+
+    test('Wi-Fi 下直连开启 → 自动转码跳过，蜂窝网络仍转码', () async {
+      await AppTranscodeSettings.setEnabled(true);
+      await AppTranscodeSettings.setTranscodeAll(true);
+      await AppTranscodeSettings.setFormat(TranscodeFormat.mp3);
+      await AppTranscodeSettings.setDirectOnWifi(true);
+      final svc = FeiNiuTranscodeService.instance;
+      final song = _song('id-wifi', format: 'flac');
+
+      NetworkConnectionService.instance.setResultsForTest([
+        ConnectivityResult.wifi,
+      ]);
+      expect(await svc.shouldTranscode(song), isFalse);
+      expect(svc.configuredTranscodeLabel(song), isNull);
+
+      NetworkConnectionService.instance.setResultsForTest([
+        ConnectivityResult.mobile,
+      ]);
+      expect(await svc.shouldTranscode(song), isTrue);
+      expect(svc.configuredTranscodeLabel(song), 'MP3');
+    });
+
+    test('Wi-Fi 下手动指定格式仍转码，DLNA 可忽略 Wi-Fi 直连策略', () async {
+      await AppTranscodeSettings.setEnabled(true);
+      await AppTranscodeSettings.setTranscodeAll(true);
+      await AppTranscodeSettings.setFormat(TranscodeFormat.mp3);
+      await AppTranscodeSettings.setDirectOnWifi(true);
+      NetworkConnectionService.instance.setResultsForTest([
+        ConnectivityResult.wifi,
+      ]);
+      final svc = FeiNiuTranscodeService.instance;
+      final automatic = _song('id-wifi-auto', format: 'flac');
+
+      expect(
+        await svc.shouldTranscode(automatic, respectWifiPolicy: false),
+        isTrue,
+      );
+
+      final manual = _song('id-wifi-manual', format: 'flac');
+      svc.setForcedTranscodeCodec(manual.id, 'opus');
+      expect(await svc.shouldTranscode(manual), isTrue);
+      expect(svc.configuredTranscodeLabel(manual), 'OPUS');
+    });
+
+    test('VPN/未知网络不判作 Wi-Fi，保守地继续转码', () async {
+      await AppTranscodeSettings.setEnabled(true);
+      await AppTranscodeSettings.setTranscodeAll(true);
+      await AppTranscodeSettings.setFormat(TranscodeFormat.mp3);
+      await AppTranscodeSettings.setDirectOnWifi(true);
+      final svc = FeiNiuTranscodeService.instance;
+      final song = _song('id-vpn', format: 'flac');
+
+      NetworkConnectionService.instance.setResultsForTest([
+        ConnectivityResult.vpn,
+      ]);
+      expect(await svc.shouldTranscode(song), isTrue);
+
+      NetworkConnectionService.instance.setResultsForTest(const []);
+      expect(await svc.shouldTranscode(song), isTrue);
     });
 
     test('不向上转码：有损源 + flac 目标 → 直连（mp3→flac 纯浪费）', () async {

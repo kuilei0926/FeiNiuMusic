@@ -21,6 +21,7 @@ import 'feiniu/auth_service.dart';
 import 'feiniu/cue_service.dart';
 import 'feiniu/track_service.dart';
 import 'feiniu/transcode_service.dart';
+import 'network_connection_service.dart';
 import 'player/just_audio_engine.dart';
 import 'player/media_kit_engine.dart';
 import 'player/playback_router.dart';
@@ -124,6 +125,11 @@ class PlayerService with WidgetsBindingObserver {
   /// 网络缓慢提示计时器：media_kit 播无损大文件缓冲超时时触发一次提示。
   Timer? _slowNetworkTimer;
   bool _slowNetworkNotified = false;
+
+  /// Wi-Fi/蜂窝切换会改变转码路由。短暂防抖后保留当前进度重载当前 run，
+  /// 避免 just_audio 已预载的后续歌曲继续沿用切换前的直连/转码策略。
+  Timer? _networkRouteRefreshTimer;
+  bool _wifiDirectPolicyActive = false;
 
   final SongDao _songDao = SongDao.instance;
   final StatsService _statsService = StatsService.instance;
@@ -260,7 +266,60 @@ class PlayerService with WidgetsBindingObserver {
 
   PlayerService._internal() {
     WidgetsBinding.instance.addObserver(this);
+    _wifiDirectPolicyActive = AppTranscodeSettings.directOnWifi.value &&
+        NetworkConnectionService.instance.isWifiConnected;
+    NetworkConnectionService.instance.wifiConnected.addListener(
+      _scheduleNetworkRouteRefresh,
+    );
+    AppTranscodeSettings.directOnWifi.addListener(
+      _scheduleNetworkRouteRefresh,
+    );
     _initFuture = _init();
+  }
+
+  void _scheduleNetworkRouteRefresh() {
+    final active = AppTranscodeSettings.directOnWifi.value &&
+        NetworkConnectionService.instance.isWifiConnected;
+    if (active == _wifiDirectPolicyActive) return;
+    _wifiDirectPolicyActive = active;
+    if (queue.value.isEmpty || currentIndex.value < 0 || isCasting.value) return;
+    _networkRouteRefreshTimer?.cancel();
+    _networkRouteRefreshTimer = Timer(const Duration(milliseconds: 500), () {
+      unawaited(_refreshNetworkTranscodeRoute());
+    });
+  }
+
+  Future<void> _refreshNetworkTranscodeRoute() async {
+    try {
+      await _initFuture;
+      if (isCasting.value) return;
+      final list = queue.value;
+      final idx = currentIndex.value;
+      if (list.isEmpty || idx < 0 || idx >= list.length) return;
+
+      final seekPosition = position.value;
+      final wasPlaying = isPlaying.value;
+      final song = list[idx];
+      _debugLog(
+        'network route refresh wifi='
+        '${NetworkConnectionService.instance.isWifiConnected} song=${song.title}',
+      );
+
+      // 旧 HLS 不再代表当前网络策略，先清掉播放完成后的后台缓存标记并释放会话。
+      _activeTranscodeHlsUrl = null;
+      _activeTranscodeCodec = null;
+      await FeiNiuTranscodeService.instance.quitFor(song.id);
+
+      await _activateLogicalIndex(
+        idx,
+        initialPosition: seekPosition > Duration.zero ? seekPosition : null,
+      );
+      if (wasPlaying) await _startPlayback();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[PlayerService] network route refresh failed: $e');
+      }
+    }
   }
 
   /// 初始化（含恢复旧播放会话）完成的 Future。所有播放操作先 await 它，
@@ -3906,6 +3965,14 @@ class PlayerService with WidgetsBindingObserver {
 
   Future<void> dispose() async {
     WidgetsBinding.instance.removeObserver(this);
+    NetworkConnectionService.instance.wifiConnected.removeListener(
+      _scheduleNetworkRouteRefresh,
+    );
+    AppTranscodeSettings.directOnWifi.removeListener(
+      _scheduleNetworkRouteRefresh,
+    );
+    _networkRouteRefreshTimer?.cancel();
+    _networkRouteRefreshTimer = null;
     // 释放全部服务器转码会话（fire-and-forget）。
     unawaited(FeiNiuTranscodeService.instance.quitAll());
     AppPlaybackVolumeSettings.volume.removeListener(_handleAppVolumeChanged);

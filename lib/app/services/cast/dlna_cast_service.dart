@@ -374,7 +374,10 @@ class DlnaCastService {
     //    （渲染器通用性最好）。失败则回退直连。
     final needsTranscode =
         FeiNiuTranscodeService.isMediaKitFormat(song.format ?? '') ||
-        await FeiNiuTranscodeService.instance.shouldTranscode(song);
+        await FeiNiuTranscodeService.instance.shouldTranscode(
+          song,
+          respectWifiPolicy: false,
+        );
     if (needsTranscode) {
       final hls = await FeiNiuTranscodeService.instance.transcodeMp3UrlFor(
         song,
