@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../network_connection_service.dart';
 import '../../state/settings_transcode_state.dart';
 import '../../state/song_state.dart';
 import 'api_client.dart';
@@ -270,7 +271,10 @@ class FeiNiuTranscodeService {
   ///
   /// CUE 曲目也参与转码（服务器按 guid 返回**裁切好的单曲 HLS**，客户端无需
   /// 再裁剪）；CUE 整轨文件往往很大，转码后明显更小。
-  Future<bool> shouldTranscode(SongEntity song) async {
+  Future<bool> shouldTranscode(
+    SongEntity song, {
+    bool respectWifiPolicy = true,
+  }) async {
     // 桌面端（Windows/macOS/Linux）强制直连：转码产出 HLS（fMP4），
     // media_kit 的 mpv FFmpeg 音频库未编入 hls demuxer 播不了；
     // 全量走 media_kit 直连原始流即可。
@@ -285,6 +289,11 @@ class FeiNiuTranscodeService {
     // 直接请求该歌的转码地址播放。
     if (_forcedCodecs.containsKey(song.id)) return true;
     if (!AppTranscodeSettings.enabled.value) return false;
+    if (respectWifiPolicy &&
+        AppTranscodeSettings.directOnWifi.value &&
+        NetworkConnectionService.instance.isWifiConnected) {
+      return false;
+    }
     // 源格式与生效转码格式一致（flac→flac / mp3→mp3 / opus→opus）→ 无转码收益，
     // 直接直连播放。已降级到 mp3 的歌若源本就是 mp3 也跳过。
     final source = (song.format ?? '').trim().toLowerCase();
@@ -344,6 +353,10 @@ class FeiNiuTranscodeService {
     final forced = _forcedCodecs[song.id];
     if (forced != null) return forced.toUpperCase();
     if (!AppTranscodeSettings.enabled.value) return null;
+    if (AppTranscodeSettings.directOnWifi.value &&
+        NetworkConnectionService.instance.isWifiConnected) {
+      return null;
+    }
     final source = (song.format ?? '').trim().toLowerCase();
     if (source.isNotEmpty && source == effectiveCodecFor(song.id)) return null;
     // 不向上转码：输出质量层 ≥ 源质量层 → 直连（与 shouldTranscode 同源判定，

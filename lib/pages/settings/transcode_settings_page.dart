@@ -57,6 +57,19 @@ class _TranscodeSettingsPageState extends State<TranscodeSettingsPage> {
                         valueListenable: AppTranscodeSettings.transcodeAll,
                         builder: (context, transcodeAll, _) {
                           final sub = <Widget>[
+                            ValueListenableBuilder<bool>(
+                              valueListenable:
+                                  AppTranscodeSettings.directOnWifi,
+                              builder: (context, directOnWifi, _) {
+                                return AppSettingSwitchTile(
+                                  title: 'Wi-Fi 下直连',
+                                  subtitle: '连接 Wi-Fi 时播放原始音频；蜂窝网络继续按转码设置播放',
+                                  value: directOnWifi,
+                                  onChanged:
+                                      AppTranscodeSettings.setDirectOnWifi,
+                                );
+                              },
+                            ),
                             AppSettingSwitchTile(
                               title: '全部转码',
                               subtitle: '开启 = 所有文件都转码（含无损，忽略大小阈值）；关闭 = 仅大文件转码',

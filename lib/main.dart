@@ -18,6 +18,7 @@ import 'app/services/island_lyric_service.dart';
 import 'app/services/macos_status_bar_service.dart';
 import 'app/services/macos_window_background_service.dart';
 import 'app/services/media_notification_service.dart';
+import 'app/services/network_connection_service.dart';
 import 'app/services/portable_storage_service.dart';
 import 'app/services/tv_detection.dart';
 import 'app/services/track_change_overlay_service.dart';
@@ -89,6 +90,9 @@ Future<void> main() async {
   // 转码设置须在 PlayerService（MediaNotificationService.init）之前加载：
   // 启动恢复自动播放时 _sourceForSong 会同步读转码开关，未加载会读到默认关。
   await AppTranscodeSettings.ensureLoaded();
+  // 播放器构建队列前获取当前网络类型，使「Wi-Fi 下直连」首次播放即可生效；
+  // 后续网络切换由服务持续监听。
+  await NetworkConnectionService.instance.init();
   // 便携模式·换机检测：数据目录跟随 exe，若文件夹被拷到另一台电脑运行，
   // 自动清空本机 NAS 密码/token/安全码（保留服务器地址与用户名），
   // 避免把本机凭据带到别的机器。须在 AuthService.init（恢复会话）之前执行。

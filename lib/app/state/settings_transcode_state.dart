@@ -14,11 +14,14 @@ enum TranscodeFormat { flac, mp3, opus }
 ///   时生效；未识别大小的文件不转码。
 /// - [format]「转码格式」：flac 无损（带 bitrate:320）/ mp3 / opus（不带
 ///   bitrate——带 bitrate 会显著劣化音质）。
+/// - [directOnWifi]「Wi-Fi 下直连」：默认关闭；开启后仅自动转码在 Wi-Fi 下
+///   跳过，单曲手动指定转码格式仍然生效。
 class AppTranscodeSettings {
   static const String _prefsEnabled = 'transcode_enabled';
   static const String _prefsTranscodeAll = 'transcode_all';
   static const String _prefsThresholdMb = 'transcode_threshold_mb';
   static const String _prefsFormat = 'transcode_format';
+  static const String _prefsDirectOnWifi = 'transcode_direct_on_wifi';
 
   static const int defaultThresholdMb = 80;
   static const int minThresholdMb = 20;
@@ -29,6 +32,7 @@ class AppTranscodeSettings {
   static final ValueNotifier<int> thresholdMb = ValueNotifier(defaultThresholdMb);
   static final ValueNotifier<TranscodeFormat> format =
       ValueNotifier(TranscodeFormat.flac);
+  static final ValueNotifier<bool> directOnWifi = ValueNotifier(false);
 
   static Future<void>? _loading;
 
@@ -46,6 +50,7 @@ class AppTranscodeSettings {
       (f) => f.name == saved,
       orElse: () => TranscodeFormat.flac,
     );
+    directOnWifi.value = prefs.getBool(_prefsDirectOnWifi) ?? false;
   }
 
   static Future<void> setEnabled(bool value) async {
@@ -73,6 +78,12 @@ class AppTranscodeSettings {
     format.value = value;
   }
 
+  static Future<void> setDirectOnWifi(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsDirectOnWifi, value);
+    directOnWifi.value = value;
+  }
+
   /// 测试专用：重置内存状态（清空懒加载缓存），供测试 setUp 复用。
   static void resetForTest() {
     _loading = null;
@@ -80,5 +91,6 @@ class AppTranscodeSettings {
     transcodeAll.value = true;
     thresholdMb.value = defaultThresholdMb;
     format.value = TranscodeFormat.flac;
+    directOnWifi.value = false;
   }
 }
