@@ -17,6 +17,7 @@ import '../../app/utils/deferred_page_init_mixin.dart';
 import '../../components/index.dart';
 import '../../pages/search/search_page.dart';
 import 'library_detail_pages.dart';
+import 'library_metadata.dart';
 
 class AlbumsPage extends StatefulWidget {
   const AlbumsPage({super.key});
@@ -179,6 +180,27 @@ class _AlbumsPageState extends State<AlbumsPage>
     } finally {
       if (mounted) _loadingMore.value = false;
     }
+  }
+
+  void _applyMetadataUpdate(String guid, LibraryEntityMetadata metadata) {
+    if (!_groups.value.any((group) => group.album.guid == guid)) return;
+    final albums = replaceAlbumMetadata(
+      _groups.value.map((group) => group.album).toList(),
+      guid,
+      metadata,
+    );
+    final groups = albums.map(AlbumGroup.fromFeiNiuAlbum).toList();
+    _groups.value = groups;
+
+    unawaited(
+      ApiCacheManager.instance.set(
+        scope: 'album_list',
+        key: 'page=1&size=$_pageSize',
+        jsonData: jsonEncode(
+          groups.take(_pageSize).map((group) => group.toJson()).toList(),
+        ),
+      ),
+    );
   }
 
   Future<void> _init() async {
@@ -509,18 +531,19 @@ class _AlbumsPageState extends State<AlbumsPage>
                   final g = _groups.value[index];
                   return InkWell(
                     borderRadius: BorderRadius.circular(16),
-                    onTap: () async {
-                      await Navigator.of(context).push(
+                    onTap: () {
+                      Navigator.of(context).push(
                         buildAppPageRoute(
                           (_) => AlbumDetailPage(
                             albumName: g.name,
                             albumGuid: g.album.guid,
+                            onMetadataChanged: (metadata) {
+                              if (!mounted) return;
+                              _applyMetadataUpdate(g.album.guid, metadata);
+                            },
                           ),
                         ),
                       );
-                      // 返回后强制刷新（编辑可能改了名称/封面，重写 ApiCacheManager 缓存）
-                      if (!mounted) return;
-                      _load(forceRefresh: true);
                     },
                     onLongPress: () {},
                     child: Padding(
