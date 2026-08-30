@@ -16,6 +16,7 @@ import '../../app/utils/deferred_page_init_mixin.dart';
 import '../../components/index.dart';
 import '../../pages/search/search_page.dart';
 import 'library_detail_pages.dart';
+import 'library_metadata.dart';
 
 class ArtistsPage extends StatefulWidget {
   const ArtistsPage({super.key});
@@ -126,6 +127,27 @@ class _ArtistsPageState extends State<ArtistsPage>
     } finally {
       if (mounted) _loadingMore.value = false;
     }
+  }
+
+  void _applyMetadataUpdate(String guid, LibraryEntityMetadata metadata) {
+    if (!_groups.value.any((group) => group.artist.guid == guid)) return;
+    final artists = replaceArtistMetadata(
+      _groups.value.map((group) => group.artist).toList(),
+      guid,
+      metadata,
+    );
+    final groups = artists.map(ArtistGroup.fromFeiNiuArtist).toList();
+    _groups.value = groups;
+
+    unawaited(
+      ApiCacheManager.instance.set(
+        scope: 'artist_list',
+        key: 'page=1&size=$_pageSize',
+        jsonData: jsonEncode(
+          groups.take(_pageSize).map((group) => group.toJson()).toList(),
+        ),
+      ),
+    );
   }
 
   Future<void> _init() async {
@@ -389,15 +411,19 @@ class _ArtistsPageState extends State<ArtistsPage>
             selected: false,
             multiSelect: false,
             isHighlighted: false,
-            onTap: () async {
-              await Navigator.of(context).push(
+            onTap: () {
+              Navigator.of(context).push(
                 buildAppPageRoute(
-                  (_) => ArtistDetailPage(artistName: g.name, artistGuid: g.artist.guid),
+                  (_) => ArtistDetailPage(
+                    artistName: g.name,
+                    artistGuid: g.artist.guid,
+                    onMetadataChanged: (metadata) {
+                      if (!mounted) return;
+                      _applyMetadataUpdate(g.artist.guid, metadata);
+                    },
+                  ),
                 ),
               );
-              // 返回后强制刷新（编辑可能改了名称/封面，重写 ApiCacheManager 缓存）
-              if (!mounted) return;
-              _load(forceRefresh: true);
             },
             onLongPress: () {},
           );

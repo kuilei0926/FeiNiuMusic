@@ -18,6 +18,7 @@ import '../../app/state/song_state.dart';
 import '../../components/index.dart';
 import '../songs/song_detail_sheet.dart';
 import 'artist_album_edit_page.dart';
+import 'library_metadata.dart';
 
 List<String> splitArtists(String raw) {
   final text = raw.trim();
@@ -107,11 +108,13 @@ List<SongEntity> sortAlbumDetailSongs(
 class ArtistDetailPage extends StatefulWidget {
   final String artistName;
   final String? artistGuid;
+  final ValueChanged<LibraryEntityMetadata>? onMetadataChanged;
 
   const ArtistDetailPage({
     super.key,
     required this.artistName,
     this.artistGuid,
+    this.onMetadataChanged,
   });
 
   @override
@@ -188,6 +191,7 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
   Future<void> _openEdit() async {
     final guid = widget.artistGuid;
     if (guid == null) return;
+    final previousCoverId = _artistCoverIdFor(_songs.value, guid);
     final result = await Navigator.of(context).push<String>(
       buildAppPageRoute(
         (_) => ArtistAlbumEditPage(
@@ -200,7 +204,14 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
     );
     if (!mounted || result == null) return;
     setState(() => _artistName = result);
-    _load();
+    await _load();
+    if (!mounted) return;
+    widget.onMetadataChanged?.call(
+      LibraryEntityMetadata(
+        name: _artistName,
+        coverId: _artistCoverIdFor(_songs.value, guid) ?? previousCoverId,
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -611,11 +622,13 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
 class AlbumDetailPage extends StatefulWidget {
   final String albumName;
   final String? albumGuid;
+  final ValueChanged<LibraryEntityMetadata>? onMetadataChanged;
 
   const AlbumDetailPage({
     super.key,
     required this.albumName,
     this.albumGuid,
+    this.onMetadataChanged,
   });
 
   @override
@@ -678,6 +691,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
   Future<void> _openEdit() async {
     final guid = widget.albumGuid;
     if (guid == null) return;
+    final previousCoverId = _songs.value.firstOrNull?.albumCoverId;
     final result = await Navigator.of(context).push<String>(
       buildAppPageRoute(
         (_) => ArtistAlbumEditPage(
@@ -690,7 +704,14 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
     );
     if (!mounted || result == null) return;
     setState(() => _albumName = result);
-    _load();
+    await _load();
+    if (!mounted) return;
+    widget.onMetadataChanged?.call(
+      LibraryEntityMetadata(
+        name: _albumName,
+        coverId: _songs.value.firstOrNull?.albumCoverId ?? previousCoverId,
+      ),
+    );
   }
 
   Future<void> _load() async {
