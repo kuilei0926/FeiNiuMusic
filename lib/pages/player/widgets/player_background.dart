@@ -12,8 +12,12 @@ import '../../../app/services/feiniu/api_client.dart';
 import '../../../app/state/song_state.dart';
 import '../../../app/utils/route_visibility.dart';
 
+// 纹理边长随显示尺寸生成，上限 1024 兜底显存（过渡期两张约 8MB）。
 @visibleForTesting
 const int dynamicGradientTextureDimension = 640;
+
+@visibleForTesting
+const int dynamicGradientMaxTextureDimension = 1024;
 
 @visibleForTesting
 const int dynamicGradientMaxResidentTextures = 2;
@@ -22,6 +26,29 @@ const int dynamicGradientMaxResidentTextures = 2;
 const Duration dynamicGradientColorTransitionDuration = Duration(
   milliseconds: 1500,
 );
+
+// 按显示尺寸×DPR×1.12（漂移过采样）计算纹理边长。
+@visibleForTesting
+int dynamicGradientTextureDimensionFor({
+  required Size logicalSize,
+  required double devicePixelRatio,
+  int maxDimension = dynamicGradientMaxTextureDimension,
+}) {
+  if (!logicalSize.isFinite ||
+      logicalSize.width <= 0 ||
+      logicalSize.height <= 0) {
+    return dynamicGradientTextureDimension;
+  }
+  if (!devicePixelRatio.isFinite || devicePixelRatio <= 0) {
+    return dynamicGradientTextureDimension;
+  }
+  final longest = math.max(logicalSize.width, logicalSize.height);
+  final physical = longest * devicePixelRatio * 1.12;
+  return physical
+      .ceil()
+      .clamp(dynamicGradientTextureDimension, maxDimension)
+      .toInt();
+}
 
 class PlayerBackgroundSettings {
   static const String _prefsPlaybackThemeMode = 'setting_playback_theme_mode';
@@ -434,6 +461,7 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
   ui.Image? _previousTexture;
   bool? _textureIsDark;
   int _textureGeneration = 0;
+  int _textureDimension = dynamicGradientTextureDimension;
 
   @override
   AnimationController get visibilityController => _controller;
@@ -467,7 +495,13 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_textureIsDark != isDark) {
       _textureIsDark = isDark;
-      _regenerateTexture(isDark, animateTransition: _texture != null);
+      // 首帧无纹理，交给 build 里的 _scheduleTextureAlignment 生成。
+      if (_texture == null) return;
+      _regenerateTexture(
+        isDark,
+        dimension: _textureDimension,
+        animateTransition: true,
+      );
     }
   }
 
@@ -480,19 +514,40 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
       final baseColorChanged = oldWidget.baseColor != widget.baseColor;
       _regenerateTexture(
         _textureIsDark ?? Theme.of(context).brightness == Brightness.dark,
+        dimension: _textureDimension,
         animateTransition: baseColorChanged,
       );
     }
   }
 
+  // 按窗口实际尺寸重渲纹理，避免固定小纹理放大出块状色带。
+  void _scheduleTextureAlignment(Size logicalSize) {
+    final dimension = dynamicGradientTextureDimensionFor(
+      logicalSize: logicalSize,
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+    );
+    // 128px 步进量化，避免窗口缩放抖动反复重渲。
+    final target = (dimension / 128).round() * 128;
+    if (target == _textureDimension && _texture != null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (target == _textureDimension && _texture != null) return;
+      _regenerateTexture(
+        _textureIsDark ?? Theme.of(context).brightness == Brightness.dark,
+        dimension: target,
+      );
+    });
+  }
+
   Future<void> _regenerateTexture(
     bool isDark, {
+    required int dimension,
     bool animateTransition = false,
   }) async {
     final generation = ++_textureGeneration;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    final size = Size.square(dynamicGradientTextureDimension.toDouble());
+    final size = Size.square(dimension.toDouble());
     _AuroraPainter(
       t: 0.18,
       base: widget.baseColor,
@@ -503,10 +558,7 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
     final picture = recorder.endRecording();
     late final ui.Image image;
     try {
-      image = await picture.toImage(
-        dynamicGradientTextureDimension,
-        dynamicGradientTextureDimension,
-      );
+      image = await picture.toImage(dimension, dimension);
     } catch (error) {
       if (kDebugMode) {
         debugPrint('Failed to create player background texture: $error');
@@ -519,6 +571,7 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
       image.dispose();
       return;
     }
+    _textureDimension = dimension;
     final current = _texture;
     if (animateTransition && current != null) {
       final superseded = _previousTexture;
@@ -574,12 +627,13 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
 
   @override
   Widget build(BuildContext context) {
-    final texture = _texture;
-    if (texture == null) {
-      return ColoredBox(color: widget.baseColor);
-    }
     return LayoutBuilder(
       builder: (context, constraints) {
+        _scheduleTextureAlignment(constraints.biggest);
+        final texture = _texture;
+        if (texture == null) {
+          return ColoredBox(color: widget.baseColor);
+        }
         return ClipRect(
           child: AnimatedBuilder(
             animation: Listenable.merge([
@@ -627,7 +681,8 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
       child: RawImage(
         image: image,
         fit: BoxFit.cover,
-        filterQuality: FilterQuality.low,
+        // high(三次插值)平滑放大，避免小纹理拉伸出的块状色带。
+        filterQuality: FilterQuality.high,
       ),
     );
   }
