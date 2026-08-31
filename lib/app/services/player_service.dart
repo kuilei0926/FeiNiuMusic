@@ -1047,7 +1047,13 @@ class PlayerService with WidgetsBindingObserver {
 
     // 2) 默认：直连原始文件流（mpv 用 FFmpeg 原生解码 DSF/APE/WMA…）。
     //    不使用转码 HLS（mpv 的 FFmpeg 音频库无 HLS demuxer，播不了 fMP4）。
-    final uri = FeiNiuApiClient.instance.streamUrl(song.id);
+    //    网盘音乐（挂载网盘）可能被服务器 302 反向代理到 CDN/内网地址：
+    //    预解析最终 URL（同源保留 Cookie / 跨主机剥离），避免 mpv 跟随重定向
+    //    时认证头行为不可控导致 401 转圈。
+    final api = FeiNiuApiClient.instance;
+    final resolved = await api.resolveStreamUrl(api.streamUrl(song.id));
+    final uri = resolved.url;
+    final headers = resolved.headers;
     // 仅为当前激活歌曲后台下载完整缓存。run 内其它歌曲只创建轻量 Media，
     // 下一首由既有链式预缓存负责；否则 macOS 全队列走 media_kit 时会把整段
     // 队列一次性排入下载，DSD 大文件会让待下载任务长期积压。
@@ -1062,10 +1068,10 @@ class PlayerService with WidgetsBindingObserver {
         uri,
         start: offset,
         end: end,
-        httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
+        httpHeaders: headers,
       );
     }
-    return mk.Media(uri, httpHeaders: FeiNiuApiClient.imageAuthHeaders());
+    return mk.Media(uri, httpHeaders: headers);
   }
 
   Future<void> _applyEngineVolume(PlayerEngine engine) async {
@@ -3883,11 +3889,16 @@ class PlayerService with WidgetsBindingObserver {
       }
 
       if (!isCue && StreamCacheService.instance.isEnabled) {
-        // 未缓存 → 缓存源（播放时边播边下载，缓存命中后次次秒播）
+        // 未缓存 → 缓存源（播放时边播边下载，缓存命中后次次秒播）。
+        // sourceForSong 内部已用 resolveStreamUrl 预解析 302 最终地址。
         return StreamCacheService.instance.sourceForSong(song);
       }
-      final streamUrl = api.streamUrl(song.id);
-      final headers = FeiNiuApiClient.imageAuthHeaders();
+      // 直连（未启用缓存）：网盘音乐可能被服务器 302 反向代理到 CDN/内网
+      // 地址，先预解析最终 URL（同源保留 Cookie / 跨主机剥离），避免
+      // ExoPlayer 跟随重定向时认证头行为不可控导致 401 转圈。
+      final resolved = await api.resolveStreamUrl(api.streamUrl(song.id));
+      final streamUrl = resolved.url;
+      final headers = resolved.headers;
       final base = AudioSource.uri(Uri.parse(streamUrl), headers: headers);
       if (!isCue) return base;
 

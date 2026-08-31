@@ -337,10 +337,17 @@ class StreamCacheService {
 
     await _ensureDir();
     final ext = await extensionForSong(song);
+    // 网盘音乐可能被服务器 302 反向代理到 CDN/内网地址：先预解析最终 URL
+    // （同源保留 Cookie / 跨主机剥离）。缓存下载器用 dart:io HttpClient，
+    // SDK shouldCopyHeaderOnRedirect 仅同 scheme+port 复制 Cookie，跨主机
+    // 跟随 302 会丢 music-token → 401 → 播放转圈；用解析后的最终 URL 下载
+    // 绕开重定向差异。失败时 resolveStreamUrl 静默回退原始 URL，行为不变。
+    final resolved = await FeiNiuApiClient.instance
+        .resolveStreamUrl(FeiNiuApiClient.instance.streamUrl(song.id));
     final source = StreamAudioCacheSource(
       songId: song.id,
-      uri: Uri.parse(FeiNiuApiClient.instance.streamUrl(song.id)),
-      headers: FeiNiuApiClient.imageAuthHeaders(),
+      uri: Uri.parse(resolved.url),
+      headers: resolved.headers,
       cacheFile: _cacheFileFor(song.id, ext),
     );
     _sources[song.id] = source;

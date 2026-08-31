@@ -10,6 +10,45 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../state/settings_fn_state.dart';
 import 'api_models.dart';
 
+/// 音频流 URL 的 302 预解析结果：跟随反向代理链后的最终可播地址 + 该地址
+/// 所需的认证头。
+///
+/// 同源跳转（scheme://host:port 一致，如反向代理内部转发）保留飞牛 Cookie；
+/// 跨主机跳转（如跳转网盘 CDN）剥离飞牛 Cookie，第三方地址用自身签名鉴权。
+class ResolvedStreamUrl {
+  const ResolvedStreamUrl({required this.url, required this.headers});
+
+  /// 跟随 302 链后的最终 URL（失败/超时回退时等于原始 URL）。
+  final String url;
+
+  /// 访问 [url] 所需的认证头（跨主机跳转后为空 Map）。
+  final Map<String, String> headers;
+}
+
+/// 判断 302 跳转是否仍处于同一「源」（scheme + host + port 完全一致）。
+///
+/// 同源跳转（如 nginx `return 302 /proxy/...` 内部转发）仍需携带飞牛 Cookie
+/// 才能通过鉴权；跨源跳转（跳往网盘 CDN 等第三方地址）时飞牛 Cookie 无意义
+/// 且会泄漏，应剥离。
+@visibleForTesting
+bool streamRedirectSameOrigin(Uri from, Uri to) {
+  return from.scheme == to.scheme &&
+      from.host == to.host &&
+      from.port == to.port;
+}
+
+/// 跨源 302 跳转后应携带的认证头：剥离飞牛 Cookie（`music-token` /
+/// `mode=relay` / 安全码），避免凭据泄漏给第三方；同源跳转原样返回。
+@visibleForTesting
+Map<String, String> streamRedirectHeaders(
+  Uri from,
+  Uri to,
+  Map<String, String> headers,
+) {
+  if (streamRedirectSameOrigin(from, to)) return headers;
+  return const {};
+}
+
 /// FeiNiu API 客户端 — 基于 Dio 的单例 HTTP 客户端
 ///
 /// 所有请求自动携带 `Cookie: music-token=<token>` 认证。
@@ -112,6 +151,14 @@ class FeiNiuApiClient {
   String _baseUrl = '';
   String _token = '';
   bool _relayMode = false;
+
+  /// 音频流 URL 302 预解析结果缓存（按原始 URL，TTL 10 分钟）。
+  ///
+  /// 网盘 CDN 签名 URL 时效短（分钟级），TTL 过长会播到过期地址；10 分钟内
+  /// 重复播放同一首歌直接命中，不再每次探测 302 链。
+  static const Duration _streamResolveTtl = Duration(minutes: 10);
+  static const int _streamRedirectMaxHops = 5;
+  final Map<String, _StreamResolveEntry> _streamResolveCache = {};
 
   @visibleForTesting
   void setDioForTest(Dio dio) => _dio = dio;
@@ -534,6 +581,88 @@ class FeiNiuApiClient {
   /// 构造音频流 URL
   String streamUrl(String guid) {
     return _url('/track/stream?guid=$guid');
+  }
+
+  /// 跟随 302 反向代理链解析音频流最终可播地址。
+  ///
+  /// 网盘音乐（挂载网盘，如 115）的 `/track/stream` 直连请求可能被服务器
+  /// **302 反向代理**到网盘 CDN / 内网代理地址。流请求由播放引擎（mpv /
+  /// ExoPlayer）与缓存下载器（dart:io HttpClient）直接发起，**不走本客户端
+  /// 的 [_handleRedirect]**，这些层对重定向的认证头保留行为不可控：
+  /// - dart:io HttpClient（StreamAudioCacheSource）自动跟随 302 时，SDK
+  ///   `shouldCopyHeaderOnRedirect` 仅同 scheme + port 才复制 Cookie → 跨主机
+  ///   跳转丢 `music-token` → 401 → 播放转圈；
+  /// - media_kit / ExoPlayer 对重定向后的 httpHeaders 保留行为各异。
+  ///
+  /// 因此在把流 URL 交给引擎/缓存前，先手动跟随 302 链（带飞牛 Cookie），
+  /// 拿到最终 URL 与该地址所需认证头（同源保留、跨主机剥离，见
+  /// [streamRedirectHeaders]），再用最终 URL 播放，绕开各引擎重定向差异。
+  ///
+  /// - 最多跟随 [_streamRedirectMaxHops] 跳防死循环；
+  /// - 按原始 URL 做 [_streamResolveTtl] 缓存，避免每次播放都探测；
+  /// - 任何失败（超时/网络错/超跳数）静默回退原始 URL + 原始认证头，
+  ///   不阻塞播放（保持现状兜底）。
+  Future<ResolvedStreamUrl> resolveStreamUrl(String url) async {
+    final now = DateTime.now();
+    final cached = _streamResolveCache[url];
+    if (cached != null && cached.expiresAt.isAfter(now)) {
+      return cached.value;
+    }
+    final originalHeaders = imageAuthHeaders();
+    try {
+      final client = HttpClient()
+        // 探测请求必须快速失败：网盘 CDN 无响应时不能挂起播放（resolve
+        // 只读响应头，正常场景几十毫秒内完成）。
+        ..connectionTimeout = const Duration(seconds: 5)
+        ..idleTimeout = const Duration(seconds: 5);
+      try {
+        var currentUri = Uri.parse(url);
+        var currentHeaders = originalHeaders;
+        // 是否在跳数内到达了非 3xx 的最终响应；超跳数仍未消化 302 视为
+        // 重定向循环/链过长，回退原始 URL（见方法注释）。
+        var reachedFinal = false;
+        for (var hop = 0; hop < _streamRedirectMaxHops; hop++) {
+          // 只探测响应头不拉全量：GET + Range: bytes=0-0（部分服务器不响应
+          // HEAD，Range 最通用），读完状态码/Location 即关闭连接。
+          final request = await client.openUrl('GET', currentUri);
+          // 关闭自动重定向：手动跟随 302 链并控制 Cookie 保留/剥离（SDK 自动
+          // 跟随仅同 scheme+port 复制 Cookie，跨主机丢 Cookie 正是要绕开的问题）。
+          request.followRedirects = false;
+          request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
+          for (final entry in currentHeaders.entries) {
+            request.headers.set(entry.key, entry.value);
+          }
+          final response = await request.close();
+          final status = response.statusCode;
+          if (status >= 300 && status < 400) {
+            final location = response.headers.value('location');
+            if (location == null || location.isEmpty) break;
+            final nextUri = currentUri.resolve(location);
+            // 跨主机跳转 → 剥离飞牛 Cookie；同源 → 保留（反向代理内部转发
+            // 仍需鉴权）。
+            currentHeaders =
+                streamRedirectHeaders(currentUri, nextUri, currentHeaders);
+            currentUri = nextUri;
+            continue;
+          }
+          reachedFinal = true;
+          break;
+        }
+        if (!reachedFinal) {
+          return ResolvedStreamUrl(url: url, headers: originalHeaders);
+        }
+        final result =
+            ResolvedStreamUrl(url: currentUri.toString(), headers: currentHeaders);
+        _streamResolveCache[url] =
+            _StreamResolveEntry(result, now.add(_streamResolveTtl));
+        return result;
+      } finally {
+        client.close(force: true);
+      }
+    } catch (_) {
+      // 失败静默回退：原 URL + 原始认证头（不缓存，允许下次重试）。
+      return ResolvedStreamUrl(url: url, headers: originalHeaders);
+    }
   }
 
   /// 查询曲目元数据（含 audioSpec.format，用于判断是否需要转码）。
@@ -1298,4 +1427,12 @@ class FeiNiuApiClient {
   }
 
   // endregion
+}
+
+/// 音频流 URL 302 预解析缓存条目。
+class _StreamResolveEntry {
+  const _StreamResolveEntry(this.value, this.expiresAt);
+
+  final ResolvedStreamUrl value;
+  final DateTime expiresAt;
 }
