@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_lyric/core/lyric_model.dart';
 
 import '../../app/services/lyrics/lyrics_service.dart';
@@ -116,6 +117,32 @@ class _KaraokeLyricTextState extends State<KaraokeLyricText>
   }
 
   void _updateTarget() {
+    if (!mounted) return;
+    // 若 position 通知恰好落在 build/layout 帧内（播放中逐帧驱动时可能发生），
+    // 同步改 _controller 会触发监听它的 ValueListenableBuilder 同步
+    // markNeedsBuild → “setState called during build” 级联崩溃。
+    // 非安全期先登记，帧后统一执行。
+    if (SchedulerBinding.instance.schedulerPhase !=
+        SchedulerPhase.idle) {
+      _scheduleTargetUpdate();
+      return;
+    }
+    _applyTargetUpdate();
+  }
+
+  bool _targetUpdateScheduled = false;
+
+  void _scheduleTargetUpdate() {
+    if (_targetUpdateScheduled) return;
+    _targetUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _targetUpdateScheduled = false;
+      if (!mounted) return;
+      _applyTargetUpdate();
+    });
+  }
+
+  void _applyTargetUpdate() {
     if (!mounted) return;
     final line = widget.line;
     final text = line.text;
@@ -284,6 +311,9 @@ class _KaraokeLyricTextState extends State<KaraokeLyricText>
     if (explicitBase != null && explicitHighlight != null) {
       return _buildContent(context, explicitBase, explicitHighlight);
     }
+    // 颜色变化只触发重建，不在 build 期同步读 notifier（避免信号同步镜像
+    // 触发循环 markNeedsBuild → “setState called during build” 级联崩溃）。
+    // builder 里延迟到帧后回调再读颜色，首帧用兜底值，帧后立即校正。
     return ListenableBuilder(
       listenable: Listenable.merge([
         lyrics.viewInactiveColor,
