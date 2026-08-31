@@ -38,11 +38,13 @@ class MacosStatusBarService {
   static Future<void> init() async {
     if (!Platform.isMacOS) return;
     await StatusBarSettings.ensureLoaded();
+    await CloseToTraySettings.ensureLoaded();
     if (_started) return;
     _started = true;
 
     _channel.setMethodCallHandler(_handleCall);
     StatusBarSettings.enabled.addListener(_onEnabledChanged);
+    CloseToTraySettings.enabled.addListener(_syncCloseToTray);
 
     final state = AppPlayerState.instance;
     state.isPlaying.addListener(_pushState);
@@ -70,6 +72,16 @@ class MacosStatusBarService {
     } else {
       _send('hide');
     }
+  }
+
+  /// 把「关闭按钮隐藏到托盘」设置同步给原生：原生据此决定关闭窗口时
+  /// 是隐藏（驻留菜单栏）还是真正关闭。
+  static void _syncCloseToTray() {
+    if (!_nativeReady) {
+      unawaited(_connect());
+      return;
+    }
+    _send('setCloseToTray', CloseToTraySettings.enabled.value);
   }
 
   static Future<void> _handleCall(MethodCall call) async {
@@ -132,6 +144,7 @@ class MacosStatusBarService {
     _connectRetryTimer?.cancel();
     _connectRetryTimer = null;
     _syncVisibilityAndState();
+    _syncCloseToTray();
   }
 
   static void _scheduleConnectRetry() {
@@ -142,7 +155,7 @@ class MacosStatusBarService {
     });
   }
 
-  static void _send(String method, [Map<String, Object?>? arguments]) {
+  static void _send(String method, [Object? arguments]) {
     unawaited(
       _channel.invokeMethod<void>(method, arguments).catchError((_) {
         _nativeReady = false;

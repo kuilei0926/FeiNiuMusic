@@ -1,5 +1,6 @@
 export 'settings_background_state.dart';
 export 'settings_cache_state.dart';
+export 'settings_close_to_tray_state.dart';
 export 'settings_glass_state.dart';
 export 'settings_cast_state.dart';
 export 'settings_fn_state.dart';

@@ -54,8 +54,8 @@ if ($Build) {
   }
 }
 
-if (-not (Test-Path (Join-Path $ReleaseDir "feiniumusic.exe"))) {
-  Write-Error "未找到 feiniumusic.exe，请先运行 flutter build windows --release 或用 -Build 参数"
+if (-not (Test-Path (Join-Path $ReleaseDir "飞牛音乐.exe"))) {
+  Write-Error "未找到 飞牛音乐.exe，请先运行 flutter build windows --release 或用 -Build 参数"
   exit 1
 }
 
@@ -76,8 +76,8 @@ $Readme = @"
 
 使用方法：
   1. 把整个文件夹解压到任意位置（如 D:\FeiNiuMusic）。
-  2. 双击 feiniumusic.exe 即可运行。
-  3. 可选：右键 feiniumusic.exe → 发送到 → 桌面快捷方式。
+  2. 双击 飞牛音乐.exe 即可运行。
+  3. 可选：右键 飞牛音乐.exe → 发送到 → 桌面快捷方式。
 
 数据说明：
   - 账号、收藏、听歌统计、歌词/封面缓存等数据存放在 exe 同级的
@@ -85,11 +85,6 @@ $Readme = @"
   - 卸载只需删除整个文件夹，无残留注册表项。
   - 注意：把文件夹复制到其他电脑使用时会自动清除已保存的密码/token，
     需在新机器上重新登录（出于安全考虑）。
-
-已知限制（Windows 版）：
-  - 不支持：系统媒体通知/锁屏控制、DLNA 投屏、数据源插件匹配、
-    听歌报告（WebView）、权限管理、切歌悬浮窗等 Android 专属功能。
-  - 音频由内置 libmpv (FFmpeg) 解码，支持常见格式与无损。
 "@
 $Readme | Out-File -FilePath (Join-Path $Stage "使用说明.txt") -Encoding utf8
 

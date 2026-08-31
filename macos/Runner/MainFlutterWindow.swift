@@ -1,8 +1,11 @@
 import Cocoa
 import FlutterMacOS
 
-class MainFlutterWindow: NSWindow {
+class MainFlutterWindow: NSWindow, NSWindowDelegate {
   private var statusBarController: MacosStatusBarController?
+
+  /// 关闭按钮是否隐藏到菜单栏（由 Dart 通过 statusbar 通道推送，默认开启）。
+  var closeToTray = true
 
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
@@ -38,10 +41,25 @@ class MainFlutterWindow: NSWindow {
       result(nil)
     }
 
+    // 拦截窗口关闭：设置开启时隐藏到菜单栏而非关闭（见 windowShouldClose）。
+    self.delegate = self
+
     statusBarController = MacosStatusBarController(
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: flutterViewController.engine.binaryMessenger,
+      mainWindow: self)
 
     super.awakeFromNib()
+  }
+
+  // NSWindowDelegate
+  func windowShouldClose(_ sender: NSWindow) -> Bool {
+    // 应用正在退出（状态栏菜单「退出」/ NSApp.terminate）时放行；
+    // 否则按「关闭按钮隐藏到托盘」设置隐藏或关闭。
+    if closeToTray && !AppDelegate.isTerminating {
+      self.orderOut(nil) // 隐藏窗口，应用继续在菜单栏运行
+      return false
+    }
+    return true
   }
 
   /// 与 App 主题背景色一致（暗色 #080808 / 亮色 #F7F7F7，见
@@ -64,6 +82,7 @@ private final class MacosStatusBarController: NSObject {
 
   private let statusItem: NSStatusItem
   private let methodChannel: FlutterMethodChannel
+  private weak var mainWindow: MainFlutterWindow?
   private var lastTitle = "飞牛音乐"
   private var lastArtist = ""
   private var displayText = "飞牛音乐"
@@ -75,7 +94,8 @@ private final class MacosStatusBarController: NSObject {
   private var marqueeOffset = 0
   private var marqueeHoldTicks = 0
 
-  init(binaryMessenger: FlutterBinaryMessenger) {
+  init(binaryMessenger: FlutterBinaryMessenger, mainWindow: MainFlutterWindow?) {
+    self.mainWindow = mainWindow
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     methodChannel = FlutterMethodChannel(
       name: "com.feiniu.music/statusbar",
@@ -120,6 +140,12 @@ private final class MacosStatusBarController: NSObject {
       artistItem.isEnabled = false
       menu.addItem(artistItem)
     }
+    menu.addItem(NSMenuItem.separator())
+
+    let showItem = NSMenuItem(
+      title: "显示主窗口", action: #selector(showMainWindowTapped(_:)), keyEquivalent: "")
+    showItem.target = self
+    menu.addItem(showItem)
     menu.addItem(NSMenuItem.separator())
 
     let playItem = NSMenuItem(
@@ -175,6 +201,15 @@ private final class MacosStatusBarController: NSObject {
       isStatusItemVisible = false
       stopMarquee()
       statusItem.isVisible = false
+      result(nil)
+    case "setCloseToTray":
+      if let enabled = call.arguments as? Bool {
+        mainWindow?.closeToTray = enabled
+        if !enabled, let window = mainWindow, !window.isVisible {
+          // 关闭该设置且窗口正隐藏 → 恢复显示，避免「看不到窗口也退不出应用」。
+          window.makeKeyAndOrderFront(nil)
+        }
+      }
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
@@ -247,6 +282,16 @@ private final class MacosStatusBarController: NSObject {
 
   @objc private func previousTapped(_ sender: Any) {
     methodChannel.invokeMethod("previous", arguments: nil)
+  }
+
+  @objc private func showMainWindowTapped(_ sender: Any) {
+    guard let window = mainWindow else { return }
+    window.makeKeyAndOrderFront(nil)
+    if #available(macOS 14.0, *) {
+      NSApp.activate()
+    } else {
+      NSApp.activate(ignoringOtherApps: true)
+    }
   }
 
   @objc private func quitTapped(_ sender: Any) {

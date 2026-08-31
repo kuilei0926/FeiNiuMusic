@@ -24,6 +24,15 @@ class MediaNotificationService {
   static VoidCallback? _initListener;
   static bool _initStarted = false;
 
+  /// AudioService.init 单次握手超时。Android Auto 场景下 configure 存在竞态
+  /// （后台引擎先绑定 MediaBrowserService 时，configureResult 可能永远等不到
+  /// onServiceConnected），挂起会让启动界面卡死、车机浏览转圈。超时后按
+  /// [_retryAfter] 自动重试——竞态在首次连接完成后重试通常立即成功。
+  static const Duration _initTimeout = Duration(seconds: 10);
+  static const Duration _retryAfter = Duration(seconds: 3);
+  static int _initAttempts = 0;
+  static Timer? _retryTimer;
+
   static Future<void> init({bool force = false}) async {
     // Android 走 MediaSession / 通知栏，iOS/macOS 走 MPNowPlayingInfoCenter；
     // 其他平台没有 audio_service 原生实现，播放本身不依赖它。
@@ -68,8 +77,12 @@ class MediaNotificationService {
   static Future<void> _initHandler() async {
     if (_audioHandler != null || _initStarted) return;
     _initStarted = true;
-    _debugLog('init start');
+    _retryTimer?.cancel();
+    _debugLog('init start (attempt ${_initAttempts + 1})');
     try {
+      // 竞态兜底：AudioService.init 在 Android Auto 后台引擎场景可能挂起
+      // （configure 等不到 onServiceConnected）。加超时避免启动界面/车机
+      // 被永久卡死；失败进入 _scheduleRetry。
       _audioHandler = await AudioService.init(
         builder: () => _FeiNiuAudioHandler(PlayerService.instance),
         config: const AudioServiceConfig(
@@ -84,11 +97,28 @@ class MediaNotificationService {
                 AndroidContentStyle.listItemHintValue,
           },
         ),
-      );
+      ).timeout(_initTimeout);
+      _initAttempts = 0;
       _debugLog('init completed');
+    } catch (e) {
+      _debugLog('AudioService.init failed/timeout: $e');
+      _scheduleRetry();
     } finally {
       _initStarted = false;
     }
+  }
+
+  /// 定时重试。竞态在连接建立后重试通常立即成功；最多重试若干次避免无限循环。
+  static void _scheduleRetry() {
+    if (_initAttempts >= 5) {
+      _debugLog('give up init after $_initAttempts attempts');
+      return;
+    }
+    _initAttempts++;
+    _retryTimer?.cancel();
+    _retryTimer = Timer(_retryAfter, () {
+      unawaited(_initHandler());
+    });
   }
 
   static void _debugLog(String message) {

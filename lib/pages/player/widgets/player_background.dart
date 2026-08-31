@@ -13,6 +13,15 @@ import '../../../app/state/song_state.dart';
 import '../../../app/utils/route_visibility.dart';
 
 @visibleForTesting
+int dynamicGradientFramesPerSecond(TargetPlatform platform) {
+  return switch (platform) {
+    TargetPlatform.macOS || TargetPlatform.windows || TargetPlatform.linux => 8,
+    _ => 15,
+  };
+}
+
+// 桌面端纹理边长：固定小纹理省显存；切歌时交叉淡化，两张常驻。
+@visibleForTesting
 const int dynamicGradientTextureDimension = 640;
 
 @visibleForTesting
@@ -408,7 +417,8 @@ class _FallbackBackground extends StatelessWidget {
   }
 }
 
-class _DynamicGradientBackground extends StatefulWidget {
+// 桌面端固定小纹理省显存；移动端全屏矢量绘制画质好。
+class _DynamicGradientBackground extends StatelessWidget {
   final Color baseColor;
   final double saturation;
   final double hueShift;
@@ -420,11 +430,41 @@ class _DynamicGradientBackground extends StatefulWidget {
   });
 
   @override
-  State<_DynamicGradientBackground> createState() =>
-      _DynamicGradientBackgroundState();
+  Widget build(BuildContext context) {
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.macOS || TargetPlatform.windows || TargetPlatform.linux =>
+        _TextureGradientBackground(
+          baseColor: baseColor,
+          saturation: saturation,
+          hueShift: hueShift,
+        ),
+      _ => _VectorGradientBackground(
+        baseColor: baseColor,
+        saturation: saturation,
+        hueShift: hueShift,
+      ),
+    };
+  }
 }
 
-class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
+/// 桌面端：固定 640px 纹理 + Transform 复用，避免全屏逐帧重绘占内存。
+class _TextureGradientBackground extends StatefulWidget {
+  final Color baseColor;
+  final double saturation;
+  final double hueShift;
+
+  const _TextureGradientBackground({
+    required this.baseColor,
+    required this.saturation,
+    required this.hueShift,
+  });
+
+  @override
+  State<_TextureGradientBackground> createState() =>
+      _TextureGradientBackgroundState();
+}
+
+class _TextureGradientBackgroundState extends State<_TextureGradientBackground>
     with TickerProviderStateMixin, AppRouteVisibilityMixin {
   static const Duration _animationDuration = Duration(seconds: 22);
 
@@ -472,7 +512,7 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
   }
 
   @override
-  void didUpdateWidget(covariant _DynamicGradientBackground oldWidget) {
+  void didUpdateWidget(covariant _TextureGradientBackground oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.baseColor != widget.baseColor ||
         oldWidget.saturation != widget.saturation ||
@@ -629,6 +669,73 @@ class _DynamicGradientBackgroundState extends State<_DynamicGradientBackground>
         fit: BoxFit.cover,
         filterQuality: FilterQuality.low,
       ),
+    );
+  }
+}
+
+/// 移动端：全屏矢量绘制，屏幕小、开销低、画质最好。
+class _VectorGradientBackground extends StatefulWidget {
+  final Color baseColor;
+  final double saturation;
+  final double hueShift;
+
+  const _VectorGradientBackground({
+    required this.baseColor,
+    required this.saturation,
+    required this.hueShift,
+  });
+
+  @override
+  State<_VectorGradientBackground> createState() =>
+      _VectorGradientBackgroundState();
+}
+
+class _VectorGradientBackgroundState extends State<_VectorGradientBackground>
+    with SingleTickerProviderStateMixin, AppRouteVisibilityMixin {
+  static const Duration _animationDuration = Duration(seconds: 22);
+
+  late AnimationController _controller;
+  late final int _phaseSteps;
+
+  @override
+  AnimationController get visibilityController => _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _phaseSteps =
+        _animationDuration.inSeconds *
+        dynamicGradientFramesPerSecond(defaultTargetPlatform);
+    // One slow loop drives all blob drift; long period keeps it calm/premium.
+    _controller = AnimationController(vsync: this, duration: _animationDuration)
+      ..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final t =
+            (_controller.value * _phaseSteps).floorToDouble() / _phaseSteps;
+        return CustomPaint(
+          size: Size.infinite,
+          painter: _AuroraPainter(
+            t: t,
+            base: widget.baseColor,
+            saturation: widget.saturation,
+            hueShift: widget.hueShift,
+            isDark: isDark,
+          ),
+        );
+      },
     );
   }
 }

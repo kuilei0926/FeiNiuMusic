@@ -14,6 +14,7 @@ import 'app/theme/app_glass_theme.dart';
 import 'app/services/audio/stream_cache_service.dart';
 import 'app/services/backup/backup_service.dart';
 import 'app/services/debug_log_service.dart';
+import 'app/services/desktop_tray_service.dart';
 import 'app/services/fn_auto_reconnect_service.dart';
 import 'app/services/island_lyric_service.dart';
 import 'app/services/macos_status_bar_service.dart';
@@ -118,8 +119,21 @@ Future<void> main() async {
   await AuthService.instance.init();
   // Android：MediaSession / 通知栏 / Android Auto。
   // iOS/macOS：MPNowPlayingInfoCenter / MPRemoteCommandCenter（锁屏/控制中心“正在播放”）。
+  //
+  // 不 await 阻塞首帧：audio_service 在 Android Auto 场景（后台引擎/系统先绑定
+  // MediaBrowserService）存在 configure 竞态，AudioService.init 可能长时间挂起。
+  // 若在这里阻塞，手机端会永久卡在启动界面、车机端 getChildren 无响应转圈。
+  // 内部已带超时 + 重试（见 _initHandler），此处放行让 runApp 立即渲染；
+  // 首次播放的 _initListener 兜底仍会在需要时强制补齐 handler。
   if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
-    await MediaNotificationService.init();
+    unawaited(
+      MediaNotificationService.init().timeout(
+        const Duration(seconds: 20),
+        onTimeout: () {
+          debugPrint('[MediaNotification] init timeout in main(), continuing');
+        },
+      ),
+    );
   }
   // macOS 菜单栏（状态栏）播放状态指示器：在 macOS 原生 NSStatusItem 里
   // 显示当前歌曲与播放/暂停/上下首控制，仅 macOS 平台启用。
@@ -171,6 +185,12 @@ Future<void> main() async {
   await AppLaunchNavigationSettings.ensureLoaded();
   // DLNA 投屏设置（播放页投屏按钮据此显示/隐藏）
   await DlnaCastSettings.ensureLoaded();
+  // 桌面端「关闭按钮隐藏到托盘」（Windows/macOS 共用，默认开启）
+  await CloseToTraySettings.ensureLoaded();
+  // Windows 系统托盘：拦截关闭按钮 + 托盘菜单（播放控制/退出）。
+  if (Platform.isWindows) {
+    await DesktopTrayService.init();
+  }
   // 初始化自动重连服务（监听网络变化 + API 失败）
   FnAutoReconnectService.instance.init();
   // 迁移歌曲缓存到系统标准缓存目录后，启动时顺手清理旧版 app-support 目录中的

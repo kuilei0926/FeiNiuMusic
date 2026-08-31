@@ -23,6 +23,7 @@ class _SettingsPageState extends State<SettingsPage> {
     PlayerBottomActionSettings.ensureLoaded();
     MediaNotificationSettings.ensureLoaded();
     StatusBarSettings.ensureLoaded();
+    CloseToTraySettings.ensureLoaded();
     AppLayoutSettings.ensureLoaded();
     AppBackgroundSettings.ensureLoaded();
   }
@@ -199,26 +200,41 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
               const SizedBox(height: 16),
-              if (Platform.isMacOS)
+              if (Platform.isMacOS || Platform.isWindows)
                 AppSettingSection(
                   title: '桌面端',
                   children: [
                     ValueListenableBuilder<bool>(
-                      valueListenable: StatusBarSettings.enabled,
+                      valueListenable: CloseToTraySettings.enabled,
                       builder: (context, enabled, _) {
                         return AppSettingSwitchTile(
-                          title: '状态栏播放状态',
-                          subtitle: '播放时显示当前歌词，无歌词或暂停时显示歌曲名',
+                          title: '关闭按钮隐藏到托盘',
+                          subtitle: '点击窗口关闭按钮时隐藏到系统托盘，而不是退出应用',
                           value: enabled,
                           onChanged: (value) {
-                            StatusBarSettings.setEnabled(value);
+                            CloseToTraySettings.setEnabled(value);
                           },
                         );
                       },
                     ),
+                    if (Platform.isMacOS)
+                      ValueListenableBuilder<bool>(
+                        valueListenable: StatusBarSettings.enabled,
+                        builder: (context, enabled, _) {
+                          return AppSettingSwitchTile(
+                            title: '状态栏播放状态',
+                            subtitle: '播放时显示当前歌词，无歌词或暂停时显示歌曲名',
+                            value: enabled,
+                            onChanged: (value) {
+                              StatusBarSettings.setEnabled(value);
+                            },
+                          );
+                        },
+                      ),
                   ],
                 ),
-              if (Platform.isMacOS) const SizedBox(height: 16),
+              if (Platform.isMacOS || Platform.isWindows)
+                const SizedBox(height: 16),
               AppSettingSection(
                 title: '应用',
                 children: [
