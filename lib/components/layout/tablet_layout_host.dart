@@ -313,10 +313,16 @@ class _RootBackHandlerState extends State<_RootBackHandler> {
           if (popped) return;
           if (!mounted) return;
         }
-        // 在首页（或 maybePop 冒泡无果）：弹提示并进入待退出，第二次返回真正退出。
-        AppToast.showGlobal('再按一次返回键退回桌面');
+        // 在首页（或 maybePop 冒泡无果）：进入待退出 + 弹提示，第二次返回真正退出。
+        // 先武装退出再弹 toast：提示只是辅助，即使 toast 异常（如 overlay 暂不可用）
+        // 也不能阻断 _armedToExit，否则第二次返回永远无法退出到桌面。
         setState(() => _armedToExit = true);
         _armExitWindow();
+        try {
+          AppToast.showGlobal('再按一次返回键退回桌面');
+        } catch (_) {
+          // toast 失败不阻塞退出逻辑（武装已生效）。
+        }
       },
       child: NotificationListener<NavigationNotification>(
         onNotification: (notification) {

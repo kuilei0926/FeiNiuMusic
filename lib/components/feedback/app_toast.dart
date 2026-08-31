@@ -16,9 +16,35 @@ class AppToast {
     ToastType type = ToastType.info,
     Duration duration = const Duration(seconds: 2),
   }) {
-    _removeCurrent();
-
     final overlay = Overlay.of(context, rootOverlay: true);
+    _showInOverlay(overlay, message, type: type, duration: duration);
+  }
+
+  /// 无 BuildContext 时用的全局 toast：通过根 Navigator 自己的 Overlay 弹。
+  ///
+  /// 不能复用 [show] 里 `Overlay.of(appNavigatorKey.currentContext)` 的写法：
+  /// 根 Navigator 的 context 之上**没有** Overlay（Overlay 是 Navigator 的子节点，
+  /// 不是祖先），`Overlay.of` 向上查找会返回 null 并抛空检查异常，导致调用方
+  /// （如首页返回退出提示）在武装退出前崩溃。改用 [NavigatorState.overlay]
+  /// 直接取该 Navigator 创建的 OverlayState，与 `rootOverlay: true` 取到的是
+  /// 同一个实例。
+  static void showGlobal(
+    String message, {
+    ToastType type = ToastType.info,
+    Duration duration = const Duration(seconds: 2),
+  }) {
+    final overlay = appNavigatorKey.currentState?.overlay;
+    if (overlay == null) return;
+    _showInOverlay(overlay, message, type: type, duration: duration);
+  }
+
+  static void _showInOverlay(
+    OverlayState overlay,
+    String message, {
+    ToastType type = ToastType.info,
+    Duration duration = const Duration(seconds: 2),
+  }) {
+    _removeCurrent();
 
     final entry = OverlayEntry(
       builder: (context) => _ToastWidget(
@@ -35,18 +61,6 @@ class AppToast {
     _timer = Timer(duration + const Duration(milliseconds: 300), () {
       _removeCurrent();
     });
-  }
-
-  /// 无 BuildContext 时用的全局 toast：通过根 Navigator 的 context 弹。
-  /// 根 Navigator 尚未就绪时静默丢弃（不崩溃）。
-  static void showGlobal(
-    String message, {
-    ToastType type = ToastType.info,
-    Duration duration = const Duration(seconds: 2),
-  }) {
-    final context = appNavigatorKey.currentContext;
-    if (context == null) return;
-    show(context, message, type: type, duration: duration);
   }
 
   static void _removeCurrent() {
