@@ -24,7 +24,11 @@ jobs:
           fetch-depth: 0
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # main 分支预览版：含 #191538 修复（macOS Intel 整窗闪烁）。
+          # 锁定到已验证 commit，避免 main 持续滚动导致 CI 漂移；
+          # 后续升级只需把 flutter-version 改为新的已验证 commit。
+          channel: main
+          flutter-version: c97838627ff5c275e9788839d427ab03eb1dfa01
           cache: true
       - name: 提取版本号
         shell: powershell
@@ -57,7 +61,11 @@ jobs:
           fetch-depth: 0
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # main 分支预览版：含 #191538 修复（macOS Intel 整窗闪烁）。
+          # 锁定到已验证 commit，避免 main 持续滚动导致 CI 漂移；
+          # 后续升级只需把 flutter-version 改为新的已验证 commit。
+          channel: main
+          flutter-version: c97838627ff5c275e9788839d427ab03eb1dfa01
           cache: true
       - uses: actions/setup-java@v4
         with:
@@ -149,7 +157,11 @@ jobs:
           fetch-depth: 0
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # main 分支预览版：含 #191538 修复（macOS Intel 整窗闪烁）。
+          # 锁定到已验证 commit，避免 main 持续滚动导致 CI 漂移；
+          # 后续升级只需把 flutter-version 改为新的已验证 commit。
+          channel: main
+          flutter-version: c97838627ff5c275e9788839d427ab03eb1dfa01
           cache: true
       - name: 提取版本号
         shell: bash
@@ -194,7 +206,11 @@ jobs:
           fetch-depth: 0
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # main 分支预览版：含 #191538 修复（macOS Intel 整窗闪烁）。
+          # 锁定到已验证 commit，避免 main 持续滚动导致 CI 漂移；
+          # 后续升级只需把 flutter-version 改为新的已验证 commit。
+          channel: main
+          flutter-version: c97838627ff5c275e9788839d427ab03eb1dfa01
           cache: true
       - name: 提取版本号
         shell: bash
