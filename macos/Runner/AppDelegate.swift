@@ -21,6 +21,18 @@ class AppDelegate: FlutterAppDelegate {
     return false
   }
 
+  override func applicationShouldHandleReopen(
+    _ sender: NSApplication,
+    hasVisibleWindows flag: Bool
+  ) -> Bool {
+    // 菜单栏状态关闭或原生通道尚未同步时仍保留 Dock 恢复入口，避免主窗口
+    // 被 orderOut/close 后无法重新打开。
+    if !flag {
+      mainFlutterWindow?.makeKeyAndOrderFront(nil)
+    }
+    return true
+  }
+
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
     return true
   }

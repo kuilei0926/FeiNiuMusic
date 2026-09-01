@@ -37,4 +37,30 @@ void main() {
       );
     });
   });
+
+  group('shouldEnableMacosCloseToTray', () {
+    test('requires both close-to-tray and a visible status item', () {
+      expect(
+        shouldEnableMacosCloseToTray(
+          closeToTrayEnabled: true,
+          statusBarEnabled: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldEnableMacosCloseToTray(
+          closeToTrayEnabled: true,
+          statusBarEnabled: false,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldEnableMacosCloseToTray(
+          closeToTrayEnabled: false,
+          statusBarEnabled: true,
+        ),
+        isFalse,
+      );
+    });
+  });
 }

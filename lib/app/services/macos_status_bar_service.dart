@@ -20,6 +20,15 @@ String resolveMacosStatusBarText({
   return normalizedTitle;
 }
 
+/// 只有菜单栏入口可见时才允许“关闭到托盘”。否则窗口隐藏后没有可见入口
+/// 可以恢复，用户只能从活动监视器结束进程。
+bool shouldEnableMacosCloseToTray({
+  required bool closeToTrayEnabled,
+  required bool statusBarEnabled,
+}) {
+  return closeToTrayEnabled && statusBarEnabled;
+}
+
 /// macOS 菜单栏（状态栏）播放状态指示器。
 ///
 /// 仅在 macOS 平台启用：启动时在原生侧创建一个 [NSStatusItem]，
@@ -63,6 +72,7 @@ class MacosStatusBarService {
       return;
     }
     _syncVisibilityAndState();
+    _syncCloseToTray();
   }
 
   static void _syncVisibilityAndState() {
@@ -81,7 +91,13 @@ class MacosStatusBarService {
       unawaited(_connect());
       return;
     }
-    _send('setCloseToTray', CloseToTraySettings.enabled.value);
+    _send(
+      'setCloseToTray',
+      shouldEnableMacosCloseToTray(
+        closeToTrayEnabled: CloseToTraySettings.enabled.value,
+        statusBarEnabled: StatusBarSettings.enabled.value,
+      ),
+    );
   }
 
   static Future<void> _handleCall(MethodCall call) async {
