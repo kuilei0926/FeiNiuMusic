@@ -110,6 +110,21 @@ class PlayerService with WidgetsBindingObserver {
   /// （前进/回卷），避免媒体损坏时无限重试刷屏。
   final Set<String> _mediaKitFailedSongIds = {};
 
+  /// 连续「无法播放」自动跳歌计数：因歌曲播放失败（错误 / mpv 加载失败时
+  /// 误报 completed）而自动前进或回卷时 +1；歌曲确认真实播放（位置推进超过
+  /// [_playedThreshold]）时清零。计数达到队列长度说明一整圈都没有一首能播
+  /// （如队列里混入 .txt 等不可播文件），此时停止播放，避免无限循环切歌。
+  int _failSkipStreak = 0;
+
+  /// 本轮失败 streak 是否已重建过原生播放器。连续失败达到一整圈时先重建
+  /// 一次引擎（模拟重启，自愈 mpv 病态状态）；重建后仍失败一整圈才停止，
+  /// 防止坏源无限重建。
+  bool _engineRebuiltForThisStreak = false;
+
+  /// 判定「歌曲确实在播」的位置阈值：位置推进超过它才算真实播放
+  /// （用于区分 mpv「加载失败也报 completed」与真正播完）。
+  static const Duration _playedThreshold = Duration(seconds: 1);
+
   /// 无声看门狗：对「codec 未知 + 可疑容器」的 just_audio 歌曲，播放确认后
   /// 若位置照常推进但可能无声（ExoPlayer 设备解码器静默失败），升级 media_kit
   /// 重播。升级后不再重复处理：media_kit（FFmpeg）解码即出声，失败走 mpv
@@ -257,6 +272,36 @@ class PlayerService with WidgetsBindingObserver {
   static const String _prefsRoamIdKey = 'playback_roam_id_v1';
 
   bool get hasLoadedAudioSource => _activeEngine.hasLoadedSource;
+
+  /// 明确非音频的扩展名（小写）。恢复队列 / 加入队列时，uri 或 format 命中
+  /// 即过滤掉——从源头避免把 .txt 等不可播文件带进播放器（否则启动恢复队列
+  /// 时 mpv 无法解码 → 误报 completed → 无限循环切歌）。
+  static const Set<String> _nonAudioExtensions = {
+    'txt', 'log', 'md', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+    'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico',
+    'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz',
+    'exe', 'dll', 'bat', 'cmd', 'sh', 'msi',
+    'json', 'html', 'htm', 'css', 'js', 'ts', 'py', 'java', 'c', 'cpp', 'h',
+    'ini', 'cfg', 'yaml', 'yml', 'csv', 'xml',
+  };
+
+  /// 该歌曲是否确定不可播（非音频文件）：按 format / uri 扩展名判断。
+  /// 只拦「明确非音频」的扩展名；空格式 / 未知格式不拦（可能实际可播，
+  /// 格式探测延后，由引擎失败保护兜底）。服务器流地址无真实扩展名，
+  /// 不误拦。
+  bool _isDefinitelyNonAudio(SongEntity song) {
+    final fmt = (song.format ?? '').trim().toLowerCase();
+    if (fmt.isNotEmpty && _nonAudioExtensions.contains(fmt)) return true;
+    final uri = (song.uri ?? '').trim();
+    // 服务器流地址（http / /track/stream）没有真实文件扩展名，跳过。
+    if (uri.startsWith('http') || uri.startsWith('/track/')) return false;
+    final dot = uri.lastIndexOf('.');
+    if (dot > 0 && dot < uri.length - 1) {
+      final ext = uri.substring(dot + 1).toLowerCase();
+      if (_nonAudioExtensions.contains(ext)) return true;
+    }
+    return false;
+  }
 
   void _debugLog(String message) {
     // 不依赖 kDebugMode：release 版同样输出，供设置页「调试模式」开启后
@@ -496,6 +541,12 @@ class PlayerService with WidgetsBindingObserver {
       if (_shouldIgnoreZeroPosition(value)) {
         return;
       }
+      // 位置真实推进说明这首歌确实在播：清零连续失败跳歌计数
+      // （失败循环期间位置停住，不会误清零），并允许下一次失败再重建引擎。
+      if (value >= _playedThreshold) {
+        _failSkipStreak = 0;
+        _engineRebuiltForThisStreak = false;
+      }
       position.value = value;
       _maybePrefetchByRemaining(value);
       _emitSnapshot();
@@ -652,6 +703,33 @@ class PlayerService with WidgetsBindingObserver {
     final list = queue.value;
     final idx = currentIndex.value;
     if (idx < 0 || list.isEmpty) return;
+    // 区分「真正播完」与「mpv 加载失败误报 completed」：位置从未真实推进
+    // （<_playedThreshold 且未接近末尾）视为失败，计入连续失败计数；一整圈
+    // （队列长度）都播不出一首能播的歌 → 停止播放，避免队列全是不可播文件
+    // （如混入的 .txt）时无限回卷切歌。
+    if (_enginePlayedFarEnough(engine)) {
+      _failSkipStreak = 0;
+    } else {
+      _failSkipStreak++;
+      if (_failSkipStreak >= list.length) {
+        // 一整圈都没有一首能播：先尝试重建原生播放器自愈（等效重启），
+        // 重建并重试成功则继续；重建失败（或已重建过一次仍失败）才停止。
+        if (await _recoverByRebuildingEngine()) {
+          _failSkipStreak = 0;
+          return;
+        }
+        _debugLog(
+          'stop: completed-without-playback $_failSkipStreak times '
+          'queueSize=${list.length}',
+        );
+        try {
+          await _activeEngine.stop();
+        } catch (_) {}
+        isPlaying.value = false;
+        _emitSnapshot(force: true);
+        return;
+      }
+    }
     if (idx >= list.length - 1) {
       // 逻辑队尾：漫游补链；loop 回卷到逻辑队首（可能跨引擎）。
       if (playbackMode.value == PlaybackMode.shuffle) {
@@ -675,6 +753,61 @@ class PlayerService with WidgetsBindingObserver {
       return;
     }
     await _advanceToLogicalIndex(idx + 1, resumePlayback: true);
+  }
+
+  /// 判断引擎当前歌曲是否「真的播放过」：位置推进超过 [_playedThreshold]，
+  /// 或已接近时长末尾（兼容超短歌曲 / 恢复场景）。用于区分 mpv 加载失败误报
+  /// completed 与真正播完，供连续失败保护计数使用。
+  bool _enginePlayedFarEnough(PlayerEngine engine) {
+    final pos = engine.position;
+    if (pos >= _playedThreshold) return true;
+    final total = duration.value;
+    if (total != null && total > Duration.zero) {
+      return pos >= total - const Duration(milliseconds: 800);
+    }
+    return false;
+  }
+
+  /// 连续失败达到一整圈后尝试自愈：重建原生 media_kit 播放器（等效手动重启），
+  /// 并重试当前歌曲。mpv 加载失败后可能进入无法自愈的病态状态（单例复用、
+  /// 从不重建），这正是「重启 App 才能恢复」的根本原因；这里在程序内自动重建。
+  ///
+  /// 只重建 media_kit（桌面端默认引擎）；just_audio（ExoPlayer）无此问题。
+  /// 每个失败 streak 只重建一次（[_engineRebuiltForThisStreak]），重建后仍失败
+  /// 一整圈才停止，防止坏源无限重建。返回 true 表示已重建并重试。
+  Future<bool> _recoverByRebuildingEngine() async {
+    if (_engineRebuiltForThisStreak) return false;
+    final mk = _mediaKitEngine;
+    if (mk == null || _activeEngine.kind != EngineKind.mediaKit) return false;
+    _engineRebuiltForThisStreak = true;
+    _debugLog('rebuild media_kit engine after fail streak');
+    try {
+      await mk.dispose();
+    } catch (_) {}
+    _mediaKitEngine = null;
+    // 旧引擎已销毁：其流订阅随之失效。新实例不在 _wiredEngines 集合中，
+    // _activateLogicalIndex 的 _wireEngine 会自动重新订阅。
+    _wiredEngines.remove(mk);
+    if (identical(_activeEngine, mk)) {
+      _activeEngine = _defaultEngine();
+    }
+    final idx = currentIndex.value;
+    final list = queue.value;
+    if (idx < 0 || idx >= list.length) return false;
+    try {
+      final pos = position.value;
+      await _activateLogicalIndex(
+        idx,
+        initialPosition: pos > Duration.zero ? pos : null,
+      );
+      await _startPlayback();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('PlayerService rebuild engine retry failed: $e');
+      }
+      return false;
+    }
   }
 
   /// 前进到逻辑索引 [logicalIndex]：同 run 内无缝 next；跨 run 切换引擎。
@@ -1129,6 +1262,10 @@ class PlayerService with WidgetsBindingObserver {
     // 有机会再试，而不是整个会话内一直被跳过。升级标记
     // （_mediaKitEscalateSongIds）是结构性路由决定，不在此清除。
     _mediaKitFailedSongIds.clear();
+    // 显式新建播放队列：重置连续失败保护计数（用户主动选择，给全部歌曲
+    // 一次全新尝试机会）。
+    _failSkipStreak = 0;
+    _engineRebuiltForThisStreak = false;
     // 等待初始化（含旧播放会话恢复）完成，避免 setAudioSources 与恢复流程
     // 并发交错导致播放器物理 loop/shuffle 状态被覆盖。
     await _initFuture;
@@ -1150,6 +1287,7 @@ class PlayerService with WidgetsBindingObserver {
     }
     final playable = songs
         .where((s) => (s.uri ?? '').trim().isNotEmpty)
+        .where((s) => !_isDefinitelyNonAudio(s))
         .toList();
     if (playable.isEmpty) return;
     final targetId = startIndex >= 0 && startIndex < songs.length
@@ -1564,6 +1702,8 @@ class PlayerService with WidgetsBindingObserver {
     queueExtender = null;
     _isExtendingQueue = false;
     roamId = null;
+    _failSkipStreak = 0; // 停止并清空：重置连续失败保护
+    _engineRebuiltForThisStreak = false;
     // 释放全部服务器转码会话（fire-and-forget，不阻塞停止流程）。
     unawaited(FeiNiuTranscodeService.instance.quitAll());
     _stopBackgroundAudioKeepAlive();
@@ -1599,6 +1739,7 @@ class PlayerService with WidgetsBindingObserver {
     _clearRestoreSession();
     final playable = songs
         .where((s) => (s.uri ?? '').trim().isNotEmpty)
+        .where((s) => !_isDefinitelyNonAudio(s))
         .toList();
     if (playable.isEmpty) {
       await stopAndClear();
@@ -1859,6 +2000,25 @@ class PlayerService with WidgetsBindingObserver {
     final list = queue.value;
     final idx = currentIndex.value;
     if (list.isEmpty || idx < 0 || idx >= list.length) return;
+    // 连续失败保护：一整圈（队列长度）都播不出一首能播的歌。先尝试重建
+    // 原生播放器自愈（等效重启），重建并重试成功则继续；重建失败（或已
+    // 重建过一次仍失败）才停止播放。
+    _failSkipStreak++;
+    if (_failSkipStreak >= list.length) {
+      if (await _recoverByRebuildingEngine()) {
+        _failSkipStreak = 0;
+        return;
+      }
+      _debugLog(
+        'stop: skip failed $_failSkipStreak times queueSize=${list.length}',
+      );
+      try {
+        await _activeEngine.stop();
+      } catch (_) {}
+      isPlaying.value = false;
+      _emitSnapshot(force: true);
+      return;
+    }
     if (idx >= list.length - 1) {
       // 逻辑队尾：loop 回卷到队首（可能跨引擎）。
       if (playbackMode.value == PlaybackMode.loop) {
@@ -2018,6 +2178,8 @@ class PlayerService with WidgetsBindingObserver {
       return;
     }
     _clearRestoreSession();
+    _failSkipStreak = 0; // 用户手动切歌：重置连续失败保护
+    _engineRebuiltForThisStreak = false;
     final list = queue.value;
     final idx = currentIndex.value;
     if (list.isEmpty || idx < 0) return;
@@ -2327,6 +2489,8 @@ class PlayerService with WidgetsBindingObserver {
       return;
     }
     _clearRestoreSession();
+    _failSkipStreak = 0; // 用户手动切歌：重置连续失败保护
+    _engineRebuiltForThisStreak = false;
     final list = queue.value;
     final idx = currentIndex.value;
     if (list.isEmpty || idx < 0) return;
@@ -2497,6 +2661,7 @@ class PlayerService with WidgetsBindingObserver {
   Future<void> insertNext(List<SongEntity> songs) async {
     final toInsert = songs
         .where((s) => (s.uri ?? '').trim().isNotEmpty)
+        .where((s) => !_isDefinitelyNonAudio(s))
         .toList();
     if (toInsert.isEmpty) return;
 
@@ -2590,7 +2755,10 @@ class PlayerService with WidgetsBindingObserver {
   /// 本地随机播放：把整个列表本地乱序后作为播放队列播放，
   /// 播到末尾时自动把原列表重新乱序续接，不依赖服务器漫游。
   Future<void> playShuffle(List<SongEntity> songs) async {
-    final base = songs.where((s) => (s.uri ?? '').trim().isNotEmpty).toList();
+    final base = songs
+        .where((s) => (s.uri ?? '').trim().isNotEmpty)
+        .where((s) => !_isDefinitelyNonAudio(s))
+        .toList();
     if (base.isEmpty) return;
     final playable = [...base]..shuffle(Random());
     await playQueue(playable, 0);
@@ -2989,6 +3157,10 @@ class PlayerService with WidgetsBindingObserver {
             .whereType<Map>()
             .map((e) => SongEntity.fromMap(e.cast<String, dynamic>()))
             .where((s) => (s.uri ?? '').trim().isNotEmpty)
+            // 启动恢复队列前过滤确定非音频的文件（.txt 等）：让不可播文件
+            // 根本进不了恢复队列，从源头避免「启动自动播放 → mpv 无法解码 →
+            // 无限循环切歌」。
+            .where((s) => !_isDefinitelyNonAudio(s))
             .toList();
       }
     } catch (_) {

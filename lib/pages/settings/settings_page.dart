@@ -41,7 +41,10 @@ class _SettingsPageState extends State<SettingsPage> {
           extendBodyBehindAppBar: true,
           appBar: AppTopBar(
             title: '设置',
-            showBackButton: !useBottomNavigation || AppLayoutSettings.isDesktop,
+            // 设置页总是被 push 成独立路由（从「我的」齿轮、连接失败入口或侧边栏进入），
+            // 从不是底部导航的 tab，因此必须始终提供返回按钮——尤其 iOS 手机端
+            // 底部导航模式下旧逻辑 `!useBottomNavigation` 会错误地隐藏它。
+            showBackButton: true,
             backgroundColor: Colors.transparent,
             elevation: 0,
           ),
@@ -133,17 +136,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         AppRoutes.notificationSettings,
                       ),
                     ),
-                  // 权限管理仅 Android 有对应系统权限，桌面端隐藏入口。
-                  if (Platform.isAndroid)
-                    AppSettingTile(
-                      title: '权限管理',
-                      subtitle: '查看通知、音频与后台播放权限',
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => Navigator.pushNamed(
-                        context,
-                        AppRoutes.permissionSettings,
-                      ),
-                    ),
                   // 歌词设置（状态栏歌词/车载蓝牙/灵动岛）依赖 Android 系统级
                   // 通知与媒体会话，桌面端无对应能力，隐藏入口。
                   if (Platform.isAndroid)
@@ -173,13 +165,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () =>
                         Navigator.pushNamed(context, AppRoutes.launchSettings),
-                  ),
-                  AppSettingTile(
-                    title: '缓存设置',
-                    subtitle: '管理音频缓存与存储空间',
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () =>
-                        Navigator.pushNamed(context, AppRoutes.cacheSettings),
                   ),
                   AppSettingTile(
                     title: '转码设置',
@@ -251,6 +236,24 @@ class _SettingsPageState extends State<SettingsPage> {
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () =>
                         Navigator.pushNamed(context, AppRoutes.versionInfo),
+                  ),
+                  // 权限管理仅 Android 有对应系统权限，桌面端隐藏入口。
+                  if (Platform.isAndroid)
+                    AppSettingTile(
+                      title: '权限管理',
+                      subtitle: '查看通知、音频与后台播放权限',
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        AppRoutes.permissionSettings,
+                      ),
+                    ),
+                  AppSettingTile(
+                    title: '缓存管理',
+                    subtitle: '管理音频缓存与存储空间',
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () =>
+                        Navigator.pushNamed(context, AppRoutes.cacheSettings),
                   ),
                 ],
               ),

@@ -1,4 +1,5 @@
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -126,7 +127,12 @@ class FeiNiuMusicApp extends StatelessWidget {
                             builders: {
                               TargetPlatform.android:
                                   CoverPageTransitionsBuilder(),
-                              TargetPlatform.iOS: CoverPageTransitionsBuilder(),
+                              // iOS 用原生 Cupertino 转场：自定义 CoverPageTransitionsBuilder
+                              // 只做动画、不含手势，Flutter 3.44 中 iOS 右滑返回手势完全由
+                              // CupertinoPageTransitionsBuilder 提供，不用它的话 iOS 上
+                              // 所有被 push 的页面都无法手势返回（设置页既无返回按钮又无法
+                              // 右滑，用户会卡死）。AppPageRoute 仍把时长压到 200ms。
+                              TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
                               TargetPlatform.macOS:
                                   CoverPageTransitionsBuilder(),
                               TargetPlatform.windows:
@@ -147,7 +153,8 @@ class FeiNiuMusicApp extends StatelessWidget {
                             builders: {
                               TargetPlatform.android:
                                   CoverPageTransitionsBuilder(),
-                              TargetPlatform.iOS: CoverPageTransitionsBuilder(),
+                              // 同上：iOS 恢复原生转场以支持右滑返回手势。
+                              TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
                               TargetPlatform.macOS:
                                   CoverPageTransitionsBuilder(),
                               TargetPlatform.windows:
