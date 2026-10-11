@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
+import '../../app/services/companion/fnmusic_tools_service.dart';
 import '../../app/services/feiniu/favorite_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/services/song_match/song_match_service.dart';
 import '../../app/state/song_state.dart';
 import '../../pages/library/playlists_page.dart' show showAddToPlaylistDialog;
 import '../../app/router/app_router.dart';
+import '../common/song_delete_confirm.dart';
 import '../feedback/app_toast.dart';
 import 'multi_select_bottom_bar.dart';
 /// 全局多选活动计数：当前有多少个页面处于多选状态。
@@ -52,6 +54,12 @@ mixin SongMultiSelectMixin<T extends StatefulWidget>
 
   /// 页面提供：移除收藏成功后收到被移除的 id 列表（收藏页据此清理本地列表）。
   void Function(List<String> removedIds)? get onSongsRemovedFromFavorite => null;
+
+  /// 页面提供：删除成功后收到被删的 id 列表（可选，用于清理本地列表）。
+  ///
+  /// 未 override 时，删除成功后会尝试借 [PrimaryTabRefreshMixin.onPrimaryTabActivated]
+  /// 强制重载列表（页面若混入了该 mixin）。
+  void Function(List<String> removedIds)? get onSongsDeleted => null;
   late final _multiSelect = createSignal(false);
   late final _selectedIds = createSignal<Set<String>>({});
 
@@ -193,6 +201,65 @@ mixin SongMultiSelectMixin<T extends StatefulWidget>
     await onMultiSelectDone?.call();
   }
 
+  /// 删除选中的歌曲（**物理删除**，不可恢复）。
+  ///
+  /// 官方音乐 API 没有真正的删除能力（`track/delete` 只做软隐藏、文件不删），
+  /// 这里走 NAS 侧 `fnmusic-tools` 插件：删音频文件 + 级联清库记录 + 清孤儿。
+  /// 服务端在改库前会自动做一次 SQLite online backup。
+  Future<void> deleteSelectedSongs() async {
+    final songs = selectedSongs;
+    if (songs.isEmpty) return;
+
+    final confirmed = await confirmSongDelete(
+      context,
+      count: songs.length,
+      lines: songs
+          .map((s) =>
+              '· ${s.title}${s.artist.isEmpty ? '' : ' - ${s.artist}'}')
+          .toList(),
+    );
+    if (!confirmed || !mounted) return;
+
+    final removedIds = songs.map((s) => s.id).toList();
+    final result =
+        await FnMusicToolsService.instance.deleteByGuids(removedIds);
+    if (!mounted) return;
+
+    if (!result.ok) {
+      AppToast.show(
+        context,
+        '删除失败：${result.error ?? '未知错误'}',
+        type: ToastType.error,
+      );
+      return;
+    }
+
+    onSongsDeleted?.call(removedIds);
+    AppToast.show(
+      context,
+      '已删除 ${result.removed} 首歌曲',
+      type: ToastType.success,
+    );
+    await _reloadAfterLibraryMutation();
+    await onMultiSelectDone?.call();
+  }
+
+  /// 删除后尽量让列表立即反映变化。
+  ///
+  /// 本项目里各页面自己持有歌曲列表，mixin 拿不到它的 reload 入口；页面若混入了
+  /// [PrimaryTabRefreshMixin]（songs_page / favorite_page 即是），就借它已实现的
+  /// [PrimaryTabRefreshMixin.onPrimaryTabActivated] 强制重载。未混入的页面可用
+  /// [onSongsDeleted] 自行处理，或由用户下拉刷新。
+  Future<void> _reloadAfterLibraryMutation() async {
+    try {
+      // 动态调用：避免 mixin 直接依赖具体页面的 mixin 组合。
+      final dynamic self = this;
+      await self.onPrimaryTabActivated();
+    } catch (_) {
+      // 页面没有 PrimaryTabRefreshMixin —— 忽略
+    }
+  }
+
   /// 批量匹配数据：用 Lyrico 数据源插件为选中的歌曲匹配信息并回传 NAS。
   Future<void> matchSelectedSongs() async {
     final songs = selectedSongs;
@@ -270,6 +337,13 @@ mixin SongMultiSelectMixin<T extends StatefulWidget>
           isDestructive: true,
           onTap: empty ? null : () => removeSelectedFromFavorite(),
         ),
+      // 彻底删除：删文件 + 清库记录。官方 API 无此能力，走 NAS 侧 fnmusic-tools 插件。
+      MultiSelectAction(
+        icon: Icons.delete_outline_rounded,
+        label: '删除',
+        isDestructive: true,
+        onTap: empty ? null : () => deleteSelectedSongs(),
+      ),
     ];
     return MultiSelectBottomBar(actions: actions);
   }

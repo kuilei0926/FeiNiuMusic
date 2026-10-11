@@ -7,6 +7,7 @@ import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
 import '../../../app/router/app_page_route.dart';
 import '../../../app/router/app_router.dart';
+import '../../../app/services/companion/fnmusic_tools_service.dart';
 import '../../../app/services/lyrics/lyrics_service.dart';
 import '../../../app/services/player_service.dart';
 import '../../../app/state/settings_state.dart';
@@ -14,6 +15,7 @@ import '../../../app/state/song_state.dart';
 import '../../../components/common/artwork_widget.dart';
 import '../../../components/common/labeled_slider.dart';
 import '../../../components/common/playing_bars.dart';
+import '../../../components/common/song_delete_confirm.dart';
 import '../../../components/feedback/app_toast.dart';
 import '../../../components/player/lyric_preview.dart';
 import '../../library/library_detail_pages.dart';
@@ -439,6 +441,12 @@ class PlayerControls extends StatelessWidget {
   }
 }
 
+/// 「删除当前播放歌曲」请求进行中的开关。
+///
+/// 放在文件级而不是 widget 局部状态：删除要走一次 NAS 的 HTTP 请求（秒级），
+/// 期间必须禁掉按钮，否则用户连点会重复提交同一次删除。
+final ValueNotifier<bool> playerDeleteBusy = ValueNotifier<bool>(false);
+
 class BottomActions extends StatelessWidget {
   final PlayerService player;
   final PlayerStylePreset stylePreset;
@@ -469,6 +477,9 @@ class BottomActions extends StatelessWidget {
             PlayerBottomActionSettings.showPlaylist,
             PlayerBottomActionSettings.showMore,
             PlayerBottomActionSettings.actionOrder,
+            // 当前曲目变化时增删「删除」按钮；删除进行中禁用按钮。
+            player.currentSong,
+            playerDeleteBusy,
           ]),
           builder: (context, _) {
             final actions = <Widget>[];
@@ -538,15 +549,57 @@ class BottomActions extends StatelessWidget {
                   break;
               }
             }
+            // 【fnmusic-tools】删除当前播放歌曲。
+            // 刻意**不进** actionOrder：那是个持久化配置，老用户存的列表里没有
+            // 'delete' 键，放进去会集体不显示。挂在末尾即"常驻"。
+            final currentSong = player.currentSong.value;
+            if (currentSong != null) {
+              final busy = playerDeleteBusy.value;
+              actions.add(
+                IconButton(
+                  tooltip: '删除当前播放歌曲',
+                  icon: Icon(Icons.delete_outline_rounded, color: iconColor),
+                  onPressed: busy
+                      ? null
+                      : () => _deleteCurrentSong(context, currentSong),
+                ),
+              );
+            }
             if (actions.isEmpty) {
               return const SizedBox.shrink();
             }
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: actions,
-              ),
+            // 动作数最多 5 个（含删除）。5×48 + 40 内边距 = 280，在 320dp 窄屏上
+            // 仍放得下；但本应用同时有 Windows 桌面端，窗口可以被拖得更窄，
+            // 那时 spaceBetween 的 Row 会溢出。宽度不够就退化成可横向滚动的紧凑排布，
+            // 宽度够时与改动前完全一致。
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                const gap = 20.0;
+                const slot = 48.0;
+                final needed = actions.length * slot + gap * 2;
+                if (constraints.maxWidth >= needed) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: gap),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: actions,
+                    ),
+                  );
+                }
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: gap),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var i = 0; i < actions.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 4),
+                        actions[i],
+                      ],
+                    ],
+                  ),
+                );
+              },
             );
           },
         );
@@ -556,6 +609,59 @@ class BottomActions extends StatelessWidget {
 
   void _showSleepTimerSheet(BuildContext context) {
     showPlayerSleepTimerSheet(context, player);
+  }
+
+  /// 删除当前正在播放的这首：物理删除文件 + 从播放队列摘除。
+  ///
+  /// 顺序刻意是「先删文件、再更新队列」：删除失败时用户端状态完全没变（歌还在队列、
+  /// 还能播）；删除成功后才动队列。反过来先摘队列的话，一旦删除失败，用户会发现
+  /// 歌莫名从播放列表消失了。
+  Future<void> _deleteCurrentSong(BuildContext context, SongEntity song) async {
+    final confirmed = await confirmSongDelete(
+      context,
+      count: 1,
+      lines: [
+        '· ${song.title}'
+            '${song.artistDisplayName.isEmpty ? '' : ' - ${song.artistDisplayName}'}'
+      ],
+      subtitle: '当前正在播放：${song.title}',
+    );
+    // mounted 检查：确认框 dismiss 与网络请求都跨帧，期间播放页可能被 pop 掉。
+    if (!confirmed || !context.mounted) return;
+
+    playerDeleteBusy.value = true;
+    FnmtDeleteResult result;
+    try {
+      result = await FnMusicToolsService.instance.deleteByGuids([song.id]);
+    } catch (e) {
+      // 网络层异常同样不能让按钮永久卡在 busy 状态
+      result = const FnmtDeleteResult(ok: false, error: '请求异常');
+      debugPrint('[player] delete request threw: $e');
+    } finally {
+      playerDeleteBusy.value = false;
+    }
+    if (!context.mounted) return;
+
+    if (!result.ok) {
+      AppToast.show(
+        context,
+        '删除失败：${result.error ?? '未知错误'}',
+        type: ToastType.error,
+      );
+      return;
+    }
+
+    // 文件已删 → 把这一首从播放队列摘掉。[PlayerService.removeSongsById] 内部已覆盖：
+    // 删的是当前曲目时切到下一首、队列空则停止播放、尽量保留播放位置、
+    // 逻辑队列与引擎队列错位时兜底 stopAndClear。这里再兜一层异常，绝不让它冒泡。
+    try {
+      await player.removeSongsById([song.id]);
+    } catch (e) {
+      AppToast.show(context, '文件已删除，但播放列表未能同步', type: ToastType.error);
+      debugPrint('[player] removeSongsById failed: $e');
+      return;
+    }
+    AppToast.show(context, '已删除《${song.title}》', type: ToastType.success);
   }
 
   void _showPlaylistSheet(BuildContext context) {
