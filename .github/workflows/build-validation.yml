@@ -47,7 +47,7 @@ jobs:
           name: validation-android-debug-signed-${{ github.sha }}
           path: build/app/outputs/flutter-apk/app-*-release.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   build-windows:
     if: github.repository == 'qbmzc/FeiNiuMusic'
@@ -74,7 +74,7 @@ jobs:
           name: validation-windows-${{ github.sha }}
           path: build/installer/FeiNiuMusic-v*-Windows.zip
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   build-macos:
     if: github.repository == 'qbmzc/FeiNiuMusic'
@@ -111,4 +111,4 @@ jobs:
           name: validation-macos-${{ github.sha }}
           path: FeiNiuMusic-validation-MacOS.zip
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3

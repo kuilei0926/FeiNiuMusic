@@ -266,7 +266,7 @@ class PlayerService with WidgetsBindingObserver {
   int? _pendingLoadLogicalIndex;
 
   Future<List<SongEntity>> Function()? queueExtender;
-  bool _isExtendingQueue = false;
+  Future<void>? _queueExtensionInFlight;
 
   /// Current roam ID for shuffle mode (roam-next API chain)
   String? roamId;
@@ -290,12 +290,54 @@ class PlayerService with WidgetsBindingObserver {
   /// 即过滤掉——从源头避免把 .txt 等不可播文件带进播放器（否则启动恢复队列
   /// 时 mpv 无法解码 → 误报 completed → 无限循环切歌）。
   static const Set<String> _nonAudioExtensions = {
-    'txt', 'log', 'md', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
-    'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico',
-    'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz',
-    'exe', 'dll', 'bat', 'cmd', 'sh', 'msi',
-    'json', 'html', 'htm', 'css', 'js', 'ts', 'py', 'java', 'c', 'cpp', 'h',
-    'ini', 'cfg', 'yaml', 'yml', 'csv', 'xml',
+    'txt',
+    'log',
+    'md',
+    'pdf',
+    'doc',
+    'docx',
+    'xls',
+    'xlsx',
+    'ppt',
+    'pptx',
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'bmp',
+    'webp',
+    'svg',
+    'ico',
+    'zip',
+    'rar',
+    '7z',
+    'tar',
+    'gz',
+    'bz2',
+    'xz',
+    'exe',
+    'dll',
+    'bat',
+    'cmd',
+    'sh',
+    'msi',
+    'json',
+    'html',
+    'htm',
+    'css',
+    'js',
+    'ts',
+    'py',
+    'java',
+    'c',
+    'cpp',
+    'h',
+    'ini',
+    'cfg',
+    'yaml',
+    'yml',
+    'csv',
+    'xml',
   };
 
   /// 该歌曲是否确定不可播（非音频文件）：按 format / uri 扩展名判断。
@@ -324,23 +366,24 @@ class PlayerService with WidgetsBindingObserver {
 
   PlayerService._internal() {
     WidgetsBinding.instance.addObserver(this);
-    _wifiDirectPolicyActive = AppTranscodeSettings.directOnWifi.value &&
+    _wifiDirectPolicyActive =
+        AppTranscodeSettings.directOnWifi.value &&
         NetworkConnectionService.instance.isWifiConnected;
     NetworkConnectionService.instance.wifiConnected.addListener(
       _scheduleNetworkRouteRefresh,
     );
-    AppTranscodeSettings.directOnWifi.addListener(
-      _scheduleNetworkRouteRefresh,
-    );
+    AppTranscodeSettings.directOnWifi.addListener(_scheduleNetworkRouteRefresh);
     _initFuture = _init();
   }
 
   void _scheduleNetworkRouteRefresh() {
-    final active = AppTranscodeSettings.directOnWifi.value &&
+    final active =
+        AppTranscodeSettings.directOnWifi.value &&
         NetworkConnectionService.instance.isWifiConnected;
     if (active == _wifiDirectPolicyActive) return;
     _wifiDirectPolicyActive = active;
-    if (queue.value.isEmpty || currentIndex.value < 0 || isCasting.value) return;
+    if (queue.value.isEmpty || currentIndex.value < 0 || isCasting.value)
+      return;
     _networkRouteRefreshTimer?.cancel();
     _networkRouteRefreshTimer = Timer(const Duration(milliseconds: 500), () {
       unawaited(_refreshNetworkTranscodeRoute());
@@ -576,10 +619,9 @@ class PlayerService with WidgetsBindingObserver {
       //（normalizeCroppedPosition），这里按曲目自身 duration 覆盖时长，与
       // just_audio 的 ClippingAudioSource（上报裁剪后时长）行为一致；也避免
       // 把整轨时长误持久化进曲目。
-      final effective =
-          song != null && song.isCue && (song.durationMs ?? 0) > 0
-              ? Duration(milliseconds: song.durationMs!)
-              : value;
+      final effective = song != null && song.isCue && (song.durationMs ?? 0) > 0
+          ? Duration(milliseconds: song.durationMs!)
+          : value;
       duration.value = effective;
       final ms = effective?.inMilliseconds ?? 0;
       if (song != null && ms > 0) {
@@ -615,8 +657,7 @@ class PlayerService with WidgetsBindingObserver {
       // 顺序模式/漫游：当前曲目播完且队列没有可播的下一首时自动追加。
       // 引擎 run 不自动回卷，completed 统一由 _handleEngineCompleted 驱动前进。
       if (state.processingState == EngineProcessingState.completed &&
-          playbackMode.value != PlaybackMode.single &&
-          _roamAppendQueuedCount <= 0) {
+          playbackMode.value != PlaybackMode.single) {
         unawaited(_handleEngineCompleted(engine));
       }
       // 无损大文件（media_kit 直连原始流）对网络要求高：缓冲超时提示网络缓慢。
@@ -753,9 +794,13 @@ class PlayerService with WidgetsBindingObserver {
           await _startRoamFromPending();
           return;
         }
+        final generation = _queueGeneration;
         await _autoExtendQueue();
-        if (queue.value.length > list.length) {
-          await _advanceToLogicalIndex(idx + 1, resumePlayback: true);
+        if (generation != _queueGeneration) return;
+        // 追加可能裁掉队首，必须使用裁剪后重映射的当前索引。
+        final nextIndex = currentIndex.value + 1;
+        if (nextIndex < queue.value.length) {
+          await _advanceToLogicalIndex(nextIndex, resumePlayback: true);
         }
         return;
       }
@@ -1213,12 +1258,7 @@ class PlayerService with WidgetsBindingObserver {
     if (isCue && cueOffset != null) {
       final offset = Duration(milliseconds: cueOffset);
       final end = Duration(milliseconds: cueOffset + (song.durationMs ?? 0));
-      return mk.Media(
-        uri,
-        start: offset,
-        end: end,
-        httpHeaders: headers,
-      );
+      return mk.Media(uri, start: offset, end: end, httpHeaders: headers);
     }
     return mk.Media(uri, httpHeaders: headers);
   }
@@ -1287,7 +1327,6 @@ class PlayerService with WidgetsBindingObserver {
     await _initFuture;
     _clearRestoreSession();
     queueExtender = null;
-    _isExtendingQueue = false;
     // 注意：显式用 this.roamId 强调这是成员字段赋值。历史上参数 roamId 曾
     // 遮蔽成员字段，导致 this.roamId 无法被正确恢复（roamId 永远清空），
     // 漫游续链时用错 roamId。参数现在命名 roamChainId 以彻底避免遮蔽，
@@ -1716,7 +1755,6 @@ class PlayerService with WidgetsBindingObserver {
     _debugLog('stopAndClear');
     _clearRestoreSession();
     queueExtender = null;
-    _isExtendingQueue = false;
     roamId = null;
     _failSkipStreak = 0; // 停止并清空：重置连续失败保护
     _engineRebuiltForThisStreak = false;
@@ -2211,14 +2249,14 @@ class PlayerService with WidgetsBindingObserver {
       // 队尾无下一首：先拉取追加。等待追加完成（含在途请求）再前进，
       // 避免 run 无源可切时 next 停在队尾。
       if (idx >= list.length - 1) {
-        await _extendRoamQueue();
+        await _autoExtendQueue();
         final afterList = queue.value;
-        if (idx >= afterList.length - 1) {
+        if (currentIndex.value >= afterList.length - 1) {
           return; // 追加失败（网络异常）且仍无可播下一首：停留队尾
         }
       }
     }
-    final targetIdx = idx + 1;
+    final targetIdx = currentIndex.value + 1;
     if (targetIdx >= queue.value.length) {
       // 逻辑队尾：loop 回卷到队首（可能跨引擎）。
       if (playbackMode.value == PlaybackMode.loop) {
@@ -2381,8 +2419,8 @@ class PlayerService with WidgetsBindingObserver {
       final nextTrack = appendedTrack;
       if (nextTrack == null) return;
       final baseQueue = queue.value;
-      final alreadyInQueue = baseQueue.any((s) => s.id == nextTrack.id);
-      if (alreadyInQueue) return;
+      // 随机漫游允许重复歌曲：历史队列中已出现不代表没有下一曲。
+      // 丢弃服务端选中的重复歌曲会让队尾失去续播来源。
       final allSongs = [...baseQueue, nextTrack];
 
       // 引擎感知的追加：先更新逻辑队列与引擎路由；若追加的歌曲与当前 run
@@ -2869,7 +2907,9 @@ class PlayerService with WidgetsBindingObserver {
     final idx = currentIndex.value;
     if (song == null || idx < 0) return;
     final svc = FeiNiuTranscodeService.instance;
-    _debugLog('setTranscodeOverride ${song.title} -> ${format?.name ?? 'global'}');
+    _debugLog(
+      'setTranscodeOverride ${song.title} -> ${format?.name ?? 'global'}',
+    );
     svc.setForcedTranscodeCodec(song.id, format?.name);
     // 强制转码与强制直连互斥：选了转码格式就取消该歌的直连覆盖。
     _forceDirectSongIds.remove(song.id);
@@ -3736,24 +3776,39 @@ class PlayerService with WidgetsBindingObserver {
   }
 
   Future<void> _autoExtendQueue() async {
-    // 漫游模式走 _extendRoamQueue（roam-next）；本地随机（playShuffle）与
-    // 顺序模式共用 queueExtender。防止与 _extendRoamQueue 并发重复追加。
-    if (_roamAppendQueuedCount > 0) return;
-    if (_isExtendingQueue) return;
+    if (roamActive || _roamAppendInFlight != null) {
+      await _extendRoamQueue();
+      return;
+    }
+    final inflight = _queueExtensionInFlight;
+    if (inflight != null) return inflight;
     final extender = queueExtender;
     if (extender == null) return;
 
-    _isExtendingQueue = true;
+    final generation = _queueGeneration;
+    final future = _extendLocalQueue(extender, generation);
+    _queueExtensionInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_queueExtensionInFlight, future)) {
+        _queueExtensionInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _extendLocalQueue(
+    Future<List<SongEntity>> Function() extender,
+    int generation,
+  ) async {
     try {
       final newSongs = await extender();
-      if (newSongs.isEmpty) return;
+      if (generation != _queueGeneration || newSongs.isEmpty) return;
       await _appendToQueue(newSongs);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('PlayerService autoExtendQueue error: $e');
       }
-    } finally {
-      _isExtendingQueue = false;
     }
   }
 

@@ -80,6 +80,7 @@ class _SystemFontPickerState extends State<SystemFontPicker> {
 
   @override
   Widget build(BuildContext context) {
+    if (!SystemFontService.supported) return const SizedBox.shrink();
     final colors = Theme.of(context).colorScheme;
     final value = _value.trim();
     return Column(
