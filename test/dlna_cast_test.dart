@@ -50,33 +50,130 @@ SongEntity _song(String id, {String? format, String? title, int? durationMs}) {
 }
 
 void main() {
-  setUp(() {
+  setUp(() async {
     FeiNiuTranscodeService.instance.resetForTest();
     FeiNiuApiClient.instance.setDioForTest(
-      _mockDio((o) => {
-        'code': 0,
-        'data': {
-          'audioSpec': {'format': 'dsf'},
-          'track': {
+      _mockDio(
+        (o) => {
+          'code': 0,
+          'data': {
             'audioSpec': {'format': 'dsf'},
+            'track': {
+              'audioSpec': {'format': 'dsf'},
+            },
+            'url': '/music/api/v1/track/hls/id-1/preset.m3u8',
           },
-          'url': '/music/api/v1/track/hls/id-1/preset.m3u8',
         },
-      }),
+      ),
     );
     DlnaCastSettings.resetForTest();
     AppTranscodeSettings.resetForTest();
-    MediaStreamProxy.forceLoopbackBase = true;
+    await MediaStreamProxy.instance.start(advertisedHost: '127.0.0.1');
   });
 
   tearDown(() async {
-    MediaStreamProxy.forceLoopbackBase = false;
     await MediaStreamProxy.instance.stop();
+  });
+
+  group('MediaStreamProxy route selection', () {
+    test(
+      'uses the source address of a real connection to the renderer',
+      () async {
+        final renderer = await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        final accepted = renderer.first;
+        try {
+          final local = await MediaStreamProxy.resolveLocalAddress(
+            '127.0.0.1',
+            renderer.port,
+          );
+          final peer = await accepted;
+          try {
+            expect(local, peer.remoteAddress.address);
+            expect(local, '127.0.0.1');
+          } finally {
+            peer.destroy();
+          }
+        } finally {
+          await renderer.close();
+        }
+      },
+    );
+
+    test('fails when the renderer endpoint cannot be reached', () async {
+      final renderer = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = renderer.port;
+      await renderer.close();
+      await expectLater(
+        MediaStreamProxy.resolveLocalAddress('127.0.0.1', port),
+        throwsA(isA<SocketException>()),
+      );
+      await expectLater(
+        MediaStreamProxy.resolveLocalAddress('127.0.0.1', -1),
+        throwsArgumentError,
+      );
+    });
+
+    test(
+      'registration never starts a proxy with an arbitrary address',
+      () async {
+        await MediaStreamProxy.instance.stop();
+        expect(
+          await MediaStreamProxy.instance.registerMedia('http://nas/song.mp3'),
+          isNull,
+        );
+        expect(
+          await MediaStreamProxy.instance.registerResource(
+            'http://nas/cover.jpg',
+          ),
+          isNull,
+        );
+        expect(MediaStreamProxy.instance.isRunning, isFalse);
+      },
+    );
+
+    test(
+      'a new address clears stale media and updates all resource URLs',
+      () async {
+        final proxy = MediaStreamProxy.instance;
+        await proxy.start(advertisedHost: '10.111.15.232');
+        final previousToken = proxy.token;
+        await proxy.registerMedia('http://nas/old.mp3');
+        final oldCover = await proxy.registerResource('http://nas/old.jpg');
+
+        final base = await proxy.start(advertisedHost: '192.168.8.179');
+        expect(Uri.parse(base!).host, '192.168.8.179');
+        expect(proxy.token, isNot(previousToken));
+        expect(proxy.hasMedia, isFalse);
+        final media = await proxy.registerMedia('http://nas/new.mp3');
+        final cover = await proxy.registerResource('http://nas/new.jpg');
+        expect(media, startsWith('$base/m/'));
+        expect(cover, startsWith('$base/r/'));
+
+        // 服务监听所有 IPv4；通过回环访问，验证旧封面注册已清除。
+        final client = HttpClient();
+        try {
+          final oldPath = Uri.parse(oldCover!).path;
+          final request = await client.getUrl(
+            Uri.parse('http://127.0.0.1:${Uri.parse(base).port}$oldPath'),
+          );
+          final response = await request.close();
+          expect(response.statusCode, HttpStatus.notFound);
+          await response.drain<void>();
+        } finally {
+          client.close(force: true);
+        }
+      },
+    );
   });
 
   group('MediaStreamProxy HLS 改写', () {
     test('普通分片行改写成经代理的绝对地址', () async {
-      final base = await MediaStreamProxy.instance.start();
+      final base = await MediaStreamProxy.instance.start(
+        advertisedHost: '127.0.0.1',
+      );
       expect(base, isNotNull);
       final proxyUrl = await MediaStreamProxy.instance.registerMedia(
         'http://nas/music/api/v1/track/hls/a.m3u8',
@@ -89,8 +186,10 @@ void main() {
       final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final upstreamPort = upstream.port;
       upstream.listen((request) {
-        request.response.headers.contentType =
-            ContentType('application', 'vnd.apple.mpegurl');
+        request.response.headers.contentType = ContentType(
+          'application',
+          'vnd.apple.mpegurl',
+        );
         request.response.write('''
 #EXTM3U
 #EXT-X-MAP:URI="init.mp4"
@@ -116,7 +215,12 @@ seg1.m4s
           final body = await resp.transform(utf8.decoder).join();
           expect(resp.statusCode, 200);
           // 分片与 init 段都必须改写成经代理的绝对地址
-          expect(body, contains('/m/${MediaStreamProxy.instance.token}'));
+          expect(
+            body,
+            contains(
+              '${MediaStreamProxy.instance.proxyBase}/m/${MediaStreamProxy.instance.token}',
+            ),
+          );
           expect(body, contains('seg0.m4s'));
           expect(body, contains('seg1.m4s'));
           expect(body, contains('init.mp4'));
@@ -134,8 +238,7 @@ seg1.m4s
       final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final upstreamPort = upstream.port;
       upstream.listen((request) {
-        request.response.headers.contentType =
-            ContentType('audio', 'mpeg');
+        request.response.headers.contentType = ContentType('audio', 'mpeg');
         request.response.add(utf8.encode('fake-mp3-bytes'));
         request.response.close();
       });

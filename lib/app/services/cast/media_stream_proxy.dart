@@ -45,10 +45,6 @@ class MediaStreamProxy {
   final Map<String, ({String url, Map<String, String> headers})> _resources =
       {};
 
-  /// 测试专用：强制代理基址使用回环地址（避免测试环境连接到真实 LAN IP）。
-  @visibleForTesting
-  static bool forceLoopbackBase = false;
-
   bool get isRunning => _server != null;
 
   String? get token => _token;
@@ -58,14 +54,47 @@ class MediaStreamProxy {
   /// 当前代理是否已注册了可用的上游媒体流。
   bool get hasMedia => _upstreamUrl.isNotEmpty;
 
-  /// 启动本地代理服务（幂等）。成功返回 `http://<LAN IP>:<port>`，失败返回 null。
-  Future<String?> start() async {
-    if (_server != null) return _proxyBase;
+  /// 根据到渲染器的实际路由确定本机 IPv4，不依赖网卡枚举顺序。
+  static Future<String> resolveLocalAddress(String host, int port) async {
+    if (host.isEmpty || port < 1 || port > 65535) {
+      throw ArgumentError('Invalid renderer endpoint');
+    }
+    final socket = await Socket.connect(
+      host,
+      port,
+      timeout: const Duration(seconds: 3),
+    );
+    try {
+      final address = socket.address;
+      if (address.type != InternetAddressType.IPv4 ||
+          address.address == '0.0.0.0' ||
+          address.address.startsWith('169.254.')) {
+        throw StateError('No usable local IPv4 route to renderer');
+      }
+      _log('route target=$host:$port local=${address.address}');
+      return address.address;
+    } finally {
+      socket.destroy();
+    }
+  }
+
+  /// 使用会话选定的本机地址启动代理；地址变化时释放旧会话。
+  Future<String?> start({required String advertisedHost}) async {
+    final address = InternetAddress.tryParse(advertisedHost);
+    if (address == null ||
+        address.type != InternetAddressType.IPv4 ||
+        address.address == '0.0.0.0') {
+      throw ArgumentError('A local IPv4 address is required');
+    }
+    if (_server != null) {
+      if (Uri.parse(_proxyBase).host == advertisedHost) return _proxyBase;
+      await stop();
+    }
     try {
       final server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
       _server = server;
       _token = _generateToken();
-      _proxyBase = await _buildBaseUrl(server.port);
+      _proxyBase = 'http://$advertisedHost:${server.port}';
       server.listen(
         _handle,
         onError: (Object e, StackTrace st) {
@@ -95,7 +124,7 @@ class MediaStreamProxy {
     Map<String, String> headers = const {},
     String fileExtension = 'mp3',
   }) async {
-    final base = await start();
+    final base = proxyBase;
     if (base == null || _token == null) return null;
     _upstreamUrl = upstreamUrl;
     _upstreamHeaders = headers;
@@ -115,7 +144,7 @@ class MediaStreamProxy {
     String upstreamUrl, {
     Map<String, String> headers = const {},
   }) async {
-    final base = await start();
+    final base = proxyBase;
     if (base == null || _token == null) return null;
     final resToken = _generateToken();
     _resources[resToken] = (url: upstreamUrl, headers: headers);
@@ -390,27 +419,5 @@ class MediaStreamProxy {
       return normalized;
     }
     return 'mp3';
-  }
-
-  /// 构造代理对外基址：优先取本机局域网 IPv4（渲染器同网段可达），
-  /// 取不到时回退 127.0.0.1（仅本机可用，投屏基本无意义，但可测）。
-  static Future<String> _buildBaseUrl(int port) async {
-    if (forceLoopbackBase) return 'http://127.0.0.1:$port';
-    final ips = <String>[];
-    try {
-      final interfaces = await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-        includeLoopback: false,
-      );
-      for (final iface in interfaces) {
-        for (final addr in iface.addresses) {
-          final ip = addr.address;
-          if (ip.startsWith('169.254.')) continue; // APIPA / 链路本地
-          ips.add(ip);
-        }
-      }
-    } catch (_) {}
-    if (ips.isEmpty) ips.add('127.0.0.1');
-    return 'http://${ips.first}:$port';
   }
 }

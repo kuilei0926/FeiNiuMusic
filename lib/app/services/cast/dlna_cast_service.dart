@@ -70,6 +70,9 @@ class DlnaCastService {
   /// 投屏状态（idle / discovering / casting）。
   final ValueNotifier<DlnaCastState> state = ValueNotifier(DlnaCastState.idle);
 
+  /// 最近一次投送失败时可向用户展示的原因。
+  String? lastCastError;
+
   /// 当前投屏目标设备。
   final ValueNotifier<DlnaDevice?> currentDevice = ValueNotifier(null);
 
@@ -305,6 +308,7 @@ class DlnaCastService {
   /// - 其余（MP3/AAC/…）→ 直连流。
   /// 统一经 [MediaStreamProxy] 换签为匿名 URL。
   Future<bool> castTo(DlnaDevice device, SongEntity song) async {
+    lastCastError = null;
     if (!DlnaCastSettings.enabled.value) return false;
     try {
       await _ensureInitialized();
@@ -315,9 +319,32 @@ class DlnaCastService {
         'cast requested device=${device.friendlyName} '
         'format=${(song.format ?? song.codec ?? 'unknown').toLowerCase()}',
       );
+      // 每次投送重新选址，包含上次投送失败后遗留的代理会话。
+      await MediaStreamProxy.instance.stop();
+      final String localAddress;
+      try {
+        localAddress = await MediaStreamProxy.resolveLocalAddress(
+          device.ipAddress.value,
+          // 插件透传 URL.port；HTTP 描述地址省略端口时其值为 -1。
+          device.port.value == -1 ? 80 : device.port.value,
+        );
+      } catch (e) {
+        lastCastError = '无法确定到投屏设备的本机网络地址，请检查网络后重试';
+        _log('route selection failed: ${_safeError(e)}');
+        return false;
+      }
+      final base = await MediaStreamProxy.instance.start(
+        advertisedHost: localAddress,
+      );
+      if (base == null) {
+        lastCastError = '无法启动投屏媒体代理，请重试';
+        _log('cast aborted: media proxy unavailable');
+        return false;
+      }
       final proxyUrl = await _resolveCastUrl(song);
       if (proxyUrl == null) {
         _log('cast aborted: no castable URL');
+        await MediaStreamProxy.instance.stop();
         return false;
       }
       // 封面图经代理换签为匿名 URL（渲染器直接拉取展示）
@@ -364,6 +391,7 @@ class DlnaCastService {
       return true;
     } catch (e) {
       _log('cast failed: ${_safeError(e)}');
+      await MediaStreamProxy.instance.stop();
       return false;
     }
   }
@@ -564,7 +592,7 @@ class DlnaCastService {
     } catch (_) {}
     currentDevice.value = null;
     state.value = DlnaCastState.idle;
-    MediaStreamProxy.instance.stop();
+    await MediaStreamProxy.instance.stop();
     if (wasCasting && !silent) {
       onCastDisconnect?.call();
       if (reason != null && kDebugMode) {

@@ -25,8 +25,7 @@ class CastButton extends StatelessWidget {
 
   bool get _isAndroid =>
       !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          Platform.isAndroid);
+      (defaultTargetPlatform == TargetPlatform.android || Platform.isAndroid);
 
   @override
   Widget build(BuildContext context) {
@@ -309,7 +308,7 @@ class _CastDeviceSheetState extends State<_CastDeviceSheet> {
       AppToast.show(context, '已投屏到「${device.friendlyName}」');
       Navigator.pop(context);
     } else {
-      AppToast.show(context, '投屏失败，请检查设备是否支持');
+      AppToast.show(context, _cast.lastCastError ?? '投屏失败，请检查设备是否支持');
     }
   }
 }
