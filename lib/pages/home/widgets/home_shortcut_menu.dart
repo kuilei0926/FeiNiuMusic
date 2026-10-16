@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/state/settings_layout_state.dart';
 import '../../../app/tv/tv_layout.dart';
+import 'home_panel.dart';
 
 /// 首页功能入口卡片数据
 class HomeShortcutItem {
@@ -53,6 +54,7 @@ class HomeShortcutMenu extends StatelessWidget {
                     child: _ShortcutItem(
                       item: items[r * 2 + c],
                       scheme: scheme,
+                      embedded: true,
                     ),
                   ),
                 ],
@@ -78,8 +80,13 @@ class HomeShortcutMenu extends StatelessWidget {
 class _ShortcutItem extends StatelessWidget {
   final HomeShortcutItem item;
   final ColorScheme scheme;
+  final bool embedded;
 
-  const _ShortcutItem({required this.item, required this.scheme});
+  const _ShortcutItem({
+    required this.item,
+    required this.scheme,
+    this.embedded = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -91,8 +98,8 @@ class _ShortcutItem extends StatelessWidget {
     // 四宫格项是 Material + InkWell：本身可聚焦（Material 自带焦点环 +
     // 主题 focusColor 高亮），聚焦范围即完整卡片。不再包 TvFocusable
     // 缩放/描边，避免聚焦范围只剩图标一小块、右侧空白。
-    return Material(
-      color: scheme.surfaceContainerLow,
+    return HomePanel(
+      color: embedded ? Colors.transparent : null,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),

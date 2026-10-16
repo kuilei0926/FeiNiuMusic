@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -39,6 +40,13 @@ class PlayerBackgroundSettings {
   static const String _prefsHueShift = 'gradient_hue_shift';
   static const String _prefsRoundCover = 'player_round_cover';
   static const String _prefsRotateCover = 'player_rotate_cover';
+  static const _prefsImagePath = 'player_background_image_path';
+  static const _prefsImageMask = 'player_background_image_mask';
+  static const _prefsImageBlur = 'player_background_image_blur';
+
+  static final imagePath = ValueNotifier<String?>(null);
+  static final imageMaskOpacity = ValueNotifier<double>(0.4);
+  static final imageBlurSigma = ValueNotifier<double>(0);
 
   static final ValueNotifier<ThemeMode> playbackThemeMode = ValueNotifier(
     ThemeMode.system,
@@ -77,6 +85,15 @@ class PlayerBackgroundSettings {
 
   static Future<void> _doLoad() async {
     final prefs = await SharedPreferences.getInstance();
+    imagePath.value = prefs.getString(_prefsImagePath);
+    imageMaskOpacity.value = (prefs.getDouble(_prefsImageMask) ?? 0.4).clamp(
+      0.0,
+      1.0,
+    );
+    imageBlurSigma.value = (prefs.getDouble(_prefsImageBlur) ?? 0).clamp(
+      0.0,
+      32.0,
+    );
     playbackThemeMode.value = _modeFromString(
       prefs.getString(_prefsPlaybackThemeMode),
     );
@@ -87,6 +104,45 @@ class PlayerBackgroundSettings {
     roundCover.value = prefs.getBool(_prefsRoundCover) ?? true;
     rotateCover.value =
         (prefs.getBool(_prefsRotateCover) ?? true) && roundCover.value;
+  }
+
+  static Future<void> setImagePath(String? path) async {
+    final prefs = await SharedPreferences.getInstance();
+    final next = path == null || path.trim().isEmpty ? null : path;
+    if (next == null) {
+      await prefs.remove(_prefsImagePath);
+    } else {
+      await prefs.setString(_prefsImagePath, next);
+    }
+    imagePath.value = next;
+  }
+
+  static Future<void> setImageMaskOpacity(double value) async {
+    final next = value.isFinite ? value.clamp(0.0, 1.0) : 0.4;
+    imageMaskOpacity.value = next;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_prefsImageMask, next);
+  }
+
+  static Future<void> setImageBlurSigma(double value) async {
+    final next = value.isFinite ? value.clamp(0.0, 32.0) : 0.0;
+    imageBlurSigma.value = next;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_prefsImageBlur, next);
+  }
+
+  @visibleForTesting
+  static void resetForTest() {
+    _loading = null;
+    playbackThemeMode.value = ThemeMode.system;
+    dynamicGradientEnabled.value = true;
+    saturation.value = 1.2;
+    hueShift.value = 120;
+    roundCover.value = true;
+    rotateCover.value = true;
+    imagePath.value = null;
+    imageMaskOpacity.value = 0.4;
+    imageBlurSigma.value = 0;
   }
 
   static Future<void> setPlaybackThemeMode(ThemeMode mode) async {
@@ -142,11 +198,13 @@ class PlayerBackground extends StatefulWidget {
   /// of the current song's cover. Used by the 流光 settings preview so it follows
   /// the sample cover shown there rather than whatever song is playing.
   final Color? dominantColor;
+  final bool useCustomImage;
 
   const PlayerBackground({
     super.key,
     required this.songSignal,
     this.dominantColor,
+    this.useCustomImage = true,
   });
 
   @override
@@ -210,15 +268,23 @@ class _PlayerBackgroundState extends State<PlayerBackground> {
     return Watch.builder(
       builder: (context) {
         final song = widget.songSignal.value;
-        _handleCoverChange(song?.coverId);
         return AnimatedBuilder(
           animation: Listenable.merge([
             PlayerBackgroundSettings.playbackThemeMode,
             PlayerBackgroundSettings.dynamicGradientEnabled,
             PlayerBackgroundSettings.saturation,
             PlayerBackgroundSettings.hueShift,
+            PlayerBackgroundSettings.imagePath,
+            PlayerBackgroundSettings.imageMaskOpacity,
+            PlayerBackgroundSettings.imageBlurSigma,
           ]),
           builder: (context, _) {
+            final customPath = widget.useCustomImage
+                ? PlayerBackgroundSettings.imagePath.value
+                : null;
+            if (customPath == null || customPath.trim().isEmpty) {
+              _handleCoverChange(song?.coverId);
+            }
             final playbackMode =
                 PlayerBackgroundSettings.playbackThemeMode.value;
             final dynamicEnabled =
@@ -230,15 +296,24 @@ class _PlayerBackgroundState extends State<PlayerBackground> {
             final dominant =
                 widget.dominantColor ?? _dominantColor ?? scheme.primary;
             final baseColor = _adjustBackground(dominant, preferLight);
-            if (dynamicEnabled) {
-              return _DynamicGradientBackground(
-                baseColor: baseColor,
-                saturation: saturation,
-                hueShift: hueShift,
-              );
+            final Widget fallback = dynamicEnabled
+                ? _DynamicGradientBackground(
+                    baseColor: baseColor,
+                    saturation: saturation,
+                    hueShift: hueShift,
+                  )
+                : _FallbackBackground(
+                    color: Color.lerp(surface, baseColor, 0.58) ?? surface,
+                  );
+            if (customPath == null || customPath.trim().isEmpty) {
+              return fallback;
             }
-            return _FallbackBackground(
-              color: Color.lerp(surface, baseColor, 0.58) ?? surface,
+            return _PlayerImageBackground(
+              path: customPath,
+              maskColor: preferLight ? Colors.white : Colors.black,
+              maskOpacity: PlayerBackgroundSettings.imageMaskOpacity.value,
+              blurSigma: PlayerBackgroundSettings.imageBlurSigma.value,
+              fallback: fallback,
             );
           },
         );
@@ -356,6 +431,59 @@ Future<Color?> dominantColorFromAsset(String assetPath) async {
   }
 }
 
+class _PlayerImageBackground extends StatelessWidget {
+  final String path;
+  final Color maskColor;
+  final double maskOpacity;
+  final double blurSigma;
+  final Widget fallback;
+
+  const _PlayerImageBackground({
+    required this.path,
+    required this.maskColor,
+    required this.maskOpacity,
+    required this.blurSigma,
+    required this.fallback,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final width =
+        (MediaQuery.sizeOf(context).width *
+                MediaQuery.devicePixelRatioOf(context))
+            .ceil()
+            .clamp(1, 2560);
+    Widget image = Image.file(
+      File(path),
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      cacheWidth: width,
+      errorBuilder: (context, error, stack) {
+        if (kDebugMode) debugPrint('Player background image failed: $error');
+        return fallback;
+      },
+    );
+    if (blurSigma > 0) {
+      image = ImageFiltered(
+        imageFilter: ui.ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+        child: image,
+      );
+    }
+    return ClipRect(
+      child: RepaintBoundary(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ColoredBox(color: maskColor, child: image),
+            ColoredBox(color: maskColor.withValues(alpha: maskOpacity)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 bool _preferLightBackground(BuildContext context, ThemeMode mode) {
   return playerBrightnessForMode(context, mode) == Brightness.light;
 }
@@ -432,12 +560,13 @@ class _DynamicGradientBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return switch (defaultTargetPlatform) {
-      TargetPlatform.macOS || TargetPlatform.windows || TargetPlatform.linux =>
-        _TextureGradientBackground(
-          baseColor: baseColor,
-          saturation: saturation,
-          hueShift: hueShift,
-        ),
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux => _TextureGradientBackground(
+        baseColor: baseColor,
+        saturation: saturation,
+        hueShift: hueShift,
+      ),
       _ => _VectorGradientBackground(
         baseColor: baseColor,
         saturation: saturation,

@@ -56,9 +56,7 @@ class _GradientSettingsPageState extends State<GradientSettingsPage>
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final coverColor = _coverColor;
@@ -185,6 +183,7 @@ class _PreviewScreen extends StatelessWidget {
           PlayerBackground(
             songSignal: PlayerService.instance.currentSongSignal,
             dominantColor: coverColor,
+            useCustomImage: false,
           ),
           child,
           Positioned(
