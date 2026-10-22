@@ -12,6 +12,7 @@ import '../../../components/common/cover_image_cache.dart';
 import '../../../components/focus/tv_focusable.dart';
 import 'home_cover_carousel.dart';
 import 'home_hero_banner.dart';
+import 'home_panel.dart';
 import 'home_section_header.dart';
 import 'home_section_feedback.dart';
 import 'home_shortcut_menu.dart';
@@ -334,12 +335,10 @@ class _LargeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final scale = AppLayoutSettings.tvMode.value
         ? TvLayout.uiScale(context)
         : 1.0;
-    return Material(
-      color: scheme.surfaceContainerLow,
+    return HomePanel(
       borderRadius: BorderRadius.circular(20),
       clipBehavior: Clip.antiAlias,
       child: Padding(padding: padding * scale, child: child),
