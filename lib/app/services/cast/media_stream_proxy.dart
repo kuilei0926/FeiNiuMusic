@@ -36,12 +36,14 @@ class MediaStreamProxy {
 
   HttpServer? _server;
   String? _token;
+  String? _mediaId;
   String _proxyBase = '';
   String _upstreamUrl = '';
   Map<String, String> _upstreamHeaders = const {};
+  _MediaTransferState? _mediaTransfer;
 
   /// 额外资源注册表（封面图等）：token → 上游地址 + 认证头。
-  /// 与主媒体流分离：主媒体流经 `/m/<token>`，资源经 `/r/<resourceToken>`。
+  /// 与主媒体流分离：主媒体流经 `/m/<token>/<mediaId>`，资源经 `/r/<resourceToken>`。
   final Map<String, ({String url, Map<String, String> headers})> _resources =
       {};
 
@@ -54,28 +56,48 @@ class MediaStreamProxy {
   /// 当前代理是否已注册了可用的上游媒体流。
   bool get hasMedia => _upstreamUrl.isNotEmpty;
 
+  bool get hasMediaData => _mediaTransfer?.hasData ?? false;
+
+  bool get hasMediaFailure => _mediaTransfer?.failed ?? false;
+
   /// 根据到渲染器的实际路由确定本机 IPv4，不依赖网卡枚举顺序。
   static Future<String> resolveLocalAddress(String host, int port) async {
     if (host.isEmpty || port < 1 || port > 65535) {
       throw ArgumentError('Invalid renderer endpoint');
     }
-    final socket = await Socket.connect(
-      host,
-      port,
-      timeout: const Duration(seconds: 3),
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLoopback: true,
     );
-    try {
-      final address = socket.address;
-      if (address.type != InternetAddressType.IPv4 ||
-          address.address == '0.0.0.0' ||
-          address.address.startsWith('169.254.')) {
-        throw StateError('No usable local IPv4 route to renderer');
+    final candidates = interfaces
+        .expand((interface) => interface.addresses)
+        .where(
+          (address) =>
+              address.address != '0.0.0.0' &&
+              !address.address.startsWith('169.254.'),
+        );
+    SocketException? lastError;
+    for (final address in candidates) {
+      try {
+        // Socket.address is the remote endpoint. Bind each candidate explicitly
+        // so the selected address is the phone's reachable LAN interface.
+        final socket = await Socket.connect(
+          host,
+          port,
+          sourceAddress: address,
+          timeout: const Duration(seconds: 3),
+        );
+        socket.destroy();
+        _log('route target=$host:$port local=${address.address}');
+        return address.address;
+      } on SocketException catch (error) {
+        lastError = error;
       }
-      _log('route target=$host:$port local=${address.address}');
-      return address.address;
-    } finally {
-      socket.destroy();
     }
+    if (lastError != null) throw lastError;
+    throw SocketException(
+      'No usable local IPv4 route to renderer: $host:$port',
+    );
   }
 
   /// 使用会话选定的本机地址启动代理；地址变化时释放旧会话。
@@ -113,7 +135,7 @@ class MediaStreamProxy {
   }
 
   /// 注册一条上游媒体流，返回渲染器可用的代理 URL
-  /// （`http://<ip>:<port>/m/<token>/media.<ext>`）。
+  /// （`http://<ip>:<port>/m/<token>/<mediaId>/media.<ext>`）。
   ///
   /// DLNA 插件会根据 URL 后缀生成 DIDL `protocolInfo`。保留真实后缀可避免
   /// FLAC/AAC 等直连流被错误声明为 `audio/mpeg`，部分严格渲染器会因此拒播。
@@ -127,14 +149,18 @@ class MediaStreamProxy {
     final base = proxyBase;
     if (base == null || _token == null) return null;
     _upstreamUrl = upstreamUrl;
-    _upstreamHeaders = headers;
+    _upstreamHeaders = Map.unmodifiable(headers);
+    _mediaId = _generateToken();
+    _mediaTransfer = _MediaTransferState();
     final safeExtension = _sanitizeExtension(fileExtension);
     _log('registered media extension=$safeExtension');
-    return '$base/m/$_token/media.$safeExtension';
+    return '$base/m/$_token/$_mediaId/media.$safeExtension';
   }
 
   /// 清空当前注册的媒体流（断开投屏时调用）。代理服务本身保留。
   void unregisterMedia() {
+    _mediaTransfer = null;
+    _mediaId = null;
     _upstreamUrl = '';
     _upstreamHeaders = const {};
   }
@@ -161,7 +187,9 @@ class MediaStreamProxy {
     final server = _server;
     _server = null;
     _token = null;
+    _mediaId = null;
     _proxyBase = '';
+    _mediaTransfer = null;
     _upstreamUrl = '';
     _upstreamHeaders = const {};
     _resources.clear();
@@ -189,10 +217,11 @@ class MediaStreamProxy {
         await _forward(request, res.url, res.headers);
         return;
       }
-      // 路由：/m/<token>[/...]?u=<目标URL>
-      if (pathSegments.length < 2 ||
+      // 路由：/m/<token>/<mediaId>[/...]?u=<目标URL>
+      if (pathSegments.length < 3 ||
           pathSegments[0] != 'm' ||
-          pathSegments[1] != _token) {
+          pathSegments[1] != _token ||
+          pathSegments[2] != _mediaId) {
         _respondNotFound(request);
         return;
       }
@@ -202,11 +231,9 @@ class MediaStreamProxy {
         return;
       }
 
-      // 分片/变体播放列表转发：/m/<token>?u=<urlencoded 绝对地址>
+      // 分片/变体播放列表转发：/m/<token>/<mediaId>?u=<urlencoded 绝对地址>
       final queryU = request.uri.queryParameters['u'];
-      final target = (queryU != null && queryU.isNotEmpty)
-          ? Uri.decodeComponent(queryU)
-          : upstream;
+      final target = (queryU != null && queryU.isNotEmpty) ? queryU : upstream;
 
       final isPrimaryMediaRequest = queryU == null;
       if (isPrimaryMediaRequest) {
@@ -221,6 +248,8 @@ class MediaStreamProxy {
         target,
         _upstreamHeaders,
         logResponse: isPrimaryMediaRequest,
+        mediaProxyBase: '$_proxyBase/m/${pathSegments[1]}/${pathSegments[2]}',
+        transfer: _mediaTransfer,
       );
     } catch (e) {
       _log('handle error: ${_safeError(e)}');
@@ -237,6 +266,8 @@ class MediaStreamProxy {
     String target,
     Map<String, String> headers, {
     bool logResponse = true,
+    String? mediaProxyBase,
+    _MediaTransferState? transfer,
   }) async {
     final client = HttpClient();
     try {
@@ -267,6 +298,9 @@ class MediaStreamProxy {
         }
 
         final isM3u8 = _isM3u8(upResp, uri);
+        if (upResp.statusCode < 200 || upResp.statusCode >= 300) {
+          if (transfer != null) transfer.failed = true;
+        }
         final contentType = upResp.headers.value(HttpHeaders.contentTypeHeader);
         final contentLength = upResp.headers.value(
           HttpHeaders.contentLengthHeader,
@@ -279,10 +313,13 @@ class MediaStreamProxy {
             'hls=$isM3u8',
           );
         }
-        if (isM3u8 && request.method != 'HEAD') {
+        if (isM3u8 &&
+            upResp.statusCode >= 200 &&
+            upResp.statusCode < 300 &&
+            request.method != 'HEAD') {
           // HLS：读取 m3u8 文本，改写分片地址后整体返回
           final text = await upResp.transform(utf8.decoder).join();
-          final rewritten = _rewriteM3u8(text, uri);
+          final rewritten = _rewriteM3u8(text, uri, mediaProxyBase);
           final response = request.response;
           response.statusCode = HttpStatus.ok;
           response.headers.set(
@@ -302,12 +339,26 @@ class MediaStreamProxy {
         if (request.method == 'HEAD') {
           await response.close();
         } else {
-          await response.addStream(upResp);
+          await response.addStream(
+            upResp.map((bytes) {
+              if (transfer != null &&
+                  upResp.statusCode >= 200 &&
+                  upResp.statusCode < 300 &&
+                  bytes.isNotEmpty) {
+                transfer.hasData = true;
+              }
+              return bytes;
+            }),
+          );
           await response.close();
         }
         return;
       }
       _respondInternalError(request);
+      if (transfer != null) transfer.failed = true;
+    } catch (_) {
+      if (transfer != null) transfer.failed = true;
+      rethrow;
     } finally {
       client.close(force: true);
     }
@@ -333,11 +384,10 @@ class MediaStreamProxy {
   ///   解析成绝对地址，再编码进 `?u=`；
   /// - 标签行里的 `URI="..."`（`#EXT-X-MAP` 的 init 段、`#EXT-X-KEY`、变体
   ///   `#EXT-X-MEDIA` 等）：同样改写，保证渲染器能拉到所有子资源。
-  String _rewriteM3u8(String text, Uri baseUri) {
-    final token = _token;
-    if (token == null || _proxyBase.isEmpty) return text;
+  String _rewriteM3u8(String text, Uri baseUri, String? mediaProxyBase) {
+    if (mediaProxyBase == null) return text;
     String proxyUrl(String abs) =>
-        '$_proxyBase/m/$token?u=${Uri.encodeComponent(abs)}';
+        '$mediaProxyBase?u=${Uri.encodeComponent(abs)}';
     final lines = text.split('\n');
     final buffer = StringBuffer();
     for (final rawLine in lines) {
@@ -420,4 +470,9 @@ class MediaStreamProxy {
     }
     return 'mp3';
   }
+}
+
+class _MediaTransferState {
+  bool hasData = false;
+  bool failed = false;
 }
