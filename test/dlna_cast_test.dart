@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -102,6 +103,34 @@ void main() {
       },
     );
 
+    test(
+      'does not advertise the renderer address as the local address',
+      () async {
+        final renderer = await ServerSocket.bind(
+          InternetAddress('127.0.0.2'),
+          0,
+        );
+        final accepted = renderer.first;
+        try {
+          final local = await MediaStreamProxy.resolveLocalAddress(
+            '127.0.0.2',
+            renderer.port,
+          );
+          final peer = await accepted;
+          try {
+            expect(local, peer.remoteAddress.address);
+            expect(local, isNot('127.0.0.2'));
+          } finally {
+            peer.destroy();
+          }
+        } finally {
+          await renderer.close();
+        }
+      },
+      // macOS does not bind 127.0.0.2 without an explicit loopback alias.
+      skip: Platform.isMacOS,
+    );
+
     test('fails when the renderer endpoint cannot be reached', () async {
       final renderer = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       final port = renderer.port;
@@ -170,6 +199,135 @@ void main() {
   });
 
   group('MediaStreamProxy HLS 改写', () {
+    test('同格式换歌后旧媒体和分片 URL 不会读取新歌', () async {
+      final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final requests = <String>[];
+      upstream.listen((request) {
+        requests.add(request.uri.path);
+        request.response.write(request.uri.path);
+        request.response.close();
+      });
+      final client = HttpClient();
+      try {
+        final proxy = MediaStreamProxy.instance;
+        final base = 'http://127.0.0.1:${upstream.port}';
+        final oldUrl = await proxy.registerMedia('$base/old.mp3');
+        final oldSegment = Uri.parse(
+          oldUrl!,
+        ).replace(queryParameters: {'u': '$base/old-segment.mp3'});
+        final newUrl = await proxy.registerMedia('$base/new.mp3');
+        expect(newUrl, isNot(oldUrl));
+        for (final uri in [Uri.parse(oldUrl), oldSegment]) {
+          final request = await client.getUrl(uri);
+          request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-9');
+          final response = await request.close();
+          expect(response.statusCode, HttpStatus.notFound);
+          await response.drain<void>();
+        }
+        final request = await client.getUrl(Uri.parse(newUrl!));
+        final response = await request.close();
+        expect(await response.transform(utf8.decoder).join(), '/new.mp3');
+        expect(requests, ['/new.mp3']);
+      } finally {
+        client.close(force: true);
+        await upstream.close(force: true);
+      }
+    });
+
+    test('HLS 分片与标签中的转义路径和签名仅解码一次', () async {
+      final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      const resource =
+          'seg%252F%25%20name.m4s?sig=abc%252Fdef%2Bghi%3D&literal=%25';
+      final requests = <String>[];
+      final cookies = <String?>[];
+      upstream.listen((request) {
+        if (request.uri.path == '/playlist.m3u8') {
+          request.response.headers.contentType = ContentType(
+            'application',
+            'vnd.apple.mpegurl',
+          );
+          request.response.write(
+            '#EXTM3U\n#EXT-X-MAP:URI="$resource"\n$resource\n',
+          );
+        } else {
+          requests.add(request.uri.toString());
+          cookies.add(request.headers.value(HttpHeaders.cookieHeader));
+          request.response.write('segment');
+        }
+        request.response.close();
+      });
+      final client = HttpClient();
+      try {
+        final url = await MediaStreamProxy.instance.registerMedia(
+          'http://127.0.0.1:${upstream.port}/playlist.m3u8',
+          headers: {'Cookie': 'music-token=xyz'},
+          fileExtension: 'm3u8',
+        );
+        final request = await client.getUrl(Uri.parse(url!));
+        final response = await request.close();
+        final body = await response.transform(utf8.decoder).join();
+        final urls = [
+          RegExp('URI="([^"]+)"').firstMatch(body)!.group(1)!,
+          body.split('\n').firstWhere((line) => line.startsWith('http')),
+        ];
+        for (final segmentUrl in urls) {
+          final segmentRequest = await client.getUrl(Uri.parse(segmentUrl));
+          final segmentResponse = await segmentRequest.close();
+          expect(segmentResponse.statusCode, HttpStatus.ok);
+          expect(
+            await segmentResponse.transform(utf8.decoder).join(),
+            'segment',
+          );
+        }
+        expect(requests, ['/$resource', '/$resource']);
+        expect(cookies, ['music-token=xyz', 'music-token=xyz']);
+      } finally {
+        client.close(force: true);
+        await upstream.close(force: true);
+      }
+    });
+
+    test('换歌前在途的 HLS 响应保留原歌曲的资源标识', () async {
+      final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final started = Completer<void>();
+      final release = Completer<void>();
+      upstream.listen((request) async {
+        started.complete();
+        await release.future;
+        request.response.headers.contentType = ContentType(
+          'application',
+          'vnd.apple.mpegurl',
+        );
+        request.response.write('#EXTM3U\nsegment.m4s\n');
+        await request.response.close();
+      });
+      final client = HttpClient();
+      try {
+        final proxy = MediaStreamProxy.instance;
+        final base = 'http://127.0.0.1:${upstream.port}';
+        final oldUrl = await proxy.registerMedia('$base/old.m3u8');
+        final request = await client.getUrl(Uri.parse(oldUrl!));
+        final pending = request.close();
+        await started.future;
+        await proxy.registerMedia('$base/new.m3u8');
+        release.complete();
+        final response = await pending;
+        final body = await response.transform(utf8.decoder).join();
+        final segmentUrl = Uri.parse(
+          body.split('\n').firstWhere((line) => line.startsWith('http')),
+        );
+        expect(segmentUrl.pathSegments, Uri.parse(oldUrl).pathSegments.take(3));
+        final segmentRequest = await client.getUrl(segmentUrl);
+        final segmentResponse = await segmentRequest.close();
+        expect(segmentResponse.statusCode, HttpStatus.notFound);
+        await segmentResponse.drain<void>();
+      } finally {
+        if (!release.isCompleted) release.complete();
+        client.close(force: true);
+        await upstream.close(force: true);
+      }
+    });
+
     test('普通分片行改写成经代理的绝对地址', () async {
       final base = await MediaStreamProxy.instance.start(
         advertisedHost: '127.0.0.1',

@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="br.com.felnanuke2.media_cast_dlna">
+  
+  <!-- Required for network discovery and communication -->
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+  <!-- Required for Android 10+ (API 29+) for network discovery -->
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+  <!-- Wake lock permission for background operations -->
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  
+  <application>
+    <!-- Required service for JUPnP Android UPnP functionality -->
+    <service android:name="org.jupnp.android.AndroidUpnpServiceImpl"
+             android:exported="false" />
+  </application>
+  
+</manifest>

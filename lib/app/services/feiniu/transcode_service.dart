@@ -29,10 +29,19 @@ class FeiNiuTranscodeService {
 
   /// 需服务器转码（本地 ExoPlayer 不支持）的格式黑名单。
   static const Set<String> unsupportedFormats = {
-    'dsf', 'dff', 'dsd',
-    'wma', 'ape', 'dts',
-    'aiff', 'ra', 'au',
-    'dvf', 'tta', 'dss', 'mmf',
+    'dsf',
+    'dff',
+    'dsd',
+    'wma',
+    'ape',
+    'dts',
+    'aiff',
+    'ra',
+    'au',
+    'dvf',
+    'tta',
+    'dss',
+    'mmf',
   };
 
   /// 交给 media_kit（FFmpeg）解码的格式：黑名单格式（DSF/APE/WMA…）。
@@ -54,7 +63,12 @@ class FeiNiuTranscodeService {
   /// `eac3`/`ac3`：杜比数字（Plus）；`alac`：Apple 无损；`dts`/`truehd`/`mlp`：
   /// 家庭影院环绕编码。
   static const Set<String> mediaKitCodecs = {
-    'eac3', 'ac3', 'alac', 'dts', 'truehd', 'mlp',
+    'eac3',
+    'ac3',
+    'alac',
+    'dts',
+    'truehd',
+    'mlp',
   };
 
   /// codec 是否为 media_kit 专属（ExoPlayer 设备解码不可靠）。
@@ -66,7 +80,15 @@ class FeiNiuTranscodeService {
   /// 可能内嵌风险 codec（EAC3/ALAC…）的容器格式。codec 未知（null）时，
   /// 这些容器需要无声看门狗兜底。
   static const Set<String> riskySilenceContainers = {
-    'm4a', 'm4b', 'm4p', 'mp4', 'aac', 'mov', '3gp', 'mka', 'mkv',
+    'm4a',
+    'm4b',
+    'm4p',
+    'mp4',
+    'aac',
+    'mov',
+    '3gp',
+    'mka',
+    'mkv',
   };
 
   /// 容器是否可能内嵌风险 codec（codec 未知时据此判断是否需要看门狗）。
@@ -81,33 +103,97 @@ class FeiNiuTranscodeService {
   /// 纯属浪费服务器带宽，直接直连原始流即可；无损→无损（wav→flac 等）也
   /// 无压缩收益，一律直连。
   static const Set<String> losslessFormats = {
-    'flac', 'wav', 'alac', 'ape', 'aiff', 'aif',
-    'dsf', 'dff', 'dsd', 'dts', 'truehd', 'mlp',
-    'tta', 'wv', 'wavpack', 'shn', 'tak', 'ofr', 'wmal',
+    'flac',
+    'wav',
+    'alac',
+    'ape',
+    'aiff',
+    'aif',
+    'dsf',
+    'dff',
+    'dsd',
+    'dts',
+    'truehd',
+    'mlp',
+    'tta',
+    'wv',
+    'wavpack',
+    'shn',
+    'tak',
+    'ofr',
+    'wmal',
   };
 
   /// 有损「现代」源格式（质量层 2）：opus/ogg/aac/m4a 等，效率高于 mp3。
   static const Set<String> modernLossyFormats = {
-    'opus', 'ogg', 'oga', 'aac', 'm4a', 'm4b', 'm4p', 'mp4',
-    'webm', 'ac3', 'eac3',
+    'opus',
+    'ogg',
+    'oga',
+    'aac',
+    'm4a',
+    'm4b',
+    'm4p',
+    'mp4',
+    'webm',
+    'ac3',
+    'eac3',
   };
 
   /// 有损「传统」源格式（质量层 1）：mp3/wma 等。
   static const Set<String> legacyLossyFormats = {
-    'mp3', 'mp2', 'mp1', 'wma', 'wmv', 'ra', 'au', 'dvf', 'dss', 'mmf', 'amr',
+    'mp3',
+    'mp2',
+    'mp1',
+    'wma',
+    'wmv',
+    'ra',
+    'au',
+    'dvf',
+    'dss',
+    'mmf',
+    'amr',
   };
 
   /// 无损 codec（质量层 3）：alac/truehd/mlp 等常内嵌在 m4a/mp4 有损容器里，
   /// 需按 codec 判定源质量，不能只看容器格式。
   static const Set<String> losslessCodecs = {
-    'flac', 'alac', 'ape', 'wavpack', 'wv', 'dsd', 'dts', 'truehd', 'mlp',
-    'tta', 'shn', 'tak', 'ofr', 'pcm', 'lpcm', 'wmal',
+    'flac',
+    'alac',
+    'ape',
+    'wavpack',
+    'wv',
+    'dsd',
+    'dts',
+    'truehd',
+    'mlp',
+    'tta',
+    'shn',
+    'tak',
+    'ofr',
+    'pcm',
+    'lpcm',
+    'wmal',
   };
 
   /// 有损 codec（质量层 2/1）。
   static const Set<String> lossyCodecs = {
-    'mp3', 'mp2', 'mp1', 'aac', 'ac3', 'eac3', 'opus', 'vorbis', 'ogg',
-    'wma', 'wmav1', 'wmav2', 'amr', 'adpcm', 'g711', 'speex', 'nellymoser',
+    'mp3',
+    'mp2',
+    'mp1',
+    'aac',
+    'ac3',
+    'eac3',
+    'opus',
+    'vorbis',
+    'ogg',
+    'wma',
+    'wmav1',
+    'wmav2',
+    'amr',
+    'adpcm',
+    'g711',
+    'speex',
+    'nellymoser',
   };
 
   /// 源格式质量层：3=无损，2=有损现代，1=有损传统，0=未知（不拦截）。
@@ -430,9 +516,9 @@ class FeiNiuTranscodeService {
 
   /// 获取某首歌的 **MP3 转码 HLS** 绝对地址（供 DLNA 投屏使用）。
   ///
-  /// 渲染器通常无法解码 FLAC/DSF/APE 等无损格式，投屏时优先转码成 MP3。
+  /// DLNA 默认投送原始流，确认不兼容时调用此方法获取一次备用流。
   /// - 转码成功 → 按 `songId|mp3` 缓存（TTL）并登记活动会话，返回绝对 URL；
-  /// - 网络异常 / 服务器未返回地址 → 返回 null（调用方退直连）。
+  /// - 网络异常 / 服务器未返回地址 → 返回 null，由调用方结束备用尝试。
   Future<String?> transcodeMp3UrlFor(SongEntity song) async {
     try {
       final key = _cacheKey(song.id, 'mp3');
@@ -449,7 +535,6 @@ class FeiNiuTranscodeService {
       _activeIds.add(song.id);
       return url;
     } catch (_) {
-      // 任何失败 → 返回 null，由调用方退直连，不阻塞投屏。
       return null;
     }
   }
