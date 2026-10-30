@@ -10,6 +10,7 @@ import '../../app/state/settings_state.dart';
 import '../../app/tv/tv_layout.dart';
 import '../../app/utils/image_crop_helper.dart';
 import '../../components/index.dart';
+import '../../components/player/mini_player/desktop_mini_player_style_picker.dart';
 import '../../components/layout/bottom_island/bottom_island_style_picker.dart';
 
 class AppAppearanceSettingsPage extends StatefulWidget {
@@ -29,6 +30,7 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
     AppBackgroundSettings.ensureLoaded();
     AppGlassSettings.ensureLoaded();
     BottomIslandSettings.ensureLoaded();
+    DesktopMiniPlayerSettings.ensureLoaded();
   }
 
   String _themeLabel(ThemeMode mode) {
@@ -346,6 +348,7 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
             },
           ),
           const BottomIslandStylePicker(),
+          const DesktopMiniPlayerStylePicker(),
           const SizedBox(height: 16),
           AppSettingSection(
             title: '外观设置',

@@ -9,11 +9,14 @@ import '../../../app/router/app_router.dart';
 import '../../../app/state/settings_state.dart';
 import '../../../app/state/song_state.dart';
 import '../../../app/theme/app_glass_theme.dart';
-import '../../common/artwork_widget.dart';
 import '../../common/glass_gate.dart';
 import '../../player/lyric_preview.dart';
 import '../../../pages/player/player_page.dart';
 import '../../../pages/player/widgets/player_bottom_panel.dart';
+import '../vinyl_disc.dart';
+import 'mini_player_artwork.dart';
+
+export 'mini_player_artwork.dart';
 
 class MiniPlayerBar extends StatelessWidget {
   static const double estimatedHeight = 70.0;
@@ -27,6 +30,7 @@ class MiniPlayerBar extends StatelessWidget {
   final List<BoxShadow>? boxShadow;
   final bool enableSwipe;
   final Widget? trailing;
+  final bool vinyl;
 
   MiniPlayerBar({
     super.key,
@@ -39,6 +43,7 @@ class MiniPlayerBar extends StatelessWidget {
     this.boxShadow,
     this.enableSwipe = true,
     this.trailing,
+    this.vinyl = false,
   }) : player = player ?? PlayerService.instance;
 
   @override
@@ -49,10 +54,9 @@ class MiniPlayerBar extends StatelessWidget {
     return ValueListenableBuilder<bool>(
       valueListenable: AppBackgroundSettings.panelBlurEnabled,
       builder: (context, blurEnabled, _) {
-        final baseStrength =
-            blurEnabled
-                ? AppBackgroundSettings.panelBlurStrength.value
-                : 0.0;
+        final baseStrength = blurEnabled
+            ? AppBackgroundSettings.panelBlurStrength.value
+            : 0.0;
         return _buildBar(context, baseStrength);
       },
     );
@@ -91,16 +95,18 @@ class MiniPlayerBar extends StatelessWidget {
 
         final border = Border.all(
           color: isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : scheme.outlineVariant.withValues(alpha: 0.42),
+              ? Colors.white.withValues(alpha: vinyl ? 0.06 : 0.08)
+              : scheme.outlineVariant.withValues(alpha: vinyl ? 0.24 : 0.42),
           width: 0.8,
         );
 
         final defaultShadow = [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.10),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: Colors.black.withValues(
+              alpha: vinyl ? 0.06 : (isDark ? 0.22 : 0.10),
+            ),
+            blurRadius: vinyl ? 10 : 16,
+            offset: Offset(0, vinyl ? 3 : 6),
           ),
         ];
 
@@ -113,9 +119,9 @@ class MiniPlayerBar extends StatelessWidget {
             borderRadius: BorderRadius.circular(borderRadius),
             onTap: openPlayer,
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 7,
+              padding: EdgeInsets.symmetric(
+                horizontal: vinyl ? 12 : 10,
+                vertical: vinyl ? 5 : 7,
               ),
               child: LayoutBuilder(
                 builder: (context, constraints) {
@@ -139,27 +145,36 @@ class MiniPlayerBar extends StatelessWidget {
                           onOpenPlayer: openPlayer,
                           // 封面一并放入滑动区域：左右滑动切歌时封面随标题/歌词
                           // 一起位移，而不是只有文字滑动。
-                          artwork: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                resolvedArtworkRadius,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(
-                                    alpha: 0.12,
+                          artwork: vinyl
+                              ? ValueListenableBuilder<bool>(
+                                  valueListenable: player.isPlaying,
+                                  builder: (context, playing, _) => VinylDisc(
+                                    song: song,
+                                    playing: hasSong && playing,
+                                    size: resolvedArtworkSize,
                                   ),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 1),
+                                )
+                              : Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(
+                                      resolvedArtworkRadius,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 1),
+                                      ),
+                                    ],
+                                  ),
+                                  child: MiniPlayerArtwork(
+                                    song: song,
+                                    size: resolvedArtworkSize,
+                                    borderRadius: resolvedArtworkRadius,
+                                  ),
                                 ),
-                              ],
-                            ),
-                            child: MiniPlayerArtwork(
-                              song: song,
-                              size: resolvedArtworkSize,
-                              borderRadius: resolvedArtworkRadius,
-                            ),
-                          ),
                           artworkGap: tight ? 8 : 11,
                         ),
                       ),
@@ -311,69 +326,6 @@ class MiniPlayerBar extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class MiniPlayerArtwork extends StatelessWidget {
-  final SongEntity? song;
-  final double size;
-  final double borderRadius;
-
-  const MiniPlayerArtwork({
-    super.key,
-    required this.song,
-    required this.size,
-    required this.borderRadius,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    if (song == null) {
-      return _ArtworkFallback(
-        size: size,
-        borderRadius: borderRadius,
-        color: scheme.surfaceContainerHighest,
-      );
-    }
-    return ArtworkWidget(
-      song: song!,
-      size: size,
-      borderRadius: borderRadius,
-      placeholder: _ArtworkFallback(
-        size: size,
-        borderRadius: borderRadius,
-        color: scheme.surfaceContainerHighest,
-      ),
-    );
-  }
-}
-
-class _ArtworkFallback extends StatelessWidget {
-  final double size;
-  final double borderRadius;
-  final Color color;
-
-  const _ArtworkFallback({
-    required this.size,
-    required this.borderRadius,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(borderRadius),
-      ),
-      child: Center(
-        child: Icon(Icons.music_note, color: scheme.onSurfaceVariant),
-      ),
     );
   }
 }
@@ -649,14 +601,12 @@ class _SwipeableInfoState extends State<_SwipeableInfo>
             // 用动画值（回弹期间）否则用拖动值（拖动中），
             // 让提示随回弹动画一起淡出，而不是动画结束才消失。
             final currentOffset = _animation?.value ?? _dragOffsetX;
-            final prevOpacity =
-                hasSong && currentOffset > 0
-                    ? (currentOffset / 60.0).clamp(0.0, 1.0)
-                    : 0.0;
-            final nextOpacity =
-                hasSong && currentOffset < 0
-                    ? ((-currentOffset) / 60.0).clamp(0.0, 1.0)
-                    : 0.0;
+            final prevOpacity = hasSong && currentOffset > 0
+                ? (currentOffset / 60.0).clamp(0.0, 1.0)
+                : 0.0;
+            final nextOpacity = hasSong && currentOffset < 0
+                ? ((-currentOffset) / 60.0).clamp(0.0, 1.0)
+                : 0.0;
             return Stack(
               children: [
                 // 左侧「上一曲」提示：右滑时在原位淡入
@@ -858,7 +808,10 @@ class _MiniPlayerSubtitleText extends StatelessWidget {
       return (baseFontSize, true);
     }
     final ratio = fitWidth / widthAt(baseFontSize);
-    final shrunk = (baseFontSize * ratio).clamp(baseFontSize * 0.6, baseFontSize);
+    final shrunk = (baseFontSize * ratio).clamp(
+      baseFontSize * 0.6,
+      baseFontSize,
+    );
     // 缩小到下限后仍超宽 → 放不下，回退省略号
     if (widthAt(shrunk) > fitWidth) {
       return (baseFontSize, false);
@@ -925,9 +878,7 @@ class MiniPlayerPlayButton extends StatelessWidget {
                 else
                   IconButton(
                     icon: Icon(
-                      playing
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
+                      playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                       color: scheme.onSurface,
                       size: 20,
                     ),

@@ -208,6 +208,7 @@ Future<void> main(List<String> args) async {
   // （读取安全码/FNID）之后执行。
   await AccountStore.instance.init();
   await PlayerStyleSettings.ensureLoaded();
+  await DesktopMiniPlayerSettings.ensureLoaded();
   await AppLaunchNavigationSettings.ensureLoaded();
   // DLNA 投屏设置（播放页投屏按钮据此显示/隐藏）
   await DlnaCastSettings.ensureLoaded();

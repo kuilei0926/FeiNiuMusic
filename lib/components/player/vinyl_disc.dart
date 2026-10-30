@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/state/song_state.dart';
 import '../../app/utils/route_visibility.dart';
-import 'mini_player/mini_player_bar.dart';
+import 'mini_player/mini_player_artwork.dart';
 
 class VinylDisc extends StatefulWidget {
   final SongEntity? song;

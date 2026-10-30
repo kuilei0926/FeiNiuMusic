@@ -15,3 +15,4 @@ export 'settings_theme_state.dart';
 export 'settings_transcode_state.dart';
 export 'settings_volume_schedule_state.dart';
 export 'settings_desktop_lyrics_state.dart';
+export 'settings_desktop_mini_player_state.dart';
