@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_cast_dlna/media_cast_dlna.dart';
 
@@ -11,10 +12,15 @@ class _FakeCastApi extends MediaCastDlnaApi {
   Future<void> Function()? onStop;
   Future<void> Function()? onSetMedia;
   Future<PlaybackInfo> Function()? onPoll;
+  Future<TransportState> Function()? onTransportPoll;
   final List<String> titles = [];
   int playCalls = 0;
   int pollCalls = 0;
   int stopCalls = 0;
+
+  @override
+  Future<TransportState> getTransportState(DeviceUdn deviceUdn) async =>
+      await onTransportPoll?.call() ?? TransportState.playing;
 
   @override
   Future<void> stop(DeviceUdn deviceUdn) async {
@@ -183,6 +189,56 @@ void main() {
     await _waitUntil(() => api.pollCalls >= 5);
     expect(service.isCasting, isTrue);
     await _waitUntil(() => !service.isCasting);
+  });
+
+  for (final category in ['invalid_response', 'action_failed']) {
+    test('进度类型解析失败（$category）时独立查询状态，超过五次仍保持播放', () async {
+      api.onPoll = () async => throw PlatformException(
+        code: 'dlna_action_failed',
+        details: {
+          'action': 'GetPositionInfo',
+          'category': category,
+          'causeTypes': ['ClassCastException'],
+        },
+      );
+      var transportCalls = 0;
+      var transport = TransportState.playing;
+      api.onTransportPoll = () async {
+        transportCalls++;
+        return transport;
+      };
+      await service.loadSong(_song('first'));
+      final preflightStops = api.stopCalls;
+      await _waitUntil(
+        () => transportCalls >= 6,
+        timeout: const Duration(seconds: 8),
+      );
+      expect(service.isCasting, isTrue);
+      expect(service.castPlaying.value, isTrue);
+      expect(service.castPosition.value, Duration.zero);
+      expect(api.stopCalls, preflightStops);
+
+      transport = TransportState.paused;
+      await _waitUntil(() => !service.castPlaying.value);
+      expect(service.isCasting, isTrue);
+
+      transport = TransportState.stopped;
+      await _waitUntil(() => !service.isCasting);
+      expect(api.stopCalls, preflightStops + 1);
+    });
+  }
+
+  test('进度解析失败且独立状态查询也不可达时仍会断开', () async {
+    api.onPoll = () async => throw PlatformException(
+      code: 'dlna_action_failed',
+      details: {'action': 'GetPositionInfo', 'category': 'invalid_response'},
+    );
+    api.onTransportPoll = () async => throw StateError('unreachable');
+    await service.loadSong(_song('first'));
+    await _waitUntil(
+      () => !service.isCasting,
+      timeout: const Duration(seconds: 7),
+    );
   });
 
   test('断开时取消在途换歌，不再发出播放命令', () async {

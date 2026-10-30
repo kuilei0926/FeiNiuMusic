@@ -48,6 +48,11 @@ class DlnaActionFailure {
   bool get isFormatError =>
       category == 'upnp_fault' && const {704, 714}.contains(upnpCode);
 
+  bool get isPositionResponseError =>
+      action == 'GetPositionInfo' &&
+      (category == 'invalid_response' ||
+          causeTypes.contains('ClassCastException'));
+
   String get diagnostic =>
       'action=$action category=$category '
       'upnp=${upnpCode ?? 'unknown'} http=${httpStatus ?? 'unknown'} '

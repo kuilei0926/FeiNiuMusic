@@ -40,7 +40,7 @@ internal class DlnaActionException(
                 causes.any { it is TimeoutCancellationException || it is SocketTimeoutException } -> "timeout"
                 causes.any {
                     val name = it.javaClass.name.lowercase()
-                    it is UnsupportedDataException || name.contains("xml") ||
+                    it is UnsupportedDataException || it is ClassCastException || name.contains("xml") ||
                         name.contains("sax") || name.contains("parser")
                 } -> "invalid_response"
                 upnpCode != null && upnpCode in 400..899 -> "upnp_fault"

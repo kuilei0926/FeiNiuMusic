@@ -59,6 +59,12 @@ suspend fun ControlPoint.getPositionInfoSuspending(
 ): PositionInfo? {
     var result: PositionInfo? = null
     executeSuspending(object : GetPositionInfo(service) {
+        override fun success(invocation: ActionInvocation<*>) {
+            // PositionInfo(Map) casts Track to ui4 and counters to Integer.
+            // Renderers can declare these as strings or other numeric types.
+            result = parsePositionInfo(invocation.outputMap.mapValues { it.value.value })
+        }
+
         override fun received(invocation: ActionInvocation<*>?, info: PositionInfo?) {
             result = info
         }

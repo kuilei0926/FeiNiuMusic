@@ -759,6 +759,7 @@ class DlnaCastService {
     _playbackStartDeadline = DateTime.now().add(_playbackStartGrace);
     bool isCurrent() =>
         revision == _pollRevision && currentDevice.value == device;
+    var positionWarningLogged = false;
     _positionPollTimer = Timer.periodic(_positionPollInterval, (_) async {
       if (!isCurrent() || _pollInFlight) return;
       _pollInFlight = true;
@@ -767,6 +768,7 @@ class DlnaCastService {
             .getPlaybackInfo(device.udn)
             .timeout(const Duration(seconds: 6));
         if (!isCurrent()) return;
+        positionWarningLogged = false;
         _castPollFailures = 0;
         final posSec = info.position.seconds;
         // 渲染器对 HLS 常报 duration=0/占位，退化为歌曲自身已知时长。
@@ -877,6 +879,41 @@ class DlnaCastService {
         }
       } catch (e) {
         if (!isCurrent()) return;
+        if (DlnaActionFailure.from(e)?.isPositionResponseError ?? false) {
+          if (!positionWarningLogged) {
+            _log('position response unavailable: ${_safeError(e)}');
+            positionWarningLogged = true;
+          }
+          try {
+            final transport = await _api
+                .getTransportState(device.udn)
+                .timeout(const Duration(seconds: 6));
+            if (!isCurrent()) return;
+            _castPollFailures = 0;
+            if (transport == TransportState.playing ||
+                transport == TransportState.paused) {
+              _playbackStartDeadline = null;
+              _consecutiveStoppedFrames = 0;
+              castPlaying.value = transport == TransportState.playing;
+              onCastProgress?.call(castPosition.value, castPlaying.value);
+            } else if (transport == TransportState.stopped ||
+                transport == TransportState.noMediaPresent) {
+              if (_playbackStartDeadline == null ||
+                  !DateTime.now().isBefore(_playbackStartDeadline!)) {
+                _consecutiveStoppedFrames++;
+                if (_consecutiveStoppedFrames >= _stopConfirmFrames) {
+                  _handleCastStopped();
+                }
+              }
+            } else {
+              _consecutiveStoppedFrames = 0;
+            }
+            return;
+          } catch (transportError) {
+            if (!isCurrent()) return;
+            _log('transport fallback failed: ${_safeError(transportError)}');
+          }
+        }
         // 轮询失败（设备短暂不可达）。连续失败超过阈值视为电视端退出/关机，
         // 断开投屏让手机端回到本机播放。
         _castPollFailures++;
