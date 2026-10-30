@@ -101,6 +101,7 @@ void main() {
       addTearDown(tester.view.reset);
       var background = 0;
       var opened = 0;
+      var played = 0;
       var tab = -1;
       final layout = BottomIslandLayout.resolve(
         style: BottomIslandStyle.c2,
@@ -126,6 +127,7 @@ void main() {
                     layout: layout,
                     song: _song,
                     onOpen: () => opened++,
+                    onPlay: () => played++,
                     onSelected: (value) => tab = value,
                   ),
                 ),
@@ -138,8 +140,16 @@ void main() {
       await tester.tapAt(Offset(28, rect.top + 10));
       await tester.tapAt(Offset(362, rect.top + 10));
       expect(background, 2);
+      expect(find.text(_song.title), findsNothing);
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.text(_song.title), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('island-play-pause')));
+      expect(played, 1);
+      expect(opened, 0);
+      expect(background, 2);
       await tester.tap(find.byKey(const ValueKey('island-open-player')));
       expect(opened, 1);
+      expect(played, 1);
       expect(background, 2);
       await tester.tap(find.byKey(const ValueKey('island-tab-3')));
       expect(tab, 3);

@@ -96,6 +96,8 @@ class BottomIslandLayout {
         ? 0.0
         : effectiveStyle == BottomIslandStyle.legacy
         ? 70.0
+        : effectiveStyle == BottomIslandStyle.c2 && navigation
+        ? 64.0
         : math.max(48.0, 16 + 32 * scale);
 
     double contentHeight;
@@ -109,9 +111,8 @@ class BottomIslandLayout {
         case BottomIslandStyle.c1:
           contentHeight = 62;
         case BottomIslandStyle.c2:
-          // The title/play row is above the protruding disc. The host must
-          // reserve this full envelope, while its empty side regions pass hits.
-          topExtension = playerHeight + 8 + 16;
+          // Only the record protrudes above the navigation surface.
+          topExtension = 24;
           contentHeight = math.max(64, navHeight) + topExtension;
         case BottomIslandStyle.c3:
           contentHeight = playerHeight + 8 + navHeight;

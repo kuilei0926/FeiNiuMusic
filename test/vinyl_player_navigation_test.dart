@@ -8,7 +8,6 @@ import 'package:feiniu_music/app/state/settings_state.dart';
 import 'package:feiniu_music/app/state/song_state.dart';
 import 'package:feiniu_music/app/utils/route_visibility.dart';
 import 'package:feiniu_music/components/layout/bottom_island/bottom_island_host.dart';
-import 'package:feiniu_music/components/player/vinyl_player_sheet.dart';
 import 'package:feiniu_music/pages/player/widgets/player_bottom_panel.dart';
 
 const _song = SongEntity(
@@ -16,6 +15,14 @@ const _song = SongEntity(
   title: '正在播放的歌曲',
   artist: '测试歌手',
 );
+
+class _RouteLog extends NavigatorObserver {
+  final List<Route<dynamic>> pushes = [];
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    pushes.add(route);
+  }
+}
 
 void main() {
   setUp(() {
@@ -42,78 +49,85 @@ void main() {
     BottomIslandSettings.resetForTest();
   });
 
-  for (final queue in [false, true]) {
+  Widget scene(_RouteLog log) => MaterialApp(
+    navigatorObservers: [appRouteObserver, log],
+    onGenerateRoute: (settings) => settings.name == AppRoutes.player
+        ? MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) =>
+                const Scaffold(body: Text('full-player-destination')),
+          )
+        : null,
+    home: const Scaffold(
+      body: Align(alignment: Alignment.bottomCenter, child: BottomIslandHost()),
+    ),
+  );
+
+  for (final style in [
+    BottomIslandStyle.c1,
+    BottomIslandStyle.c2,
+    BottomIslandStyle.c3,
+  ]) {
     testWidgets(
-      'sheet closes completely before ${queue ? 'queue' : 'full player'} opens once',
+      '${style.name} opens full player directly once and returns in one step',
       (tester) async {
-        var fullPages = 0;
-        await tester.pumpWidget(
-          MaterialApp(
-            navigatorObservers: [appRouteObserver],
-            onGenerateRoute: (settings) {
-              if (settings.name == AppRoutes.player) {
-                fullPages++;
-                return MaterialPageRoute<void>(
-                  settings: settings,
-                  builder: (_) =>
-                      const Scaffold(body: Text('full-player-destination')),
-                );
-              }
-              return null;
-            },
-            home: const Scaffold(
-              body: Align(
-                alignment: Alignment.bottomCenter,
-                child: BottomIslandHost(),
-              ),
-            ),
-          ),
-        );
+        BottomIslandSettings.style.value = style;
+        final log = _RouteLog();
+        await tester.pumpWidget(scene(log));
         await tester.pump();
         final open = find.byKey(const ValueKey('island-open-player'));
+        final activate = tester.widget<InkWell>(open).onTap!;
         await tester.tap(open);
-        await tester.pump();
-        await tester.pump(const Duration(seconds: 1));
-        expect(find.byType(VinylPlayerSheet), findsOneWidget);
-        final action = find.byKey(
-          ValueKey(queue ? 'vinyl-sheet-queue' : 'vinyl-sheet-full-player'),
-        );
-        await tester.scrollUntilVisible(
-          action,
-          100,
-          scrollable: find
-              .descendant(
-                of: find.byType(VinylPlayerSheet),
-                matching: find.byType(Scrollable),
-              )
-              .first,
-        );
-        await tester.pump();
-        await tester.pump(const Duration(seconds: 1));
-        final activate = queue
-            ? tester.widget<IconButton>(action).onPressed!
-            : tester.widget<TextButton>(action).onPressed!;
-        await tester.tap(action);
         activate();
-        await tester.pump();
-        expect(fullPages, 0);
+        await tester.pumpAndSettle();
+        expect(find.text('full-player-destination'), findsOneWidget);
+        expect(
+          log.pushes.where((route) => route.settings.name == AppRoutes.player),
+          hasLength(1),
+        );
+        expect(log.pushes.whereType<PopupRoute<dynamic>>(), isEmpty);
         expect(find.byType(PlayerPlaylistSheet), findsNothing);
-        await tester.pump();
-        await tester.pump(const Duration(seconds: 1));
-        await tester.pump();
-        await tester.pump(const Duration(seconds: 1));
-        expect(find.byType(VinylPlayerSheet), findsNothing);
-        if (queue) {
-          expect(find.byType(PlayerPlaylistSheet), findsOneWidget);
-          expect(fullPages, 0);
-        } else {
-          expect(find.text('full-player-destination'), findsOneWidget);
-          expect(fullPages, 1);
-        }
-        expect(tester.takeException(), isNull);
+        Navigator.of(
+          tester.element(find.text('full-player-destination')),
+        ).pop();
+        await tester.pumpAndSettle();
+        expect(open, findsOneWidget);
+        expect(find.byType(BottomSheet), findsNothing);
+        await tester.tap(open);
+        await tester.pumpAndSettle();
+        expect(
+          log.pushes.where((route) => route.settings.name == AppRoutes.player),
+          hasLength(2),
+        );
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pump(const Duration(seconds: 1));
       },
     );
   }
+
+  testWidgets(
+    'C3 queue opens directly and closing it leaves no intermediate player',
+    (tester) async {
+      BottomIslandSettings.style.value = BottomIslandStyle.c3;
+      final log = _RouteLog();
+      await tester.pumpWidget(scene(log));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('island-queue')));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(PlayerPlaylistSheet), findsOneWidget);
+      expect(log.pushes.whereType<PopupRoute<dynamic>>(), hasLength(1));
+      expect(
+        log.pushes.where((route) => route.settings.name == AppRoutes.player),
+        isEmpty,
+      );
+      Navigator.of(tester.element(find.byType(PlayerPlaylistSheet))).pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byKey(const ValueKey('island-open-player')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('island-open-player')));
+      await tester.pumpAndSettle();
+      expect(find.text('full-player-destination'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }

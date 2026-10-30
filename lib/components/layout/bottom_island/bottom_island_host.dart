@@ -8,7 +8,6 @@ import '../../../app/state/settings_state.dart';
 import '../../../app/state/song_state.dart';
 import '../../feedback/app_toast.dart';
 import '../../player/vinyl_disc.dart';
-import '../../player/vinyl_player_sheet.dart';
 import '../../../pages/player/widgets/player_bottom_panel.dart';
 import '../modern_navigation_bar.dart';
 import 'bottom_island_layout.dart';
@@ -85,34 +84,7 @@ class _BottomIslandHostState extends State<BottomIslandHost> {
         await route.completed;
         return;
       }
-      final route = ModalBottomSheetRoute<VinylSheetAction>(
-        builder: (_) => VinylPlayerSheet(player: PlayerService.instance),
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-      );
-      final action = await navigator.push(route);
-      await route.completed;
-      if (!mounted ||
-          !navigator.mounted ||
-          !(ModalRoute.of(context)?.isCurrent ?? true)) {
-        return;
-      }
-      switch (action) {
-        case VinylSheetAction.fullPlayer:
-          await navigator.pushNamed(AppRoutes.player);
-        case VinylSheetAction.queue:
-          final queueRoute = ModalBottomSheetRoute<void>(
-            builder: (_) => PlayerPlaylistSheet(player: PlayerService.instance),
-            isScrollControlled: true,
-            useSafeArea: true,
-            backgroundColor: Colors.transparent,
-          );
-          await navigator.push(queueRoute);
-          await queueRoute.completed;
-        case null:
-          break;
-      }
+      await navigator.pushNamed(AppRoutes.player);
     } finally {
       _opening = false;
     }
@@ -274,7 +246,7 @@ class BottomIslandView extends StatelessWidget {
     ),
   );
 
-  Widget _play(BuildContext context) {
+  Widget _play(BuildContext context, {bool filled = false}) {
     Widget button(PlaybackSnapshot? snap) {
       final playing = snap?.isPlaying ?? false;
       final total = snap?.duration?.inMilliseconds ?? 0;
@@ -287,6 +259,17 @@ class BottomIslandView extends StatelessWidget {
         child: IconButton(
           key: const ValueKey('island-play-pause'),
           tooltip: playing ? '暂停' : '播放',
+          style: filled
+              ? IconButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                  foregroundColor: Theme.of(context).colorScheme.onSurface,
+                  side: BorderSide(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.outlineVariant.withValues(alpha: .25),
+                  ),
+                )
+              : null,
           onPressed: song != null || preview ? onPlay : null,
           padding: const EdgeInsets.all(6),
           icon: CustomPaint(
@@ -322,29 +305,6 @@ class BottomIslandView extends StatelessWidget {
         : ValueListenableBuilder<PlaybackSnapshot>(
             valueListenable: player!.snapshot,
             builder: (context, snap, _) => button(snap),
-          );
-  }
-
-  Widget _discRing(BuildContext context) {
-    Widget ring(PlaybackSnapshot? snap) {
-      final total = snap?.duration?.inMilliseconds ?? 0;
-      final progress = total > 0
-          ? (snap!.position.inMilliseconds / total).clamp(0.0, 1.0)
-          : 0.0;
-      return CustomPaint(
-        foregroundPainter: _ProgressRing(
-          progress: preview ? .42 : progress,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        child: SizedBox(width: 64, height: 64, child: Center(child: _disc(56))),
-      );
-    }
-
-    return player == null
-        ? ring(null)
-        : ValueListenableBuilder<PlaybackSnapshot>(
-            valueListenable: player!.snapshot,
-            builder: (context, snap, _) => ring(snap),
           );
   }
 
@@ -418,7 +378,6 @@ class BottomIslandView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasNav = layout.navigationIndices.isNotEmpty;
-    final scheme = Theme.of(context).colorScheme;
     Widget content;
     if (layout.effectiveStyle == BottomIslandStyle.legacy) {
       content = Column(
@@ -511,65 +470,42 @@ class BottomIslandView extends StatelessWidget {
                     child: Row(
                       children: [
                         Expanded(child: _navigation(context, const [0, 1])),
-                        const SizedBox(width: 76),
+                        const SizedBox(width: 94),
                         Expanded(child: _navigation(context, const [3, 4])),
                       ],
                     ),
                   ),
                 ),
               ),
-              Align(
-                alignment: Alignment.topCenter,
-                child: SizedBox(
-                  width: math.min(MediaQuery.sizeOf(context).width - 64, 280),
-                  height: layout.playerHeight,
-                  child: _surface(
-                    Padding(
-                      padding: const EdgeInsets.only(left: 16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: song == null ? null : onOpen,
-                              child: Center(
-                                child: Text(
-                                  song?.title ??
-                                      (preview ? '黑胶 · 随心听' : '选择歌曲开始播放'),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ),
-                            ),
-                          ),
-                          _play(context),
-                        ],
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Semantics(
+                    button: true,
+                    label: '打开播放页',
+                    child: InkWell(
+                      key: const ValueKey('island-open-player'),
+                      customBorder: const CircleBorder(),
+                      onTap: song == null ? null : onOpen,
+                      child: SizedBox(
+                        width: 64,
+                        height: 64,
+                        child: Center(child: _disc(56)),
                       ),
                     ),
                   ),
                 ),
               ),
               Positioned(
-                top: layout.playerHeight + 8,
+                bottom: 0,
                 left: 0,
                 right: 0,
                 child: Center(
-                  child: InkWell(
-                    key: const ValueKey('island-open-player'),
-                    customBorder: const CircleBorder(),
-                    onTap: song == null ? null : onOpen,
-                    child: Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: scheme.surface,
-                        border: Border.all(
-                          color: scheme.outlineVariant.withValues(alpha: .25),
-                        ),
-                      ),
-                      child: _discRing(context),
-                    ),
+                  child: Transform.translate(
+                    offset: const Offset(23, 0),
+                    child: _play(context, filled: true),
                   ),
                 ),
               ),

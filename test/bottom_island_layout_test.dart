@@ -37,13 +37,14 @@ void main() {
     expect(c3.transitionOccupiedHeight(c1), c3.occupiedHeight);
   });
 
-  test('C2 includes the full protrusion and title play row', () {
+  test('C2 reserves only the record protrusion without a title popup', () {
     final c2 = BottomIslandLayout.resolve(
       style: BottomIslandStyle.c2,
       width: 390,
     );
     expect(c2.playerHeight, greaterThanOrEqualTo(48));
-    expect(c2.topExtension, c2.playerHeight + 8 + 16);
+    expect(c2.topExtension, 24);
+    expect(c2.contentHeight, 88);
     expect(c2.contentHeight, 64 + c2.topExtension);
     expect(c2.occupiedHeight, c2.contentHeight + 12);
   });
@@ -161,7 +162,7 @@ void main() {
     }
   }
 
-  test('large text expands C2 and C3 envelopes', () {
+  test('large text preserves sufficient C2 and C3 envelopes', () {
     for (final style in [BottomIslandStyle.c2, BottomIslandStyle.c3]) {
       final normal = BottomIslandLayout.resolve(style: style, width: 390);
       final large = BottomIslandLayout.resolve(
@@ -169,7 +170,7 @@ void main() {
         width: 390,
         textScale: 2,
       );
-      expect(large.contentHeight, greaterThan(normal.contentHeight));
+      expect(large.contentHeight, greaterThanOrEqualTo(normal.contentHeight));
     }
   });
 
