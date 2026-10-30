@@ -345,10 +345,7 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
               );
             },
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 16),
-            child: BottomIslandStylePicker(),
-          ),
+          const BottomIslandStylePicker(),
           const SizedBox(height: 16),
           AppSettingSection(
             title: '外观设置',

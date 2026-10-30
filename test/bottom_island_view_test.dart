@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -171,6 +172,56 @@ void main() {
     expect(BottomIslandSettings.style.value, BottomIslandStyle.c2);
     expect(tester.takeException(), isNull);
   });
+
+  for (final platform in [
+    TargetPlatform.windows,
+    TargetPlatform.macOS,
+    TargetPlatform.linux,
+  ]) {
+    testWidgets('$platform hides unsupported bottom player choices', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: BottomIslandStylePicker())),
+      );
+      expect(find.text('底部播放器样式'), findsNothing);
+      expect(find.byKey(const ValueKey('island-style-c1')), findsNothing);
+      expect(tester.getSize(find.byType(BottomIslandStylePicker)).height, 0);
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
+  testWidgets(
+    'tablet and TV mode hide picker immediately without changing preference',
+    (tester) async {
+      AppLayoutSettings.resetForTest();
+      BottomIslandSettings.style.value = BottomIslandStyle.c2;
+      addTearDown(AppLayoutSettings.resetForTest);
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(child: BottomIslandStylePicker()),
+          ),
+        ),
+      );
+      expect(find.text('底部播放器样式'), findsOneWidget);
+      AppLayoutSettings.tabletMode.value = true;
+      await tester.pump();
+      expect(find.text('底部播放器样式'), findsNothing);
+      AppLayoutSettings.tabletMode.value = false;
+      await tester.pump();
+      expect(find.text('底部播放器样式'), findsOneWidget);
+      AppLayoutSettings.tvMode.value = true;
+      await tester.pump();
+      expect(find.text('底部播放器样式'), findsNothing);
+      AppLayoutSettings.tvMode.value = false;
+      await tester.pump();
+      expect(find.text('底部播放器样式'), findsOneWidget);
+      expect(BottomIslandSettings.style.value, BottomIslandStyle.c2);
+    },
+  );
 
   testWidgets('transition reserves the larger envelope then releases it', (
     tester,

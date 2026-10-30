@@ -29,7 +29,20 @@ class _BottomIslandStylePickerState extends State<BottomIslandStylePicker> {
   }
 
   @override
-  Widget build(BuildContext context) =>
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+    valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
+    builder: (context, largeLayout, _) {
+      if (largeLayout || AppLayoutSettings.effectiveTabletMode) {
+        return const SizedBox.shrink();
+      }
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 16),
+        child: _buildPicker(context),
+      );
+    },
+  );
+
+  Widget _buildPicker(BuildContext context) =>
       ValueListenableBuilder<BottomIslandStyle>(
         valueListenable: BottomIslandSettings.style,
         builder: (context, selected, _) {
