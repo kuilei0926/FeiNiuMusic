@@ -106,64 +106,91 @@ class _VinylDiscState extends State<VinylDisc>
 
   @override
   Widget build(BuildContext context) => RepaintBoundary(
-    child: RotationTransition(
-      turns: _rotation,
-      child: Container(
-        width: widget.size,
-        height: widget.size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const SweepGradient(
-            colors: [
-              Color(0xff101115),
-              Color(0xff393b46),
-              Color(0xff101115),
-              Color(0xff30323d),
-              Color(0xff101115),
-            ],
-          ),
-          border: Border.all(color: Colors.white.withValues(alpha: .14)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: .25),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
+    child: Container(
+      width: widget.size,
+      height: widget.size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0xff111215),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: .16),
+          width: .7,
         ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            for (final fraction in [.84, .72])
-              Container(
-                width: widget.size * fraction,
-                height: widget.size * fraction,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: .07),
-                  ),
-                ),
-              ),
-            ClipOval(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .22),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          const Positioned.fill(child: CustomPaint(painter: _RecordGrooves())),
+          RotationTransition(
+            turns: _rotation,
+            child: ClipOval(
               child: MiniPlayerArtwork(
                 song: widget.song,
-                size: widget.size * .54,
+                size: widget.size * .56,
                 borderRadius: widget.size,
               ),
             ),
-            Container(
-              width: widget.size * .09,
-              height: widget.size * .09,
-              decoration: BoxDecoration(
-                color: const Color(0xff101115),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white24, width: .5),
+          ),
+          // The light and shadow stay fixed while the label rotates beneath.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: SweepGradient(
+                    stops: const [0, .12, .25, .5, .62, .75, 1],
+                    colors: [
+                      Colors.transparent,
+                      Colors.white.withValues(alpha: .18),
+                      Colors.transparent,
+                      Colors.transparent,
+                      Colors.white.withValues(alpha: .10),
+                      Colors.transparent,
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
               ),
             ),
-          ],
-        ),
+          ),
+          Container(
+            width: widget.size * .075,
+            height: widget.size * .075,
+            decoration: BoxDecoration(
+              color: const Color(0xff111215),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white38, width: .5),
+            ),
+          ),
+        ],
       ),
     ),
   );
+}
+
+class _RecordGrooves extends CustomPainter {
+  const _RecordGrooves();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.shortestSide / 2;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = .45;
+    for (var i = 0; i < 12; i++) {
+      paint.color = Colors.white.withValues(alpha: i.isEven ? .085 : .035);
+      canvas.drawCircle(center, radius * (.62 + i * .029), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RecordGrooves oldDelegate) => false;
 }

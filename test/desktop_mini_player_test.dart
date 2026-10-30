@@ -4,9 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:feiniu_music/app/services/player_service.dart';
+import 'package:feiniu_music/app/services/lyrics/lyrics_service.dart';
 import 'package:feiniu_music/app/state/settings_state.dart';
 import 'package:feiniu_music/app/state/song_state.dart';
 import 'package:feiniu_music/components/layout/tablet_layout_host.dart';
+import 'package:feiniu_music/components/layout/base/app_page_scaffold.dart';
 import 'package:feiniu_music/components/player/mini_player/desktop_mini_player_style_picker.dart';
 import 'package:feiniu_music/components/player/mini_player/mini_player_bar.dart';
 import 'package:feiniu_music/components/player/vinyl_disc.dart';
@@ -154,6 +156,223 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     }
+  });
+
+  testWidgets(
+    'vinyl layout adapts to window width, theme and accessible text',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      PlayerService.instance.currentSong.value = const SongEntity(
+        id: 'long-title',
+        title: '一首很长很长的歌曲名称 A long song title',
+        artist: '歌手与艺术家',
+      );
+      LyricsService.instance.currentLineText.value = '歌词仍然从真实播放服务获取，长文本应平滑省略';
+      for (final brightness in Brightness.values) {
+        for (final scale in [1.0, 1.5, 2.0]) {
+          for (final width in [
+            140.0,
+            180.0,
+            240.0,
+            320.0,
+            520.0,
+            900.0,
+            1600.0,
+          ]) {
+            await tester.pumpWidget(
+              MaterialApp(
+                theme: ThemeData(brightness: brightness),
+                home: MediaQuery(
+                  data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+                  child: Scaffold(
+                    body: SizedBox(
+                      width: width,
+                      child: MiniPlayerBar(vinyl: true),
+                    ),
+                  ),
+                ),
+              ),
+            );
+            expect(
+              tester.takeException(),
+              isNull,
+              reason: '$brightness / $scale / $width',
+            );
+            final surface = find.byKey(const ValueKey('desktop-vinyl-surface'));
+            expect(tester.getSize(surface).width, lessThanOrEqualTo(760));
+            expect(
+              find.byTooltip('上一曲'),
+              width >= 552 ? findsOneWidget : findsNothing,
+            );
+            expect(
+              find.byTooltip('下一曲'),
+              width >= 552 ? findsOneWidget : findsNothing,
+            );
+            expect(
+              find.byTooltip('播放队列'),
+              width >= 352 ? findsOneWidget : findsNothing,
+            );
+            expect(
+              tester.getSize(find.byType(MiniPlayerPlayButton)),
+              const Size(44, 44),
+            );
+          }
+        }
+      }
+      LyricsService.instance.currentLineText.value = null;
+    },
+  );
+
+  testWidgets('empty vinyl state disables playback and navigation controls', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(home: Scaffold(body: MiniPlayerBar(vinyl: true))),
+    );
+    expect(find.text('未选择歌曲'), findsOneWidget);
+    final buttons = tester.widgetList<IconButton>(
+      find.descendant(
+        of: find.byType(MiniPlayerBar),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(buttons, isNotEmpty);
+    expect(buttons.every((button) => button.onPressed == null), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'desktop picker previews selected style without animation or interaction',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      PlayerService.instance.isPlaying.value = true;
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: DesktopMiniPlayerStylePicker())),
+      );
+      expect(
+        tester.widget<MiniPlayerBar>(find.byType(MiniPlayerBar)).vinyl,
+        isFalse,
+      );
+      DesktopMiniPlayerSettings.style.value = DesktopMiniPlayerStyle.vinyl;
+      await tester.pump();
+      expect(find.byType(VinylDisc), findsOneWidget);
+      final context = tester.element(find.byType(VinylDisc));
+      expect(TickerMode.valuesOf(context).enabled, isFalse);
+      expect(MediaQuery.disableAnimationsOf(context), isTrue);
+      expect(
+        tester
+            .widget<IgnorePointer>(
+              find
+                  .ancestor(
+                    of: find.byType(MiniPlayerBar),
+                    matching: find.byType(IgnorePointer),
+                  )
+                  .first,
+            )
+            .ignoring,
+        isTrue,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
+
+  testWidgets(
+    'floating dock margins pass clicks to the page and blur stays uncached',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      AppGlassSettings.liquidGlassEnabled.value = false;
+      AppBackgroundSettings.panelBlurEnabled.value = true;
+      var pageTaps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => pageTaps++,
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: MiniPlayerBar(vinyl: true),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final surface = tester.getRect(
+        find.byKey(const ValueKey('desktop-vinyl-surface')),
+      );
+      await tester.tapAt(Offset(30, surface.center.dy));
+      await tester.tapAt(Offset(1170, surface.center.dy));
+      expect(pageTaps, 2);
+      var cached = false;
+      tester.element(find.byType(BackdropFilter)).visitAncestorElements((
+        element,
+      ) {
+        if (element.widget is MiniPlayerBar) return false;
+        if (element.widget is RepaintBoundary) cached = true;
+        return true;
+      });
+      expect(cached, isFalse);
+    },
+  );
+
+  testWidgets('large desktop text reserves enough page space for the dock', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    PlayerService.instance.currentSong.value = const SongEntity(
+      id: 'large-text',
+      title: '放大的歌曲名称',
+      artist: '歌手',
+    );
+    var reserved = 0.0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+          child: Builder(
+            builder: (context) {
+              reserved = AppPageScaffold.scrollableBottomPadding(context);
+              return Scaffold(
+                body: Stack(
+                  children: [
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: MiniPlayerBar(
+                        vinyl: true,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    final height = tester.getSize(find.byType(MiniPlayerBar)).height;
+    expect(reserved, greaterThanOrEqualTo(height + 24));
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('desktop host switches live, pauses hidden vinyl, excludes TV', (

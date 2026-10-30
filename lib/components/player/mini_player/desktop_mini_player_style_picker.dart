@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/state/settings_state.dart';
 import '../../feedback/app_toast.dart';
+import 'mini_player_bar.dart';
 
 class DesktopMiniPlayerStylePicker extends StatefulWidget {
   const DesktopMiniPlayerStylePicker({super.key});
@@ -42,7 +43,7 @@ class _DesktopMiniPlayerStylePickerState
             Text('桌面播放条', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
             Text(
-              '黑胶样式使用旋转唱片与轻量边框，保留歌词、播放进度和队列。',
+              '经典播放条，或更轻盈的黑胶播放坞。',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 12,
@@ -51,7 +52,9 @@ class _DesktopMiniPlayerStylePickerState
             const SizedBox(height: 12),
             ValueListenableBuilder<DesktopMiniPlayerStyle>(
               valueListenable: DesktopMiniPlayerSettings.style,
-              builder: (context, selected, _) =>
+              builder: (context, selected, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   SegmentedButton<DesktopMiniPlayerStyle>(
                     segments: const [
                       ButtonSegment(
@@ -70,6 +73,35 @@ class _DesktopMiniPlayerStylePickerState
                         ? null
                         : (values) => _select(values.single),
                   ),
+                  const SizedBox(height: 16),
+                  ExcludeSemantics(
+                    child: IgnorePointer(
+                      child: TickerMode(
+                        enabled: false,
+                        child: MediaQuery(
+                          data: MediaQuery.of(
+                            context,
+                          ).copyWith(disableAnimations: true),
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: MiniPlayerBar(
+                              vinyl: selected == DesktopMiniPlayerStyle.vinyl,
+                              padding: EdgeInsets.zero,
+                              enableSwipe: false,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

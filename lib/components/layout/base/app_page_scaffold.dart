@@ -30,9 +30,11 @@ class AppPageScaffold extends StatefulWidget {
       ).scrollPadding(contentGap: minPadding);
     }
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final miniPlayerPadding = showMiniPlayer
-        ? MiniPlayerBar.estimatedHeight
-        : 0.0;
+    final miniPlayerPadding = !showMiniPlayer
+        ? 0.0
+        : AppLayoutSettings.isDesktop && !AppLayoutSettings.tvMode.value
+        ? MiniPlayerBar.desktopReservedHeightOf(context)
+        : MiniPlayerBar.estimatedHeight;
     // 留白高度跟随当前分支：玻璃胶囊槽位 84，非玻璃栏 kSolidNavHeight。
     final bottomNavPadding = hasBottomNav
         ? (AppGlassSettings.effectiveEnabled
