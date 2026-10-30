@@ -112,7 +112,7 @@ class BottomIslandLayout {
           contentHeight = 62;
         case BottomIslandStyle.c2:
           // Only the record protrudes above the navigation surface.
-          topExtension = 24;
+          topExtension = 16;
           contentHeight = math.max(64, navHeight) + topExtension;
         case BottomIslandStyle.c3:
           contentHeight = playerHeight + 8 + navHeight;

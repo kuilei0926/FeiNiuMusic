@@ -8,6 +8,7 @@ import '../../../app/state/settings_state.dart';
 import '../../../app/state/song_state.dart';
 import '../../feedback/app_toast.dart';
 import '../../player/vinyl_disc.dart';
+import '../../player/vinyl_player_gesture_area.dart';
 import '../../../pages/player/widgets/player_bottom_panel.dart';
 import '../modern_navigation_bar.dart';
 import 'bottom_island_layout.dart';
@@ -148,6 +149,7 @@ class _BottomIslandHostState extends State<BottomIslandHost> {
             onQueue: () => _open(queue: true),
             onPlay: () => _command(player.togglePlayPause),
             onNext: () => _command(player.next),
+            onPrevious: () => _command(player.previous),
           ),
         ),
       );
@@ -166,6 +168,7 @@ class BottomIslandView extends StatelessWidget {
   final VoidCallback? onOpen;
   final VoidCallback? onPlay;
   final VoidCallback? onNext;
+  final VoidCallback? onPrevious;
   final VoidCallback? onQueue;
 
   const BottomIslandView({
@@ -179,6 +182,7 @@ class BottomIslandView extends StatelessWidget {
     this.onOpen,
     this.onPlay,
     this.onNext,
+    this.onPrevious,
     this.onQueue,
   });
 
@@ -246,7 +250,7 @@ class BottomIslandView extends StatelessWidget {
     ),
   );
 
-  Widget _play(BuildContext context, {bool filled = false}) {
+  Widget _play(BuildContext context) {
     Widget button(PlaybackSnapshot? snap) {
       final playing = snap?.isPlaying ?? false;
       final total = snap?.duration?.inMilliseconds ?? 0;
@@ -259,17 +263,6 @@ class BottomIslandView extends StatelessWidget {
         child: IconButton(
           key: const ValueKey('island-play-pause'),
           tooltip: playing ? '暂停' : '播放',
-          style: filled
-              ? IconButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.surface,
-                  foregroundColor: Theme.of(context).colorScheme.onSurface,
-                  side: BorderSide(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.outlineVariant.withValues(alpha: .25),
-                  ),
-                )
-              : null,
           onPressed: song != null || preview ? onPlay : null,
           padding: const EdgeInsets.all(6),
           icon: CustomPaint(
@@ -305,6 +298,68 @@ class BottomIslandView extends StatelessWidget {
         : ValueListenableBuilder<PlaybackSnapshot>(
             valueListenable: player!.snapshot,
             builder: (context, snap, _) => button(snap),
+          );
+  }
+
+  Widget _c2Record(BuildContext context) {
+    Widget control(PlaybackSnapshot? snapshot) {
+      final playing = snapshot?.isPlaying ?? false;
+      final loading = snapshot?.isLoading ?? false;
+      return VinylPlayerGestureArea(
+        key: const ValueKey('island-c2-player'),
+        label: song?.title ?? '未选择歌曲',
+        value: loading
+            ? '正在加载'
+            : playing
+            ? '正在播放'
+            : '已暂停',
+        enabled: song != null || preview,
+        onPlay: onPlay,
+        onPrevious: onPrevious,
+        onNext: onNext,
+        onOpen: onOpen,
+        child: SizedBox(
+          width: 64,
+          height: 64,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              _disc(56),
+              if (song != null || preview)
+                if (loading)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                else if (!playing)
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF232529),
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      size: 21,
+                      color: Colors.white,
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return player == null
+        ? control(null)
+        : ValueListenableBuilder<PlaybackSnapshot>(
+            valueListenable: player!.snapshot,
+            builder: (context, snapshot, _) => control(snapshot),
           );
   }
 
@@ -470,7 +525,7 @@ class BottomIslandView extends StatelessWidget {
                     child: Row(
                       children: [
                         Expanded(child: _navigation(context, const [0, 1])),
-                        const SizedBox(width: 94),
+                        const SizedBox(width: 76),
                         Expanded(child: _navigation(context, const [3, 4])),
                       ],
                     ),
@@ -481,33 +536,7 @@ class BottomIslandView extends StatelessWidget {
                 top: 0,
                 left: 0,
                 right: 0,
-                child: Center(
-                  child: Semantics(
-                    button: true,
-                    label: '打开播放页',
-                    child: InkWell(
-                      key: const ValueKey('island-open-player'),
-                      customBorder: const CircleBorder(),
-                      onTap: song == null ? null : onOpen,
-                      child: SizedBox(
-                        width: 64,
-                        height: 64,
-                        child: Center(child: _disc(56)),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Transform.translate(
-                    offset: const Offset(23, 0),
-                    child: _play(context, filled: true),
-                  ),
-                ),
+                child: Center(child: _c2Record(context)),
               ),
             ],
           ),

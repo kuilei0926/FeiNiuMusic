@@ -102,6 +102,8 @@ void main() {
       var background = 0;
       var opened = 0;
       var played = 0;
+      var previous = 0;
+      var next = 0;
       var tab = -1;
       final layout = BottomIslandLayout.resolve(
         style: BottomIslandStyle.c2,
@@ -128,6 +130,8 @@ void main() {
                     song: _song,
                     onOpen: () => opened++,
                     onPlay: () => played++,
+                    onPrevious: () => previous++,
+                    onNext: () => next++,
                     onSelected: (value) => tab = value,
                   ),
                 ),
@@ -143,11 +147,21 @@ void main() {
       expect(find.text(_song.title), findsNothing);
       await tester.pump(const Duration(seconds: 5));
       expect(find.text(_song.title), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('island-play-pause')));
+      expect(find.byKey(const ValueKey('island-play-pause')), findsNothing);
+      final record = find.byKey(const ValueKey('island-c2-player'));
+      await tester.tap(record);
       expect(played, 1);
       expect(opened, 0);
       expect(background, 2);
-      await tester.tap(find.byKey(const ValueKey('island-open-player')));
+      await tester.drag(record, const Offset(-70, 0));
+      await tester.pumpAndSettle();
+      expect(next, 1);
+      await tester.drag(record, const Offset(70, 0));
+      await tester.pumpAndSettle();
+      expect(previous, 1);
+      expect(opened, 0);
+      await tester.drag(record, const Offset(0, -70));
+      await tester.pumpAndSettle();
       expect(opened, 1);
       expect(played, 1);
       expect(background, 2);

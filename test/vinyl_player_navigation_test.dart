@@ -9,6 +9,7 @@ import 'package:feiniu_music/app/state/song_state.dart';
 import 'package:feiniu_music/app/utils/route_visibility.dart';
 import 'package:feiniu_music/components/layout/bottom_island/bottom_island_host.dart';
 import 'package:feiniu_music/pages/player/widgets/player_bottom_panel.dart';
+import 'package:feiniu_music/components/player/vinyl_player_gesture_area.dart';
 
 const _song = SongEntity(
   id: 'navigation-song',
@@ -75,9 +76,18 @@ void main() {
         final log = _RouteLog();
         await tester.pumpWidget(scene(log));
         await tester.pump();
-        final open = find.byKey(const ValueKey('island-open-player'));
-        final activate = tester.widget<InkWell>(open).onTap!;
-        await tester.tap(open);
+        final c2 = style == BottomIslandStyle.c2;
+        final open = find.byKey(
+          ValueKey(c2 ? 'island-c2-player' : 'island-open-player'),
+        );
+        final activate = c2
+            ? tester.widget<VinylPlayerGestureArea>(open).onOpen!
+            : tester.widget<InkWell>(open).onTap!;
+        if (c2) {
+          await tester.drag(open, const Offset(0, -70));
+        } else {
+          await tester.tap(open);
+        }
         activate();
         await tester.pumpAndSettle();
         expect(find.text('full-player-destination'), findsOneWidget);
@@ -93,7 +103,11 @@ void main() {
         await tester.pumpAndSettle();
         expect(open, findsOneWidget);
         expect(find.byType(BottomSheet), findsNothing);
-        await tester.tap(open);
+        if (c2) {
+          await tester.drag(open, const Offset(0, -70));
+        } else {
+          await tester.tap(open);
+        }
         await tester.pumpAndSettle();
         expect(
           log.pushes.where((route) => route.settings.name == AppRoutes.player),

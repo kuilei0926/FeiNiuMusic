@@ -140,6 +140,17 @@ class _BottomIslandStylePickerState extends State<BottomIslandStylePicker> {
                                     ),
                                   ),
                                 ),
+                                if (style == BottomIslandStyle.c2)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      '点按黑胶播放/暂停，左右滑动切歌，上滑打开完整播放页。',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
                                 if (style == BottomIslandStyle.c1 ||
                                     style == BottomIslandStyle.c2)
                                   Padding(

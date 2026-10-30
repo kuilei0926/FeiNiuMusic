@@ -43,8 +43,8 @@ void main() {
       width: 390,
     );
     expect(c2.playerHeight, greaterThanOrEqualTo(48));
-    expect(c2.topExtension, 24);
-    expect(c2.contentHeight, 88);
+    expect(c2.topExtension, 16);
+    expect(c2.contentHeight, 80);
     expect(c2.contentHeight, 64 + c2.topExtension);
     expect(c2.occupiedHeight, c2.contentHeight + 12);
   });
