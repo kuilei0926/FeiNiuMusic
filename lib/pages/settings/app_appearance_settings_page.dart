@@ -10,6 +10,7 @@ import '../../app/state/settings_state.dart';
 import '../../app/tv/tv_layout.dart';
 import '../../app/utils/image_crop_helper.dart';
 import '../../components/index.dart';
+import '../../components/layout/bottom_island/bottom_island_style_picker.dart';
 
 class AppAppearanceSettingsPage extends StatefulWidget {
   const AppAppearanceSettingsPage({super.key});
@@ -27,6 +28,7 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
     AppThemeSettings.ensureLoaded();
     AppBackgroundSettings.ensureLoaded();
     AppGlassSettings.ensureLoaded();
+    BottomIslandSettings.ensureLoaded();
   }
 
   String _themeLabel(ThemeMode mode) {
@@ -325,7 +327,7 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
                             const SizedBox(height: 10),
                             Text(
                               style == AppNavigationStyle.bottomBar
-                                  ? '四个常用入口固定在底部，专辑、歌手与文件夹仍从音乐库进入'
+                                  ? '常用入口固定在底部，入口数量随底部播放器样式调整'
                                   : '保留当前从左侧菜单访问各页面的方式',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
@@ -342,6 +344,10 @@ class _AppAppearanceSettingsPageState extends State<AppAppearanceSettingsPage> {
                 ],
               );
             },
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 16),
+            child: BottomIslandStylePicker(),
           ),
           const SizedBox(height: 16),
           AppSettingSection(

@@ -5,6 +5,8 @@ import '../../../app/utils/primary_shell_scope.dart';
 import 'app_background.dart';
 import '../../player/mini_player/mini_player_bar.dart';
 import '../modern_navigation_bar.dart';
+import '../bottom_island/bottom_island_host.dart';
+import '../bottom_island/bottom_chrome_scope.dart';
 
 class AppPageScaffold extends StatefulWidget {
   static const double modernNavHeight = 84.0;
@@ -15,6 +17,18 @@ class AppPageScaffold extends StatefulWidget {
     bool showMiniPlayer = true,
     double minPadding = 24,
   }) {
+    if (BottomIslandSettings.style.value != BottomIslandStyle.legacy &&
+        !AppLayoutSettings.effectiveTabletMode) {
+      final reserved = BottomChromeScope.occupiedHeightOf(context);
+      if (reserved != null && hasBottomNav && showMiniPlayer) {
+        return reserved + minPadding;
+      }
+      return resolveBottomIslandLayout(
+        context,
+        hasNavigation: hasBottomNav,
+        showPlayer: showMiniPlayer,
+      ).scrollPadding(contentGap: minPadding);
+    }
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final miniPlayerPadding = showMiniPlayer
         ? MiniPlayerBar.estimatedHeight
@@ -22,8 +36,8 @@ class AppPageScaffold extends StatefulWidget {
     // 留白高度跟随当前分支：玻璃胶囊槽位 84，非玻璃栏 kSolidNavHeight。
     final bottomNavPadding = hasBottomNav
         ? (AppGlassSettings.effectiveEnabled
-            ? modernNavHeight
-            : kSolidNavHeight)
+              ? modernNavHeight
+              : kSolidNavHeight)
         : 0.0;
     return bottomInset + miniPlayerPadding + bottomNavPadding + minPadding;
   }
@@ -173,7 +187,8 @@ class AppPageScaffoldState extends State<AppPageScaffold>
       );
     }
 
-    final hasBottomNav = !widget.hideBottomNav &&
+    final hasBottomNav =
+        !widget.hideBottomNav &&
         widget.bottomNavIndex != null &&
         widget.onBottomNavTap != null;
     // shell 主 tab 页由 shell 渲染唯一一份共享底栏（见 app_router.dart 的
@@ -181,10 +196,23 @@ class AppPageScaffoldState extends State<AppPageScaffold>
     // tab 页各持一份 GlassTabBar / TabIndicatorState，切换后胶囊会从各页
     // 过期的 tabXAlign 起跳（闪一下旧选中项）。Detail/独立路由页面不在
     // PrimaryShellMarker 内，仍按各自 bottomNavIndex 渲染自己的底栏。
-    final bottomBar = hasBottomNav && !PrimaryShellMarker.isInside(context)
+    final useIsland =
+        BottomIslandSettings.style.value != BottomIslandStyle.legacy &&
+        !AppLayoutSettings.effectiveTabletMode;
+    final insideShell = PrimaryShellMarker.isInside(context);
+    final bottomBar = !useIsland && hasBottomNav && !insideShell
         ? ModernNavigationBar(onTap: widget.onBottomNavTap!)
         : null;
-    final miniPlayer = widget.showMiniPlayer
+    final Widget? miniPlayer = useIsland
+        ? insideShell || (!widget.showMiniPlayer && !hasBottomNav)
+              ? null
+              : BottomIslandHost(
+                  hasNavigation: hasBottomNav,
+                  showPlayer: widget.showMiniPlayer,
+                  keepVisibleWithKeyboard: widget.keepBottomOverlayFixed,
+                  onSelected: widget.onBottomNavTap,
+                )
+        : widget.showMiniPlayer
         ? MiniPlayerBar(
             padding: hasBottomNav
                 ? const EdgeInsets.fromLTRB(16, 4, 16, 0)
@@ -212,9 +240,12 @@ class AppPageScaffoldState extends State<AppPageScaffold>
     final keyboardInset = widget.resizeToAvoidBottomInset
         ? MediaQuery.viewInsetsOf(context).bottom
         : 0.0;
-    final effectiveMiniPlayerBottom = (widget.keepBottomOverlayFixed
-        ? miniPlayerBottom - keyboardInset
-        : miniPlayerBottom) + lift;
+    final effectiveMiniPlayerBottom = useIsland
+        ? 0.0
+        : (widget.keepBottomOverlayFixed
+                  ? miniPlayerBottom - keyboardInset
+                  : miniPlayerBottom) +
+              lift;
 
     final drawerWidth = (MediaQuery.sizeOf(context).width * 0.56).clamp(
       200.0,
@@ -228,8 +259,7 @@ class AppPageScaffoldState extends State<AppPageScaffold>
         AppLayoutSettings.tvMode,
       ]),
       builder: (context, _) {
-        final tabletMode =
-            AppLayoutSettings.effectiveTabletModeNotifier.value;
+        final tabletMode = AppLayoutSettings.effectiveTabletModeNotifier.value;
         Widget buildBody({required bool includeMiniPlayer}) {
           return Stack(
             clipBehavior: Clip.none,
@@ -240,12 +270,7 @@ class AppPageScaffoldState extends State<AppPageScaffold>
               // 页面内容（透明空隙透出页面 = 真正的 iOS 26 悬浮胶囊），
               // 而不是停在槽位里采样到空白层（表现为白色背景）。
               if (bottomBar != null)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: bottomBar,
-                ),
+                Positioned(left: 0, right: 0, bottom: 0, child: bottomBar),
               if (miniPlayer != null && includeMiniPlayer)
                 Positioned(
                   left: 0,
@@ -281,133 +306,131 @@ class AppPageScaffoldState extends State<AppPageScaffold>
             );
           }
           final stack = AppBackground(
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              AnimatedBuilder(
-                animation: _drawerController,
-                builder: (context, child) {
-                  final value = _drawerController.value;
-                  return Transform.translate(
-                    offset: Offset(-drawerWidth + drawerWidth * value, 0),
-                    child: child,
-                  );
-                },
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: RepaintBoundary(
-                    child: SizedBox(width: drawerWidth, child: widget.drawer),
-                  ),
-                ),
-              ),
-              AnimatedBuilder(
-                animation: _drawerController,
-                builder: (context, child) {
-                  final value = _drawerController.value;
-                  return GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onHorizontalDragStart: (_) {
-                      _draggingDrawer = true;
-                    },
-                    onHorizontalDragUpdate: (details) {
-                      if (!_draggingDrawer) return;
-                      final delta = details.primaryDelta ?? 0;
-                      if (delta == 0) return;
-                      if (_drawerController.value == 0 && delta < 0) return;
-                      if (_drawerController.value == 1 && delta > 0) return;
-                      final next =
-                          (_drawerController.value + delta / drawerWidth).clamp(
-                            0.0,
-                            1.0,
-                          );
-                      _drawerController.value = next;
-                    },
-                    onHorizontalDragEnd: (_) {
-                      if (!_draggingDrawer) return;
-                      _draggingDrawer = false;
-                      if (_drawerController.value < 0.5) {
-                        closeDrawer();
-                      } else {
-                        openDrawer();
-                      }
-                    },
-                    child: Transform.translate(
-                      offset: Offset(drawerWidth * value, 0),
-                      child: child,
-                    ),
-                  );
-                },
-                child: RepaintBoundary(child: page),
-              ),
-              if (miniPlayer != null)
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
                 AnimatedBuilder(
                   animation: _drawerController,
                   builder: (context, child) {
                     final value = _drawerController.value;
-                    // 用 Transform.translate 移动 mini player 而非 Positioned.left：
-                    // Positioned.left 每帧变化会触发整个 Stack 重新 layout（真实重排 +
-                    // 重绘），Transform 只是合成图层平移，配合 RepaintBoundary 缓存
-                    // 后抽屉动画不逐帧重排 mini player 子树。
-                    return Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: effectiveMiniPlayerBottom,
-                      child: Transform.translate(
-                        offset: Offset(drawerWidth * value, 0),
-                        child: child!,
-                      ),
+                    return Transform.translate(
+                      offset: Offset(-drawerWidth + drawerWidth * value, 0),
+                      child: child,
                     );
                   },
-                  child: miniPlayer,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: RepaintBoundary(
+                      child: SizedBox(width: drawerWidth, child: widget.drawer),
+                    ),
+                  ),
                 ),
-              AnimatedBuilder(
-                animation: _drawerController,
-                builder: (context, child) {
-                  if (_drawerController.value == 0) {
-                    return const SizedBox.shrink();
-                  }
-                  return Positioned(
-                    left: drawerWidth,
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: GestureDetector(
-                      onTap: closeDrawer,
+                AnimatedBuilder(
+                  animation: _drawerController,
+                  builder: (context, child) {
+                    final value = _drawerController.value;
+                    return GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onHorizontalDragStart: (_) {
+                        _draggingDrawer = true;
+                      },
                       onHorizontalDragUpdate: (details) {
+                        if (!_draggingDrawer) return;
                         final delta = details.primaryDelta ?? 0;
                         if (delta == 0) return;
+                        if (_drawerController.value == 0 && delta < 0) return;
+                        if (_drawerController.value == 1 && delta > 0) return;
                         final next =
                             (_drawerController.value + delta / drawerWidth)
                                 .clamp(0.0, 1.0);
                         _drawerController.value = next;
                       },
-                      onHorizontalDragEnd: (details) {
+                      onHorizontalDragEnd: (_) {
+                        if (!_draggingDrawer) return;
+                        _draggingDrawer = false;
                         if (_drawerController.value < 0.5) {
                           closeDrawer();
                         } else {
                           openDrawer();
                         }
                       },
-                      child: Container(color: Colors.transparent),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-        // 抽屉展开时系统返回键应先收起抽屉，而不是直接退出当前页。
-        // _drawerOpen 只在开/关边界变化，避免 PopScope 随动画每帧重建。
-        result = PopScope(
-          canPop: !_drawerOpen,
-          onPopInvokedWithResult: (didPop, _) {
-            if (didPop) return;
-            if (_drawerOpen) {
-              closeDrawerImmediately();
-            }
-          },
-          child: stack,
-        );
+                      child: Transform.translate(
+                        offset: Offset(drawerWidth * value, 0),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: RepaintBoundary(child: page),
+                ),
+                if (miniPlayer != null)
+                  AnimatedBuilder(
+                    animation: _drawerController,
+                    builder: (context, child) {
+                      final value = _drawerController.value;
+                      // 用 Transform.translate 移动 mini player 而非 Positioned.left：
+                      // Positioned.left 每帧变化会触发整个 Stack 重新 layout（真实重排 +
+                      // 重绘），Transform 只是合成图层平移，配合 RepaintBoundary 缓存
+                      // 后抽屉动画不逐帧重排 mini player 子树。
+                      return Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: effectiveMiniPlayerBottom,
+                        child: Transform.translate(
+                          offset: Offset(drawerWidth * value, 0),
+                          child: child!,
+                        ),
+                      );
+                    },
+                    child: miniPlayer,
+                  ),
+                AnimatedBuilder(
+                  animation: _drawerController,
+                  builder: (context, child) {
+                    if (_drawerController.value == 0) {
+                      return const SizedBox.shrink();
+                    }
+                    return Positioned(
+                      left: drawerWidth,
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: GestureDetector(
+                        onTap: closeDrawer,
+                        onHorizontalDragUpdate: (details) {
+                          final delta = details.primaryDelta ?? 0;
+                          if (delta == 0) return;
+                          final next =
+                              (_drawerController.value + delta / drawerWidth)
+                                  .clamp(0.0, 1.0);
+                          _drawerController.value = next;
+                        },
+                        onHorizontalDragEnd: (details) {
+                          if (_drawerController.value < 0.5) {
+                            closeDrawer();
+                          } else {
+                            openDrawer();
+                          }
+                        },
+                        child: Container(color: Colors.transparent),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+          // 抽屉展开时系统返回键应先收起抽屉，而不是直接退出当前页。
+          // _drawerOpen 只在开/关边界变化，避免 PopScope 随动画每帧重建。
+          result = PopScope(
+            canPop: !_drawerOpen,
+            onPopInvokedWithResult: (didPop, _) {
+              if (didPop) return;
+              if (_drawerOpen) {
+                closeDrawerImmediately();
+              }
+            },
+            child: stack,
+          );
         }
         // 多选中：返回键取消多选，留在当前页（不退出页面）。
         if (widget.cancelMultiSelectOnBack &&

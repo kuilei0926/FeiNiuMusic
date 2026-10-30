@@ -42,8 +42,9 @@ class _FavoritePageState extends State<FavoritePage>
   void _handleSongsRemovedFromFavorite(List<String> removedIds) {
     if (removedIds.isEmpty) return;
     final idSet = removedIds.toSet();
-    _allSongs.value =
-        _allSongs.value.where((s) => !idSet.contains(s.id)).toList();
+    _allSongs.value = _allSongs.value
+        .where((s) => !idSet.contains(s.id))
+        .toList();
     _applyFilter();
   }
 
@@ -87,7 +88,9 @@ class _FavoritePageState extends State<FavoritePage>
   }
 
   void _handleScroll() {
-    if (!_scrollController.hasClients || !_hasMore || _loadingMore.value) return;
+    if (!_scrollController.hasClients || !_hasMore || _loadingMore.value) {
+      return;
+    }
     final maxScroll = _scrollController.position.maxScrollExtent;
     final offset = _scrollController.offset;
     if (maxScroll - offset < 400) {
@@ -347,10 +350,8 @@ class _FavoritePageState extends State<FavoritePage>
           if (artistGuid != null) {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => ArtistDetailPage(
-                  artistName: name,
-                  artistGuid: artistGuid,
-                ),
+                builder: (_) =>
+                    ArtistDetailPage(artistName: name, artistGuid: artistGuid),
               ),
             );
           }
@@ -360,10 +361,8 @@ class _FavoritePageState extends State<FavoritePage>
           if (guid != null) {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => AlbumDetailPage(
-                  albumName: name,
-                  albumGuid: guid,
-                ),
+                builder: (_) =>
+                    AlbumDetailPage(albumName: name, albumGuid: guid),
               ),
             );
           }
@@ -426,14 +425,15 @@ class _FavoritePageState extends State<FavoritePage>
           leading: useBottomNavigation || AppLayoutSettings.tvMode.value
               ? null
               : (isMultiSelecting
-                  ? IconButton(
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: exitMultiSelect,
-                    )
-                  : IconButton(
-                      icon: const Icon(Icons.menu_rounded),
-                      onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                    )),
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: exitMultiSelect,
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.menu_rounded),
+                        onPressed: () =>
+                            _scaffoldKey.currentState?.openDrawer(),
+                      )),
           actions: isMultiSelecting
               ? [
                   SelectAllButton(
@@ -454,7 +454,9 @@ class _FavoritePageState extends State<FavoritePage>
                   ),
                   SortActionButton(onTap: _showSortSheet),
                   IconButton(
-                    icon: Icon(_searchVisible ? Icons.search_off : Icons.search),
+                    icon: Icon(
+                      _searchVisible ? Icons.search_off : Icons.search,
+                    ),
                     onPressed: () {
                       setState(() {
                         _searchVisible = !_searchVisible;
@@ -536,41 +538,50 @@ class _FavoritePageState extends State<FavoritePage>
                   return Column(
                     children: [
                       Container(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                          child: Row(
-                            children: [
-                              InkWell(
-                                borderRadius: BorderRadius.circular(16),
-                                onTap: () => _playShuffleFilled(),
-                                child: Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: Icon(
-                                    Icons.shuffle_rounded,
-                                    size: 18,
-                                    color: scheme.primary,
-                                  ),
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                        child: Row(
+                          children: [
+                            InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () => _playShuffleFilled(),
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Icon(
+                                  Icons.shuffle_rounded,
+                                  size: 18,
+                                  color: scheme.primary,
                                 ),
                               ),
-                              LoadMoreCountText(
-                                text: '共 ${_allSongs.value.length} 首',
-                                style: TextStyle(
-                                  color: scheme.onSurfaceVariant,
-                                  fontSize: 13,
-                                ),
-                                onTap: (_hasMore && _total > 0)
-                                    ? _showLoadMoreDialog
-                                    : null,
+                            ),
+                            LoadMoreCountText(
+                              text: '共 ${_allSongs.value.length} 首',
+                              style: TextStyle(
+                                color: scheme.onSurfaceVariant,
+                                fontSize: 13,
                               ),
-                            ],
-                          ),
+                              onTap: (_hasMore && _total > 0)
+                                  ? _showLoadMoreDialog
+                                  : null,
+                            ),
+                          ],
                         ),
-                        Expanded(
-                          child: RefreshIndicator(
-                            onRefresh: () => _load(forceRefresh: true),
-                            child: ListView.builder(
-                              controller: _scrollController,
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 160),
+                      ),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: () => _load(forceRefresh: true),
+                          child: ListView.builder(
+                            controller: _scrollController,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: EdgeInsets.fromLTRB(
+                              16,
+                              0,
+                              16,
+                              AppPageScaffold.scrollableBottomPadding(
+                                context,
+                                hasBottomNav: useBottomNavigation,
+                                showMiniPlayer: !isMultiSelecting,
+                              ),
+                            ),
                             itemCount:
                                 songs.length + (_loadingMore.value ? 1 : 0),
                             itemBuilder: (context, index) {
@@ -657,11 +668,11 @@ class _FavoritePageState extends State<FavoritePage>
                         ),
                       ),
                       if (isMultiSelecting)
-                          buildMultiSelectBar(
-                            includeFavorite: false,
-                            includeRemoveFavorite: true,
-                          ),
-                      ],
+                        buildMultiSelectBar(
+                          includeFavorite: false,
+                          includeRemoveFavorite: true,
+                        ),
+                    ],
                   );
                 },
               ),

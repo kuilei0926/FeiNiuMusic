@@ -622,7 +622,16 @@ class _SongsPageState extends State<SongsPage>
                     Expanded(
                       child: ListView.builder(
                         controller: _listController,
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          0,
+                          16,
+                          AppPageScaffold.scrollableBottomPadding(
+                            context,
+                            hasBottomNav: useBottomNavigation,
+                            showMiniPlayer: !isMultiSelecting,
+                          ),
+                        ),
                         itemCount:
                             songs.length + (_isLoadingMore.value ? 1 : 0),
                         itemExtent: _itemExtent,

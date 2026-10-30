@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/state/settings_state.dart';
+import 'home_glass_play_button.dart';
 
 /// 首页功能入口卡片数据
 class HomeQuickAction {
@@ -29,14 +30,11 @@ class HomeQuickAction {
 /// 首页功能入口 — 收藏 / 最近播放，2×1 一行两列。
 ///
 /// 每张卡片用专属强调色的渐变背景 + 大号水印图标（右侧背景），
-/// 文字在左上，右下白色播放按钮，形成简洁的视觉焦点。
+/// 文字在左上，右下半透明播放按钮，形成简洁的视觉焦点。
 class HomeQuickActions extends StatelessWidget {
   final List<HomeQuickAction> actions;
 
-  const HomeQuickActions({
-    super.key,
-    required this.actions,
-  });
+  const HomeQuickActions({super.key, required this.actions});
 
   @override
   Widget build(BuildContext context) {
@@ -65,7 +63,7 @@ class _QuickActionCard extends StatelessWidget {
     final isTv = AppLayoutSettings.tvMode.value;
 
     return Container(
-      height: isTv ? 104 : 80,
+      height: isTv ? 104 : 88,
       decoration: BoxDecoration(
         // 强调色渐变背景，让卡片有立体感
         gradient: LinearGradient(
@@ -127,37 +125,15 @@ class _QuickActionCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                // 直接播放按钮 — 右下角绝对定位（白色圆底 + 强调色三角）
+                // 直接播放按钮 — 右下角绝对定位（半透明圆底）
                 if (onPlay != null)
                   Positioned(
                     right: 12,
                     bottom: 12,
-                    child: Container(
-                      width: isTv ? 48 : 38,
-                      height: isTv ? 48 : 38,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.14),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: onPlay,
-                          child: Icon(
-                            Icons.play_arrow_rounded,
-                            size: isTv ? 28 : 24,
-                            color: accent,
-                          ),
-                        ),
-                      ),
+                    child: HomeGlassPlayButton(
+                      onPlay: onPlay,
+                      size: 48,
+                      color: scheme.onSurface,
                     ),
                   ),
               ],

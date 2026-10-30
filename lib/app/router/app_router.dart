@@ -40,6 +40,9 @@ import '../../pages/songs/batch_match_page.dart';
 import '../../app/state/settings_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/utils/primary_shell_scope.dart';
+import '../utils/hidden_primary_tab_history.dart';
+import '../../components/layout/bottom_island/bottom_island_host.dart';
+import '../../components/layout/bottom_island/bottom_chrome_scope.dart';
 import '../../components/layout/modern_navigation_bar.dart';
 import '../../components/list/song_multi_select_mixin.dart'
     show globalMultiSelectActive, requestCancelMultiSelect;
@@ -120,14 +123,18 @@ class AppRouter {
     AppRoutes.genres: (_) => const GenresPage(),
     AppRoutes.folders: (_) => const FoldersPage(),
     AppRoutes.search: (context) => SearchPage(
-      initialCategory: (ModalRoute.of(context)?.settings.arguments as SearchCategory?) ?? SearchCategory.song,
+      initialCategory:
+          (ModalRoute.of(context)?.settings.arguments as SearchCategory?) ??
+          SearchCategory.song,
     ),
     AppRoutes.profile: (_) => const ProfilePage(),
     AppRoutes.recent: (_) => const RecentPlaybackPage(),
     AppRoutes.favorites: (_) => const FavoritePage(),
     AppRoutes.batchMatch: (context) => BatchMatchPage(
-      songs: (ModalRoute.of(context)?.settings.arguments as List<dynamic>? ?? const [])
-          .cast<SongEntity>(),
+      songs:
+          (ModalRoute.of(context)?.settings.arguments as List<dynamic>? ??
+                  const [])
+              .cast<SongEntity>(),
     ),
     AppRoutes.dataSourceSettings: (_) => const SearchSourcePage(),
     AppRoutes.matchSettings: (_) => const MatchSettingsPage(),
@@ -147,6 +154,9 @@ class _PrimaryNavigationShell extends StatefulWidget {
 
 class _PrimaryNavigationShellState extends State<_PrimaryNavigationShell> {
   int _currentIndex = 0;
+  final _hiddenHistory = HiddenPrimaryTabHistory();
+  bool _hiddenSongs = false;
+  BottomIslandStyle? _lastStyle;
   final List<Widget?> _pages = <Widget?>[
     const HomePage(),
     null,
@@ -188,6 +198,7 @@ class _PrimaryNavigationShellState extends State<_PrimaryNavigationShell> {
 
   void _select(int index) {
     if (_currentIndex == index || index < 0 || index > 4) return;
+    _hiddenHistory.selected(_currentIndex, index, hiddenSongs: _hiddenSongs);
     setState(() {
       _pages[index] ??= _buildPage(index);
       _currentIndex = index;
@@ -227,77 +238,111 @@ class _PrimaryNavigationShellState extends State<_PrimaryNavigationShell> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<AppNavigationStyle>(
-      valueListenable: AppLayoutSettings.navigationStyle,
-      builder: (context, navigationStyle, _) {
-        return ValueListenableBuilder<bool>(
-          valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
-          builder: (context, effectiveTabletMode, _) {
-            final useBottomNavigation =
-                navigationStyle == AppNavigationStyle.bottomBar &&
-                !effectiveTabletMode;
-            if (!useBottomNavigation) return const HomePage();
+    return ListenableBuilder(
+      listenable: BottomIslandSettings.style,
+      builder: (context, _) => ValueListenableBuilder<AppNavigationStyle>(
+        valueListenable: AppLayoutSettings.navigationStyle,
+        builder: (context, navigationStyle, _) {
+          return ValueListenableBuilder<bool>(
+            valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
+            builder: (context, effectiveTabletMode, _) {
+              final useBottomNavigation =
+                  navigationStyle == AppNavigationStyle.bottomBar &&
+                  !effectiveTabletMode;
+              if (!useBottomNavigation) {
+                _hiddenHistory.clear();
+                _hiddenSongs = false;
+                _lastStyle = null;
+                return const HomePage();
+              }
 
-            _scheduleWarmup();
+              final island = resolveBottomIslandLayout(context);
+              final hiddenSongs =
+                  island.effectiveStyle == BottomIslandStyle.c1 ||
+                  island.effectiveStyle == BottomIslandStyle.c2;
+              if (_lastStyle != island.effectiveStyle ||
+                  _hiddenSongs != hiddenSongs) {
+                _hiddenHistory.clear();
+                _lastStyle = island.effectiveStyle;
+                _hiddenSongs = hiddenSongs;
+              }
+              _scheduleWarmup();
 
-            return PopScope(
-              canPop: _currentIndex == 0,
-              onPopInvokedWithResult: (didPop, result) {
-                if (didPop) return;
-                // 多选中：返回键语义是「取消多选、留在当前页」，不是切 tab。
-                // bump 取消请求信号，多选页（歌曲/收藏）监听后退出多选。
-                if (globalMultiSelectActive.value > 0) {
-                  requestCancelMultiSelect.value += 1;
-                  return;
-                }
-                if (_currentIndex != 0) _select(0);
-              },
-              child: PrimaryShellMarker(
-                child: PrimaryNavigationScope(
-                  currentIndex: _currentIndex,
-                  onSelected: _select,
-                  child: Stack(
-                    children: [
-                      IndexedStack(
-                        index: _currentIndex,
-                        children: List.generate(
-                          _pages.length,
-                          (index) =>
-                              _pages[index] ?? const SizedBox.shrink(),
+              return BottomChromeFrame(
+                layout: island,
+                child: PopScope(
+                  canPop: _currentIndex == 0,
+                  onPopInvokedWithResult: (didPop, result) {
+                    if (didPop) return;
+                    // 多选中：返回键语义是「取消多选、留在当前页」，不是切 tab。
+                    // bump 取消请求信号，多选页（歌曲/收藏）监听后退出多选。
+                    if (globalMultiSelectActive.value > 0) {
+                      requestCancelMultiSelect.value += 1;
+                      return;
+                    }
+                    if (_currentIndex != 0) {
+                      _select(
+                        _hiddenHistory.backDestination(
+                          _currentIndex,
+                          hiddenSongs: _hiddenSongs,
                         ),
+                      );
+                    }
+                  },
+                  child: PrimaryShellMarker(
+                    child: PrimaryNavigationScope(
+                      currentIndex: _currentIndex,
+                      onSelected: _select,
+                      child: Stack(
+                        children: [
+                          IndexedStack(
+                            index: _currentIndex,
+                            children: List.generate(
+                              _pages.length,
+                              (index) => TickerMode(
+                                enabled: index == _currentIndex,
+                                child: _pages[index] ?? const SizedBox.shrink(),
+                              ),
+                            ),
+                          ),
+                          // 共享底栏：整个 shell 只渲染一份，跨 tab 切换保持常驻，
+                          // TabIndicator 的内部弹簧状态（tabXAlign）因此始终连续——
+                          // 点击时胶囊从「当前 tab」弹向目标 tab，与 demo 一致。
+                          // 若每个 tab 页面各自渲染一份底栏（各自持有独立的
+                          // TabIndicatorState），切换后胶囊会从各页预热/上次访问时
+                          // 的过期位置起跳，看起来就像「闪一下之前的选中项」。
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: ValueListenableBuilder<int>(
+                              valueListenable: globalMultiSelectActive,
+                              builder: (context, multiSelectCount, _) {
+                                // 多选时页面底部出现操作栏（歌曲/收藏等 tab 页），
+                                // 共享底栏悬浮在内容上方会盖住它，与平板外壳对迷你
+                                // 播放器的处理一致（见 tablet_layout_host.dart），
+                                // 任一页面进入多选即整体隐藏底栏。
+                                if (multiSelectCount > 0) {
+                                  return const SizedBox.shrink();
+                                }
+                                if (BottomIslandSettings.style.value !=
+                                    BottomIslandStyle.legacy) {
+                                  return BottomIslandHost(onSelected: _select);
+                                }
+                                return ModernNavigationBar(onTap: _select);
+                              },
+                            ),
+                          ),
+                        ],
                       ),
-                      // 共享底栏：整个 shell 只渲染一份，跨 tab 切换保持常驻，
-                      // TabIndicator 的内部弹簧状态（tabXAlign）因此始终连续——
-                      // 点击时胶囊从「当前 tab」弹向目标 tab，与 demo 一致。
-                      // 若每个 tab 页面各自渲染一份底栏（各自持有独立的
-                      // TabIndicatorState），切换后胶囊会从各页预热/上次访问时
-                      // 的过期位置起跳，看起来就像「闪一下之前的选中项」。
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: ValueListenableBuilder<int>(
-                          valueListenable: globalMultiSelectActive,
-                          builder: (context, multiSelectCount, _) {
-                            // 多选时页面底部出现操作栏（歌曲/收藏等 tab 页），
-                            // 共享底栏悬浮在内容上方会盖住它，与平板外壳对迷你
-                            // 播放器的处理一致（见 tablet_layout_host.dart），
-                            // 任一页面进入多选即整体隐藏底栏。
-                            if (multiSelectCount > 0) {
-                              return const SizedBox.shrink();
-                            }
-                            return ModernNavigationBar(onTap: _select);
-                          },
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
-        );
-      },
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }

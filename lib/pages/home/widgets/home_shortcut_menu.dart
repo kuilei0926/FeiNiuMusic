@@ -92,8 +92,11 @@ class _ShortcutItem extends StatelessWidget {
     // 主题 focusColor 高亮），聚焦范围即完整卡片。不再包 TvFocusable
     // 缩放/描边，避免聚焦范围只剩图标一小块、右侧空白。
     return Material(
-      color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(16),
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .22)),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: item.onTap,
@@ -107,8 +110,16 @@ class _ShortcutItem extends StatelessWidget {
                 width: iconSize,
                 height: iconSize,
                 decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      accent.withValues(alpha: .18),
+                      scheme.surfaceContainerHigh.withValues(alpha: .5),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: accent.withValues(alpha: .18)),
                 ),
                 child: Icon(item.icon, size: iconSize * 0.5, color: accent),
               ),
