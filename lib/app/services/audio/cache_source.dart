@@ -254,7 +254,10 @@ class StreamAudioCacheSource extends StreamAudioSource {
     } catch (e, st) {
       request.fail(e, st);
     } finally {
-      client.close(force: true);
+      // 响应流在函数返回后才由消费方读取：force: true 会立即掐断连接，
+      // 表现为只收到首块数据（Content size below specified contentLength /
+      // Source error）。非强制关闭会等活动响应读完再释放连接。
+      client.close();
     }
   }
 
