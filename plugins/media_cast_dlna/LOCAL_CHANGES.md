@@ -11,6 +11,10 @@ Android changes:
 - Preserve action, UPnP fault code, HTTP status, elapsed time and error category
   in Flutter platform exception details, without including media URLs or credentials.
 - Ignore callbacks after cancellation and retain structured errors in polling.
+- Parse position response values supplied as either strings or jUPnP typed values;
+  malformed values retain the `GetPositionInfo` invalid-response classification.
+  The application falls back to transport-state polling when position data is
+  unavailable, while still detecting stopped or unreachable renderers.
 
 Application changes and regression tests live in `lib/app/services/cast/` and
 `test/dlna_cast_*`. Native regression tests live under `android/src/test/`.
