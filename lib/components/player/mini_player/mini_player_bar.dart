@@ -9,14 +9,24 @@ import '../../../app/router/app_router.dart';
 import '../../../app/state/settings_state.dart';
 import '../../../app/state/song_state.dart';
 import '../../../app/theme/app_glass_theme.dart';
-import '../../common/artwork_widget.dart';
 import '../../common/glass_gate.dart';
 import '../../player/lyric_preview.dart';
 import '../../../pages/player/player_page.dart';
 import '../../../pages/player/widgets/player_bottom_panel.dart';
+import '../vinyl_disc.dart';
+import 'mini_player_artwork.dart';
+
+export 'mini_player_artwork.dart';
 
 class MiniPlayerBar extends StatelessWidget {
   static const double estimatedHeight = 70.0;
+
+  static double desktopReservedHeightOf(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final textHeight = (scaler.scale(14) + scaler.scale(12)) * 1.35 + 3;
+    // Include content padding, the border and the desktop host's outer padding.
+    return textHeight.clamp(44.0, double.infinity) + 26;
+  }
 
   final PlayerService player;
   final VoidCallback? onOpenPlayer;
@@ -27,6 +37,7 @@ class MiniPlayerBar extends StatelessWidget {
   final List<BoxShadow>? boxShadow;
   final bool enableSwipe;
   final Widget? trailing;
+  final bool vinyl;
 
   MiniPlayerBar({
     super.key,
@@ -39,6 +50,7 @@ class MiniPlayerBar extends StatelessWidget {
     this.boxShadow,
     this.enableSwipe = true,
     this.trailing,
+    this.vinyl = false,
   }) : player = player ?? PlayerService.instance;
 
   @override
@@ -49,10 +61,9 @@ class MiniPlayerBar extends StatelessWidget {
     return ValueListenableBuilder<bool>(
       valueListenable: AppBackgroundSettings.panelBlurEnabled,
       builder: (context, blurEnabled, _) {
-        final baseStrength =
-            blurEnabled
-                ? AppBackgroundSettings.panelBlurStrength.value
-                : 0.0;
+        final baseStrength = blurEnabled
+            ? AppBackgroundSettings.panelBlurStrength.value
+            : 0.0;
         return _buildBar(context, baseStrength);
       },
     );
@@ -66,6 +77,7 @@ class MiniPlayerBar extends StatelessWidget {
       valueListenable: player.currentSong,
       builder: (context, song, child) {
         final hasSong = song != null;
+        final radius = vinyl ? 32.0 : borderRadius;
         final theme = Theme.of(context);
         final scheme = theme.colorScheme;
         final openPlayer =
@@ -91,16 +103,20 @@ class MiniPlayerBar extends StatelessWidget {
 
         final border = Border.all(
           color: isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : scheme.outlineVariant.withValues(alpha: 0.42),
+              ? Colors.white.withValues(alpha: vinyl ? 0.10 : 0.08)
+              : (vinyl
+                    ? Colors.white.withValues(alpha: .55)
+                    : scheme.outlineVariant.withValues(alpha: .42)),
           width: 0.8,
         );
 
         final defaultShadow = [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.10),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: Colors.black.withValues(
+              alpha: vinyl ? (isDark ? .24 : .08) : (isDark ? .22 : .10),
+            ),
+            blurRadius: vinyl ? 24 : 16,
+            offset: Offset(0, vinyl ? 8 : 6),
           ),
         ];
 
@@ -110,86 +126,111 @@ class MiniPlayerBar extends StatelessWidget {
         final inner = Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(borderRadius),
-            onTap: openPlayer,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 7,
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // When the drawer squeezes this bar, drop the trailing
-                  // queue button and shrink the artwork/play button so the
-                  // Row never overflows (which painted overflow stripes).
-                  final tight = constraints.maxWidth < 91;
-                  final compact = tight || constraints.maxWidth < 145;
-                  final resolvedArtworkSize = tight
-                      ? 36.0
-                      : (compact ? 40.0 : artworkSize);
-                  final resolvedArtworkRadius = compact ? 9.0 : 10.0;
-                  final playSize = compact ? 34.0 : 38.0;
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: MiniPlayerInfo(
-                          song: song,
-                          enableSwipe: enableSwipe,
-                          player: player,
-                          onOpenPlayer: openPlayer,
-                          // 封面一并放入滑动区域：左右滑动切歌时封面随标题/歌词
-                          // 一起位移，而不是只有文字滑动。
-                          artwork: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                resolvedArtworkRadius,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(
-                                    alpha: 0.12,
+            borderRadius: BorderRadius.circular(radius),
+            onTap: vinyl && !hasSong ? null : openPlayer,
+            child: vinyl
+                ? _buildVinylContent(context, song, openPlayer, openQueue)
+                : Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        // When the drawer squeezes this bar, drop the trailing
+                        // queue button and shrink the artwork/play button so the
+                        // Row never overflows (which painted overflow stripes).
+                        final tight = constraints.maxWidth < 91;
+                        final compact = tight || constraints.maxWidth < 145;
+                        final resolvedArtworkSize = tight
+                            ? 36.0
+                            : (compact ? 40.0 : artworkSize);
+                        final resolvedArtworkRadius = compact ? 9.0 : 10.0;
+                        final playSize = compact ? 34.0 : 38.0;
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: MiniPlayerInfo(
+                                song: song,
+                                enableSwipe: enableSwipe,
+                                player: player,
+                                onOpenPlayer: openPlayer,
+                                // 封面一并放入滑动区域：左右滑动切歌时封面随标题/歌词
+                                // 一起位移，而不是只有文字滑动。
+                                artwork: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(
+                                      resolvedArtworkRadius,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 1),
+                                      ),
+                                    ],
                                   ),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 1),
+                                  child: MiniPlayerArtwork(
+                                    song: song,
+                                    size: resolvedArtworkSize,
+                                    borderRadius: resolvedArtworkRadius,
+                                  ),
                                 ),
-                              ],
+                                artworkGap: tight ? 8 : 11,
+                              ),
                             ),
-                            child: MiniPlayerArtwork(
-                              song: song,
-                              size: resolvedArtworkSize,
-                              borderRadius: resolvedArtworkRadius,
+                            SizedBox(width: tight ? 4 : 6),
+                            MiniPlayerPlayButton(
+                              player: player,
+                              size: playSize,
+                              enabled: hasSong,
                             ),
-                          ),
-                          artworkGap: tight ? 8 : 11,
-                        ),
-                      ),
-                      SizedBox(width: tight ? 4 : 6),
-                      MiniPlayerPlayButton(
-                        player: player,
-                        size: playSize,
-                        enabled: hasSong,
-                      ),
-                      if (!compact) ...[
-                        const SizedBox(width: 4),
-                        trailing ??
-                            MiniPlayerQueueButton(
-                              onPressed: hasSong ? openQueue : null,
-                              color: scheme.onSurface,
-                            ),
-                        const SizedBox(width: 2),
-                      ],
-                    ],
-                  );
-                },
-              ),
-            ),
+                            if (!compact) ...[
+                              const SizedBox(width: 4),
+                              trailing ??
+                                  MiniPlayerQueueButton(
+                                    onPressed: hasSong ? openQueue : null,
+                                    color: scheme.onSurface,
+                                  ),
+                              const SizedBox(width: 2),
+                            ],
+                          ],
+                        );
+                      },
+                    ),
+                  ),
           ),
         );
 
         final content = Container(
           decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(borderRadius),
+            color: vinyl ? null : bgColor,
+            gradient: vinyl
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: isDark
+                        ? [
+                            scheme.surfaceContainerHigh.withValues(
+                              alpha: isBlurred ? .86 : 1,
+                            ),
+                            scheme.surface.withValues(
+                              alpha: isBlurred ? .80 : 1,
+                            ),
+                          ]
+                        : [
+                            scheme.surface.withValues(
+                              alpha: isBlurred ? .80 : 1,
+                            ),
+                            scheme.surfaceContainerLow.withValues(
+                              alpha: isBlurred ? .80 : 1,
+                            ),
+                          ],
+                  )
+                : null,
+            borderRadius: BorderRadius.circular(radius),
             border: border,
           ),
           child: inner,
@@ -202,13 +243,15 @@ class MiniPlayerBar extends StatelessWidget {
         // 玻璃 blur+shader 重新采样（与下方 original 分支把 BackdropFilter
         // 与内容分层、避免动画触发整页重新模糊是同一思路）。
         final glassSurface = GlassContainer(
-          shape: LiquidRoundedRectangle(borderRadius: borderRadius),
+          shape: LiquidRoundedRectangle(borderRadius: radius),
           clipBehavior: Clip.antiAlias,
           // 与底栏同款深折射参数，但玻璃罩更透（白 24% → 白 10%）：迷你播放器
           // 是大面积全宽面板，同样不透明度会罩成一片白雾（「像高斯模糊」），
           // 降低罩子后背后内容透出更多、折射可见，才有玻璃的通透感。
           settings: kAppGlassSurfaceSettings.copyWith(
-            glassColor: const Color(0x1AFFFFFF),
+            glassColor: vinyl
+                ? scheme.surface.withValues(alpha: .55)
+                : const Color(0x1AFFFFFF),
           ),
           // 独立渲染层 + 与全局主题一致的 standard 质量（0.30.2 Skia 路径下
           // premium 需要 blend group 多通道，且滚动时整条全宽面板逐帧重采样，
@@ -220,15 +263,16 @@ class MiniPlayerBar extends StatelessWidget {
           child: const SizedBox.expand(),
         );
 
-        return Padding(
+        final bar = Padding(
           padding: padding,
           child: Container(
+            key: vinyl ? const ValueKey('desktop-vinyl-surface') : null,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(borderRadius),
+              borderRadius: BorderRadius.circular(radius),
               boxShadow: boxShadow ?? defaultShadow,
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(borderRadius),
+              borderRadius: BorderRadius.circular(radius),
               child: GlassGate(
                 original: isBlurred
                     ? Stack(
@@ -269,9 +313,101 @@ class MiniPlayerBar extends StatelessWidget {
             ),
           ),
         );
+        if (!vinyl) return bar;
+        return Align(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: bar,
+          ),
+        );
       },
     );
   }
+
+  Widget _buildVinylContent(
+    BuildContext context,
+    SongEntity? song,
+    VoidCallback openPlayer,
+    VoidCallback openQueue,
+  ) => LayoutBuilder(
+    builder: (context, constraints) {
+      final scheme = Theme.of(context).colorScheme;
+      final wide = constraints.maxWidth >= 520;
+      final showQueue = constraints.maxWidth >= 320;
+      final tight = constraints.maxWidth < 180;
+      final discSize = tight ? 32.0 : 44.0;
+      final hasSong = song != null;
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: tight ? 8 : 12, vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: MiniPlayerInfo(
+                song: song,
+                player: player,
+                enableSwipe: enableSwipe,
+                onOpenPlayer: hasSong ? openPlayer : () {},
+                desktopTypography: true,
+                artworkGap: tight ? 8 : 14,
+                artwork: ValueListenableBuilder<bool>(
+                  valueListenable: player.isPlaying,
+                  builder: (context, playing, _) => VinylDisc(
+                    song: song,
+                    playing: hasSong && playing,
+                    size: discSize,
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(width: tight ? 4 : 16),
+            if (wide)
+              IconButton(
+                tooltip: '上一曲',
+                onPressed: hasSong ? () => player.previous() : null,
+                icon: const Icon(Icons.skip_previous_rounded, size: 23),
+                color: scheme.onSurfaceVariant,
+                constraints: const BoxConstraints.tightFor(
+                  width: 44,
+                  height: 44,
+                ),
+              ),
+            MiniPlayerPlayButton(
+              player: player,
+              size: 44,
+              enabled: hasSong,
+              emphasized: true,
+            ),
+            if (wide)
+              IconButton(
+                tooltip: '下一曲',
+                onPressed: hasSong ? () => player.next() : null,
+                icon: const Icon(Icons.skip_next_rounded, size: 23),
+                color: scheme.onSurfaceVariant,
+                constraints: const BoxConstraints.tightFor(
+                  width: 44,
+                  height: 44,
+                ),
+              ),
+            if (showQueue) ...[
+              Container(
+                width: 1,
+                height: 20,
+                margin: EdgeInsets.symmetric(horizontal: wide ? 12 : 10),
+                color: scheme.onSurface.withValues(alpha: .10),
+              ),
+              trailing ??
+                  MiniPlayerQueueButton(
+                    onPressed: hasSong ? openQueue : null,
+                    color: scheme.onSurfaceVariant,
+                    size: 44,
+                  ),
+            ],
+          ],
+        ),
+      );
+    },
+  );
 
   Route _playerRoute() {
     return PageRouteBuilder(
@@ -315,69 +451,6 @@ class MiniPlayerBar extends StatelessWidget {
   }
 }
 
-class MiniPlayerArtwork extends StatelessWidget {
-  final SongEntity? song;
-  final double size;
-  final double borderRadius;
-
-  const MiniPlayerArtwork({
-    super.key,
-    required this.song,
-    required this.size,
-    required this.borderRadius,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    if (song == null) {
-      return _ArtworkFallback(
-        size: size,
-        borderRadius: borderRadius,
-        color: scheme.surfaceContainerHighest,
-      );
-    }
-    return ArtworkWidget(
-      song: song!,
-      size: size,
-      borderRadius: borderRadius,
-      placeholder: _ArtworkFallback(
-        size: size,
-        borderRadius: borderRadius,
-        color: scheme.surfaceContainerHighest,
-      ),
-    );
-  }
-}
-
-class _ArtworkFallback extends StatelessWidget {
-  final double size;
-  final double borderRadius;
-  final Color color;
-
-  const _ArtworkFallback({
-    required this.size,
-    required this.borderRadius,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(borderRadius),
-      ),
-      child: Center(
-        child: Icon(Icons.music_note, color: scheme.onSurfaceVariant),
-      ),
-    );
-  }
-}
-
 class MiniPlayerInfo extends StatelessWidget {
   final SongEntity? song;
   final bool enableSwipe;
@@ -390,6 +463,7 @@ class MiniPlayerInfo extends StatelessWidget {
 
   /// 封面与标题/歌词之间的间距。
   final double artworkGap;
+  final bool desktopTypography;
 
   const MiniPlayerInfo({
     super.key,
@@ -399,6 +473,7 @@ class MiniPlayerInfo extends StatelessWidget {
     required this.onOpenPlayer,
     this.artwork,
     this.artworkGap = 11,
+    this.desktopTypography = false,
   });
 
   @override
@@ -411,6 +486,7 @@ class MiniPlayerInfo extends StatelessWidget {
         onOpenPlayer: onOpenPlayer,
         artwork: artwork,
         artworkGap: artworkGap,
+        desktopTypography: desktopTypography,
       );
     }
     return _SwipeableInfo(
@@ -419,6 +495,7 @@ class MiniPlayerInfo extends StatelessWidget {
       onOpenPlayer: onOpenPlayer,
       artwork: artwork,
       artworkGap: artworkGap,
+      desktopTypography: desktopTypography,
     );
   }
 }
@@ -429,6 +506,7 @@ class _InfoContent extends StatelessWidget {
   final VoidCallback onOpenPlayer;
   final Widget? artwork;
   final double artworkGap;
+  final bool desktopTypography;
 
   const _InfoContent({
     required this.song,
@@ -436,6 +514,7 @@ class _InfoContent extends StatelessWidget {
     required this.onOpenPlayer,
     this.artwork,
     this.artworkGap = 11,
+    this.desktopTypography = false,
   });
 
   @override
@@ -472,9 +551,14 @@ class _InfoContent extends StatelessWidget {
           song!.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontSize: 14,
+            height: desktopTypography ? 1.35 : null,
+            fontWeight: desktopTypography ? FontWeight.w600 : FontWeight.w700,
+            color: scheme.onSurface,
+          ),
         ),
-        const SizedBox(height: 2),
+        SizedBox(height: desktopTypography ? 3 : 2),
         ValueListenableBuilder<bool>(
           valueListenable: MiniPlayerInfoSettings.showLyricsInSubtitle,
           builder: (context, showLyrics, _) {
@@ -488,7 +572,11 @@ class _InfoContent extends StatelessWidget {
                 return _MiniPlayerSubtitleText(
                   text: subtitle,
                   useProgressMarquee: showLyrics && lyric.isNotEmpty,
-                  style: const TextStyle(fontSize: 11.5),
+                  style: TextStyle(
+                    fontSize: desktopTypography ? 12 : 11.5,
+                    height: desktopTypography ? 1.35 : null,
+                    color: desktopTypography ? scheme.onSurfaceVariant : null,
+                  ),
                 );
               },
             );
@@ -517,6 +605,7 @@ class _SwipeableInfo extends StatefulWidget {
   final VoidCallback onOpenPlayer;
   final Widget? artwork;
   final double artworkGap;
+  final bool desktopTypography;
 
   const _SwipeableInfo({
     required this.song,
@@ -524,6 +613,7 @@ class _SwipeableInfo extends StatefulWidget {
     required this.onOpenPlayer,
     this.artwork,
     this.artworkGap = 11,
+    this.desktopTypography = false,
   });
 
   @override
@@ -649,14 +739,12 @@ class _SwipeableInfoState extends State<_SwipeableInfo>
             // 用动画值（回弹期间）否则用拖动值（拖动中），
             // 让提示随回弹动画一起淡出，而不是动画结束才消失。
             final currentOffset = _animation?.value ?? _dragOffsetX;
-            final prevOpacity =
-                hasSong && currentOffset > 0
-                    ? (currentOffset / 60.0).clamp(0.0, 1.0)
-                    : 0.0;
-            final nextOpacity =
-                hasSong && currentOffset < 0
-                    ? ((-currentOffset) / 60.0).clamp(0.0, 1.0)
-                    : 0.0;
+            final prevOpacity = hasSong && currentOffset > 0
+                ? (currentOffset / 60.0).clamp(0.0, 1.0)
+                : 0.0;
+            final nextOpacity = hasSong && currentOffset < 0
+                ? ((-currentOffset) / 60.0).clamp(0.0, 1.0)
+                : 0.0;
             return Stack(
               children: [
                 // 左侧「上一曲」提示：右滑时在原位淡入
@@ -740,6 +828,7 @@ class _SwipeableInfoState extends State<_SwipeableInfo>
             onOpenPlayer: widget.onOpenPlayer,
             artwork: widget.artwork,
             artworkGap: widget.artworkGap,
+            desktopTypography: widget.desktopTypography,
           ),
         ),
       ),
@@ -858,7 +947,10 @@ class _MiniPlayerSubtitleText extends StatelessWidget {
       return (baseFontSize, true);
     }
     final ratio = fitWidth / widthAt(baseFontSize);
-    final shrunk = (baseFontSize * ratio).clamp(baseFontSize * 0.6, baseFontSize);
+    final shrunk = (baseFontSize * ratio).clamp(
+      baseFontSize * 0.6,
+      baseFontSize,
+    );
     // 缩小到下限后仍超宽 → 放不下，回退省略号
     if (widthAt(shrunk) > fitWidth) {
       return (baseFontSize, false);
@@ -871,12 +963,14 @@ class MiniPlayerPlayButton extends StatelessWidget {
   final PlayerService player;
   final double size;
   final bool enabled;
+  final bool emphasized;
 
   const MiniPlayerPlayButton({
     super.key,
     required this.player,
     required this.size,
     required this.enabled,
+    this.emphasized = false,
   });
 
   @override
@@ -891,52 +985,61 @@ class MiniPlayerPlayButton extends StatelessWidget {
             : snapshot.position.inMilliseconds / totalMs;
         final playing = snapshot.isPlaying;
         final loading = snapshot.isLoading;
+        final icon = Icon(
+          playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+          color: emphasized
+              ? (enabled ? scheme.surface : scheme.onSurfaceVariant)
+              : scheme.onSurface,
+          size: emphasized ? 23 : 20,
+        );
         return SizedBox(
           width: size,
           height: size,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.08),
-              shape: BoxShape.circle,
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: size,
-                  height: size,
-                  child: CircularProgressIndicator(
-                    value: enabled ? progress.clamp(0.0, 1.0) : 0.0,
-                    strokeWidth: 1.8,
-                    backgroundColor: scheme.outline.withValues(alpha: 0.12),
-                    color: scheme.primary,
-                    strokeCap: StrokeCap.round,
-                  ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: emphasized ? size - 8 : size,
+                height: emphasized ? size - 8 : size,
+                decoration: BoxDecoration(
+                  color: emphasized
+                      ? scheme.onSurface.withValues(alpha: enabled ? 1 : .12)
+                      : scheme.primary.withValues(alpha: .08),
+                  shape: BoxShape.circle,
                 ),
-                if (loading && enabled)
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      color: scheme.primary,
-                    ),
-                  )
-                else
-                  IconButton(
-                    icon: Icon(
-                      playing
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
-                      color: scheme.onSurface,
-                      size: 20,
-                    ),
+              ),
+              SizedBox(
+                width: size,
+                height: size,
+                child: CircularProgressIndicator(
+                  value: enabled ? progress.clamp(0.0, 1.0) : 0.0,
+                  strokeWidth: emphasized ? 1.5 : 1.8,
+                  backgroundColor: scheme.outline.withValues(alpha: .12),
+                  color: scheme.primary,
+                  strokeCap: StrokeCap.round,
+                  semanticsLabel: '播放进度',
+                ),
+              ),
+              if (loading && enabled)
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.2,
+                    color: emphasized ? scheme.surface : scheme.primary,
+                  ),
+                )
+              else
+                Positioned.fill(
+                  child: IconButton(
+                    icon: icon,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
+                    tooltip: playing ? '暂停' : '播放',
                     onPressed: enabled ? player.togglePlayPause : null,
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         );
       },
@@ -947,20 +1050,27 @@ class MiniPlayerPlayButton extends StatelessWidget {
 class MiniPlayerQueueButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final Color color;
+  final double size;
 
   const MiniPlayerQueueButton({
     super.key,
     required this.onPressed,
     required this.color,
+    this.size = 36,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 36,
-      height: 36,
+      width: size,
+      height: size,
       child: IconButton(
-        icon: Icon(Icons.queue_music_rounded, color: color, size: 24),
+        tooltip: '播放队列',
+        icon: Icon(
+          Icons.queue_music_rounded,
+          color: color,
+          size: size == 36 ? 24 : 21,
+        ),
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(),
         onPressed: onPressed,

@@ -75,6 +75,7 @@ class _TabletLayoutHostState extends State<TabletLayoutHost>
       animation: Listenable.merge([
         _controller,
         AppLayoutSettings.tvUiScaleOverride,
+        AppLayoutSettings.tvMode,
       ]),
       builder: (context, child) {
         final t = _controller.value;
@@ -212,7 +213,10 @@ class _TabletLayoutHostState extends State<TabletLayoutHost>
                                       ignoring: hideMini,
                                       child: Opacity(
                                         opacity: hideMini ? 0 : 1,
-                                        child: _buildMiniPlayer(),
+                                        child: TickerMode(
+                                          enabled: !hideMini && !playerActive,
+                                          child: _buildMiniPlayer(),
+                                        ),
                                       ),
                                     ),
                                   );
@@ -249,8 +253,15 @@ class _TabletLayoutHostState extends State<TabletLayoutHost>
   ///   被屏蔽），DPAD 聚焦整条 bar → Enter 打开播放页；
   /// - 内部的 `onTap` 仍打开播放页，与 Enter 一致。
   Widget _buildMiniPlayer() {
-    final bar = MiniPlayerBar(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    final bar = ValueListenableBuilder<DesktopMiniPlayerStyle>(
+      valueListenable: DesktopMiniPlayerSettings.style,
+      builder: (context, style, _) => MiniPlayerBar(
+        vinyl:
+            AppLayoutSettings.isDesktop &&
+            !AppLayoutSettings.tvMode.value &&
+            style == DesktopMiniPlayerStyle.vinyl,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      ),
     );
     if (!AppLayoutSettings.tvMode.value) return bar;
     return TvFocusable(

@@ -111,7 +111,11 @@ class _PlaylistsPageState extends State<PlaylistsPage>
     final memoryCacheSize = coverMemoryCacheDimensionOf(context, 160);
     for (final p in items.take(count)) {
       if (p.coverId != null && p.coverId!.isNotEmpty) {
-        final url = api.coverUrl(p.coverId!, size: FeiNiuApiClient.coverRequestSize, updatedAt: p.updatedAt);
+        final url = api.coverUrl(
+          p.coverId!,
+          size: FeiNiuApiClient.coverRequestSize,
+          updatedAt: p.updatedAt,
+        );
         unawaited(
           precacheImage(
             ResizeImage.resizeIfNeeded(
@@ -560,49 +564,49 @@ class _PlaylistsPageState extends State<PlaylistsPage>
                     child: SizedBox(
                       width: double.infinity,
                       child: SegmentedButton<int>(
-                    // TV 大屏给更多列选项（4/5/6），手机/平板保持 2/3/4。
-                    segments: AppLayoutSettings.tvMode.value
-                        ? const [
-                            ButtonSegment(
-                              value: 4,
-                              label: Text('四列'),
-                              icon: Icon(Icons.grid_view_rounded),
-                            ),
-                            ButtonSegment(
-                              value: 5,
-                              label: Text('五列'),
-                              icon: Icon(Icons.grid_view_rounded),
-                            ),
-                            ButtonSegment(
-                              value: 6,
-                              label: Text('六列'),
-                              icon: Icon(Icons.grid_view_rounded),
-                            ),
-                          ]
-                        : const [
-                            ButtonSegment(
-                              value: 2,
-                              label: Text('二列'),
-                              icon: Icon(Icons.grid_view_rounded),
-                            ),
-                            ButtonSegment(
-                              value: 3,
-                              label: Text('三列'),
-                              icon: Icon(Icons.grid_view_rounded),
-                            ),
-                            ButtonSegment(
-                              value: 4,
-                              label: Text('四列'),
-                              icon: Icon(Icons.grid_view_rounded),
-                            ),
-                          ],
-                    selected: {_gridColumns.value},
-                    onSelectionChanged: (selection) {
-                      final v = selection.first;
-                      _gridColumns.value = v;
-                      _savePrefs();
-                    },
-                    showSelectedIcon: false,
+                        // TV 大屏给更多列选项（4/5/6），手机/平板保持 2/3/4。
+                        segments: AppLayoutSettings.tvMode.value
+                            ? const [
+                                ButtonSegment(
+                                  value: 4,
+                                  label: Text('四列'),
+                                  icon: Icon(Icons.grid_view_rounded),
+                                ),
+                                ButtonSegment(
+                                  value: 5,
+                                  label: Text('五列'),
+                                  icon: Icon(Icons.grid_view_rounded),
+                                ),
+                                ButtonSegment(
+                                  value: 6,
+                                  label: Text('六列'),
+                                  icon: Icon(Icons.grid_view_rounded),
+                                ),
+                              ]
+                            : const [
+                                ButtonSegment(
+                                  value: 2,
+                                  label: Text('二列'),
+                                  icon: Icon(Icons.grid_view_rounded),
+                                ),
+                                ButtonSegment(
+                                  value: 3,
+                                  label: Text('三列'),
+                                  icon: Icon(Icons.grid_view_rounded),
+                                ),
+                                ButtonSegment(
+                                  value: 4,
+                                  label: Text('四列'),
+                                  icon: Icon(Icons.grid_view_rounded),
+                                ),
+                              ],
+                        selected: {_gridColumns.value},
+                        onSelectionChanged: (selection) {
+                          final v = selection.first;
+                          _gridColumns.value = v;
+                          _savePrefs();
+                        },
+                        showSelectedIcon: false,
                       ),
                     ),
                   ),
@@ -742,7 +746,15 @@ class _PlaylistsPageState extends State<PlaylistsPage>
                             SliverPadding(
                               padding: AppLayoutSettings.tvMode.value
                                   ? TvLayout.pagePadding()
-                                  : const EdgeInsets.fromLTRB(12, 0, 12, 160),
+                                  : EdgeInsets.fromLTRB(
+                                      12,
+                                      0,
+                                      12,
+                                      AppPageScaffold.scrollableBottomPadding(
+                                        context,
+                                        hasBottomNav: useBottomNavigation,
+                                      ),
+                                    ),
                               sliver: SliverGrid(
                                 delegate: SliverChildBuilderDelegate(
                                   (context, index) {
@@ -845,21 +857,17 @@ class _PlaylistsPageState extends State<PlaylistsPage>
                                       _filteredPlaylists.value.length +
                                       (_loadingMore.value ? 1 : 0),
                                 ),
-                                gridDelegate:
-                                    TvLayout.gridDelegate(
-                                      context,
-                                      columns: _adaptiveGridColumns(
-                                        context,
+                                gridDelegate: TvLayout.gridDelegate(
+                                  context,
+                                  columns: _adaptiveGridColumns(context),
+                                  mainAxisSpacing:
+                                      _gridMainAxisSpacingForColumns(
+                                        _adaptiveGridColumns(context),
                                       ),
-                                      mainAxisSpacing:
-                                          _gridMainAxisSpacingForColumns(
-                                            _adaptiveGridColumns(context),
-                                          ),
-                                      childAspectRatio:
-                                          _gridAspectRatioForColumns(
-                                            _adaptiveGridColumns(context),
-                                          ),
-                                    ),
+                                  childAspectRatio: _gridAspectRatioForColumns(
+                                    _adaptiveGridColumns(context),
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -1762,8 +1770,10 @@ class _SlideRevealActionState extends State<_SlideRevealAction>
                             SizedBox(height: 2),
                             Text(
                               '删除',
-                              style:
-                                  TextStyle(color: Colors.white, fontSize: 12),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
                             ),
                           ],
                         ),

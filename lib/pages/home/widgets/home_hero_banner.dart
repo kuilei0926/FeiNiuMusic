@@ -6,6 +6,7 @@ import '../../../app/state/settings_layout_state.dart';
 import '../../../app/state/song_state.dart';
 import '../../../app/tv/tv_layout.dart';
 import '../../../components/focus/tv_focusable.dart';
+import 'home_glass_play_button.dart';
 
 /// 首页顶部 100% 宽 Hero Banner。
 ///
@@ -232,32 +233,10 @@ class _TvPlayButton extends StatelessWidget {
     final scale = AppLayoutSettings.tvMode.value
         ? TvLayout.uiScale(context)
         : 1.0;
-    return Container(
-      width: 56 * scale,
-      height: 56 * scale,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPlay,
-          child: Icon(
-            Icons.play_arrow_rounded,
-            color: primary,
-            size: 36 * scale,
-          ),
-        ),
-      ),
+    return HomeGlassPlayButton(
+      onPlay: onPlay,
+      size: 56 * scale,
+      color: Colors.white,
     );
   }
 }

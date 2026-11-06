@@ -18,6 +18,15 @@ const _primaryNavigationRoutes = <String>[
   AppRoutes.profile,
 ];
 
+const primaryNavigationLabels = ['首页', '歌单', '歌曲', '收藏', '我的'];
+const primaryNavigationIcons = [
+  Icons.home_rounded,
+  Icons.queue_music_rounded,
+  Icons.music_note_rounded,
+  Icons.favorite_rounded,
+  Icons.person_rounded,
+];
+
 /// 玻璃底栏胶囊上方的悬浮空隙（= [GlassTabBar.bottom] 的 verticalPadding）。
 ///
 /// 胶囊只占槽位中间（上下各留此空隙）；AppPageScaffold 计算迷你播放器停靠
@@ -87,40 +96,38 @@ class AppNavigationModeBuilder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<AppNavigationStyle>(
-      valueListenable: AppLayoutSettings.navigationStyle,
-      builder: (context, style, _) {
-        return ValueListenableBuilder<bool>(
-          valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
-          builder: (context, effectiveTabletMode, _) {
-            return builder(
-              context,
-              style == AppNavigationStyle.bottomBar && !effectiveTabletMode,
-            );
-          },
-        );
-      },
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        BottomIslandSettings.style,
+        AppBackgroundSettings.panelBlurEnabled,
+        AppGlassSettings.liquidGlassEnabled,
+      ]),
+      builder: (context, _) => ValueListenableBuilder<AppNavigationStyle>(
+        valueListenable: AppLayoutSettings.navigationStyle,
+        builder: (context, style, _) {
+          return ValueListenableBuilder<bool>(
+            valueListenable: AppLayoutSettings.effectiveTabletModeNotifier,
+            builder: (context, effectiveTabletMode, _) {
+              return builder(
+                context,
+                style == AppNavigationStyle.bottomBar && !effectiveTabletMode,
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
 
 class ModernNavigationBar extends StatelessWidget {
-  const ModernNavigationBar({
-    super.key,
-    required this.onTap,
-  });
+  const ModernNavigationBar({super.key, required this.onTap});
 
   /// 底部导航点击回调（导航到对应 tab）。
   final ValueChanged<int> onTap;
 
-  static const List<String> _labels = ['首页', '歌单', '歌曲', '收藏', '我的'];
-  static const List<IconData> _icons = [
-    Icons.home_rounded,
-    Icons.queue_music_rounded,
-    Icons.music_note_rounded,
-    Icons.favorite_rounded,
-    Icons.person_rounded,
-  ];
+  static const List<String> _labels = primaryNavigationLabels;
+  static const List<IconData> _icons = primaryNavigationIcons;
 
   /// 液体玻璃分支：SF Symbols 字形（包内置 demo 同款 CupertinoIcons 实心图标）。
   static const List<IconData> _glassIcons = [
@@ -168,50 +175,53 @@ class ModernNavigationBar extends StatelessWidget {
                 ? AppBackgroundSettings.panelBlurStrength.value
                 : 0.0;
             final isBlurred = blurStrength > 0;
-        final barColor = isBlurred
-            ? (isDark
-                ? Colors.black.withValues(alpha: 0.06)
-                : Colors.white.withValues(alpha: 0.04))
-            : scheme.surface.withValues(alpha: 0.85);
-        Widget navBar = Material(
-          color: barColor,
-          elevation: 0,
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              // 非玻璃分支高度独立于玻璃胶囊（kSolidNavHeight，比玻璃槽位
-              // modernNavHeight=84 矮）。底部安全区由 SafeArea 计入，不含在此值。
-              height: kSolidNavHeight,
-              child: Row(
-                children: List.generate(_labels.length, (index) {
-                  final selected = currentIndex == index;
-                  return Expanded(
-                    child: _NavItem(
-                      icon: _icons[index],
-                      label: _labels[index],
-                      selected: selected,
-                      onTap: () => onTap(index),
+            final barColor = isBlurred
+                ? (isDark
+                      ? Colors.black.withValues(alpha: 0.06)
+                      : Colors.white.withValues(alpha: 0.04))
+                : scheme.surface.withValues(alpha: 0.85);
+            Widget navBar = Material(
+              color: barColor,
+              elevation: 0,
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  // 非玻璃分支高度独立于玻璃胶囊（kSolidNavHeight，比玻璃槽位
+                  // modernNavHeight=84 矮）。底部安全区由 SafeArea 计入，不含在此值。
+                  height: kSolidNavHeight,
+                  child: Row(
+                    children: List.generate(_labels.length, (index) {
+                      final selected = currentIndex == index;
+                      return Expanded(
+                        child: _NavItem(
+                          icon: _icons[index],
+                          label: _labels[index],
+                          selected: selected,
+                          onTap: () => onTap(index),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              ),
+            );
+            // 启用高斯模糊时包裹 BackdropFilter。
+            // RepaintBoundary 隔离模糊合成图层：页面切换转场期间底层内容变化时，
+            // 模糊结果被图层缓存复用，避免逐帧全屏重采样造成掉帧。
+            if (blurStrength > 0) {
+              navBar = ClipRect(
+                child: RepaintBoundary(
+                  child: BackdropFilter(
+                    filter: ui.ImageFilter.blur(
+                      sigmaX: blurStrength,
+                      sigmaY: blurStrength,
                     ),
-                  );
-                }),
-              ),
-            ),
-          ),
-        );
-        // 启用高斯模糊时包裹 BackdropFilter。
-        // RepaintBoundary 隔离模糊合成图层：页面切换转场期间底层内容变化时，
-        // 模糊结果被图层缓存复用，避免逐帧全屏重采样造成掉帧。
-        if (blurStrength > 0) {
-          navBar = ClipRect(
-            child: RepaintBoundary(
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: blurStrength, sigmaY: blurStrength),
-                child: navBar,
-              ),
-            ),
-          );
-        }
-        return navBar;
+                    child: navBar,
+                  ),
+                ),
+              );
+            }
+            return navBar;
           },
         );
       },
@@ -242,10 +252,7 @@ class ModernNavigationBar extends StatelessWidget {
       child: GlassTabBar.bottom(
         tabs: [
           for (var i = 0; i < _labels.length; i++)
-            GlassTab(
-              icon: Icon(_glassIcons[i]),
-              label: _labels[i],
-            ),
+            GlassTab(icon: Icon(_glassIcons[i]), label: _labels[i]),
         ],
         selectedIndex: index,
         onTabSelected: onTap,

@@ -18,6 +18,7 @@ import '../../app/tv/tv_layout.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/cover_preload_queue.dart';
 import '../../app/utils/primary_tab_refresh_mixin.dart';
+import '../../app/utils/primary_shell_scope.dart';
 import '../../components/index.dart';
 import '../library/library_detail_pages.dart';
 import '../library/playlists_page.dart';
@@ -669,9 +670,13 @@ class _HomePageState extends State<HomePage>
   }
 
   void _openSongsPage() {
-    Navigator.of(
-      context,
-    ).push(buildAppPageRoute<void>((_) => const SongsPage()));
+    if (PrimaryShellMarker.isInside(context)) {
+      navigateToPrimaryDestination(context, 2);
+    } else {
+      Navigator.of(
+        context,
+      ).push(buildAppPageRoute<void>((_) => const SongsPage()));
+    }
   }
 
   void _openArtistsPage() {
@@ -909,7 +914,17 @@ class _HomePageState extends State<HomePage>
           child: ListView(
             padding: AppLayoutSettings.tvMode.value
                 ? TvLayout.pagePadding()
-                : const EdgeInsets.fromLTRB(20, 8, 20, 160),
+                : EdgeInsets.fromLTRB(
+                    20,
+                    8,
+                    20,
+                    AppPageScaffold.scrollableBottomPadding(
+                      context,
+                      hasBottomNav:
+                          AppLayoutSettings.navigationStyle.value ==
+                          AppNavigationStyle.bottomBar,
+                    ),
+                  ),
             children: [
               if (_sectionFeedback(HomeSection.roam, hasData: heroSong != null)
                   case final Widget feedback)

@@ -61,6 +61,9 @@ Future<void> main(List<String> args) async {
   // 必须在任何 SharedPreferences / path_provider 读取之前替换全局实例，
   // 否则 prefs/数据库/缓存会落回系统 %APPDATA%。
   AppPortableStorage.overridePathProviderForPortable();
+  // Migrate before startup services write preferences, so an older install
+  // with incomplete onboarding keeps the legacy bottom bar.
+  await BottomIslandSettings.ensureLoaded();
   // 初始化 media_kit（加载 libmpv 原生库）。必须在任何 Player() 构造前调用；
   // 放在认证恢复之前，不依赖网络/账号状态。
   try {
@@ -205,6 +208,7 @@ Future<void> main(List<String> args) async {
   // （读取安全码/FNID）之后执行。
   await AccountStore.instance.init();
   await PlayerStyleSettings.ensureLoaded();
+  await DesktopMiniPlayerSettings.ensureLoaded();
   await AppLaunchNavigationSettings.ensureLoaded();
   // DLNA 投屏设置（播放页投屏按钮据此显示/隐藏）
   await DlnaCastSettings.ensureLoaded();

@@ -609,7 +609,7 @@ void showPlayerPlaylistSheet(BuildContext context, PlayerService player) {
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    builder: (_) => _PlaylistSheet(player: player),
+    builder: (_) => PlayerPlaylistSheet(player: player),
   );
 }
 
@@ -888,16 +888,16 @@ class _SleepTimerHeader extends StatelessWidget {
   }
 }
 
-class _PlaylistSheet extends StatefulWidget {
+class PlayerPlaylistSheet extends StatefulWidget {
   final PlayerService player;
 
-  const _PlaylistSheet({required this.player});
+  const PlayerPlaylistSheet({super.key, required this.player});
 
   @override
-  State<_PlaylistSheet> createState() => _PlaylistSheetState();
+  State<PlayerPlaylistSheet> createState() => _PlayerPlaylistSheetState();
 }
 
-class _PlaylistSheetState extends State<_PlaylistSheet> {
+class _PlayerPlaylistSheetState extends State<PlayerPlaylistSheet> {
   static const double _itemExtent = 64;
   late final ScrollController _controller;
   int _lastIndex = -1;
@@ -1040,9 +1040,8 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
                                 return AnimatedBuilder(
                                   animation: animation,
                                   builder: (context, child) {
-                                    final animValue = Curves.easeInOut.transform(
-                                      animation.value,
-                                    );
+                                    final animValue = Curves.easeInOut
+                                        .transform(animation.value);
                                     final elevation = ui.lerpDouble(
                                       0,
                                       6,
@@ -1066,10 +1065,7 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
                               // 处于 Watch.builder 内会被包装成 SignalEffectException）。
                               onReorderItem: (oldIndex, newIndex) {
                                 if (mode == PlaybackMode.shuffle) return;
-                                widget.player.reorderQueue(
-                                  oldIndex,
-                                  newIndex,
-                                );
+                                widget.player.reorderQueue(oldIndex, newIndex);
                               },
                               itemCount: total,
                               itemBuilder: (context, index) {
@@ -1090,11 +1086,10 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
                                     accent: scheme.primary,
                                     textColor: textColor,
                                     secondaryTextColor: secondaryTextColor,
-                                    onTap: () => widget.player.skipToIndex(
-                                      index,
-                                    ),
-                                    onRemove: () => widget.player
-                                        .removeFromQueue(index),
+                                    onTap: () =>
+                                        widget.player.skipToIndex(index),
+                                    onRemove: () =>
+                                        widget.player.removeFromQueue(index),
                                   ),
                                 );
                               },
@@ -1408,15 +1403,15 @@ class _QueueLimitDialog extends StatelessWidget {
                 const SizedBox(height: 8),
                 Slider(
                   value: limit.toDouble().clamp(
-                        AppPlaybackQueueSettings.minQueueLimit.toDouble(),
-                        AppPlaybackQueueSettings.maxQueueLimit.toDouble(),
-                      ),
+                    AppPlaybackQueueSettings.minQueueLimit.toDouble(),
+                    AppPlaybackQueueSettings.maxQueueLimit.toDouble(),
+                  ),
                   min: AppPlaybackQueueSettings.minQueueLimit.toDouble(),
                   max: AppPlaybackQueueSettings.maxQueueLimit.toDouble(),
                   divisions:
                       (AppPlaybackQueueSettings.maxQueueLimit -
-                              AppPlaybackQueueSettings.minQueueLimit) ~/
-                          10,
+                          AppPlaybackQueueSettings.minQueueLimit) ~/
+                      10,
                   label: '$limit 首',
                   onChanged: (value) {
                     AppPlaybackQueueSettings.setMaxQueueLength(value.round());
