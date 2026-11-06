@@ -70,7 +70,8 @@ dependencies:
   cached_network_image: ^3.4.1
   flutter_cache_manager: ^3.4.1
   connectivity_plus: ^7.3.1
-  media_cast_dlna: ^0.3.1
+  media_cast_dlna:
+    path: plugins/media_cast_dlna
   webview_flutter: ^4.10.0
   webview_flutter_android: ^4.13.0
   # Windows 桌面端 sqflite 需走 ffi（系统 winsqlite3.dll）。从 dev 提升为
