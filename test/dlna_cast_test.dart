@@ -146,6 +146,108 @@ void main() {
     });
 
     test(
+      'does not advertise the renderer address as the local address',
+      () async {
+        // 1.6.9 的回归就是这个形态：Socket.address 是「连接目标」，被当成 host 上报。
+        // macOS 需要显式 lo0 别名才能绑定 127.0.0.2（Linux 整段 127/8 可绑）。
+        ServerSocket renderer;
+        try {
+          renderer = await ServerSocket.bind(InternetAddress('127.0.0.2'), 0);
+        } on SocketException {
+          markTestSkipped('本机不支持绑定 127.0.0.2 别名，跳过该场景');
+          return;
+        }
+        final accepted = renderer.first;
+        try {
+          final local = await MediaStreamProxy.resolveLocalAddress(
+            '127.0.0.2',
+            renderer.port,
+          );
+          final peer = await accepted;
+          try {
+            expect(local, peer.remoteAddress.address);
+            expect(local, isNot('127.0.0.2'));
+          } finally {
+            peer.destroy();
+          }
+        } finally {
+          await renderer.close();
+        }
+      },
+    );
+
+    test(
+      'advertises the LAN address, never loopback, for a remote renderer',
+      () async {
+        // 渲染器在别的机器上时，通告 127.0.0.1 等于让它连自己。
+        final interfaces = await NetworkInterface.list(
+          type: InternetAddressType.IPv4,
+        );
+        final lanIp = interfaces
+            .expand((interface) => interface.addresses)
+            .map((address) => address.address)
+            .firstWhere((ip) => !ip.startsWith('127.'), orElse: () => '');
+        if (lanIp.isEmpty) {
+          markTestSkipped('本机没有非回环 IPv4，无法构造跨机场景');
+          return;
+        }
+        final renderer = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
+        try {
+          expect(
+            await MediaStreamProxy.resolveLocalAddress(lanIp, renderer.port),
+            lanIp,
+          );
+        } finally {
+          await renderer.close();
+        }
+      },
+    );
+
+    test(
+      'probes the renderer subnet before overlay and loopback addresses',
+      () {
+        // 覆盖网/VPN（10.111.15.232）常常单向可达，先试通就会通告渲染器拉不到的
+        // host；顺序也不应依赖网卡枚举顺序。
+        expect(
+          MediaStreamProxy.orderCandidates('192.168.8.140', const [
+            '10.111.15.232',
+            '127.0.0.1',
+            '192.168.8.179',
+          ]),
+          ['192.168.8.179', '10.111.15.232'],
+        );
+      },
+    );
+
+    test('keeps loopback only when the renderer is on this host', () {
+      expect(
+        MediaStreamProxy.orderCandidates('127.0.0.2', const [
+          '192.168.8.179',
+          '127.0.0.1',
+        ]),
+        ['127.0.0.1', '192.168.8.179'],
+      );
+    });
+
+    test('routed renderers are probed in a stable, address-aware order', () {
+      expect(
+        MediaStreamProxy.orderCandidates('10.20.30.40', const [
+          '192.168.1.5',
+          '10.111.15.232',
+        ]),
+        ['10.111.15.232', '192.168.1.5'],
+      );
+      // 完全不相干的地址保持原枚举顺序，不引入随机性。
+      expect(
+        MediaStreamProxy.orderCandidates('10.20.30.40', const [
+          '172.17.0.2',
+          '192.168.1.5',
+        ]),
+        ['172.17.0.2', '192.168.1.5'],
+      );
+    });
+
+    test(
       'registration never starts a proxy with an arbitrary address',
       () async {
         await MediaStreamProxy.instance.stop();
