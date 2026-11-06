@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -459,6 +461,39 @@ void main() {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
       AppTranscodeSettings.resetForTest();
+    });
+
+    test('active sessions heartbeat and stop after quit', () async {
+      await AppTranscodeSettings.setEnabled(true);
+      await AppTranscodeSettings.setTranscodeAll(true);
+      final heartbeats = <Map<String, dynamic>>[];
+      final twoHeartbeatsSeen = Completer<void>();
+      FeiNiuApiClient.instance.setDioForTest(
+        _mockDio((options) {
+          if (options.path.contains('transcode/heartbeat')) {
+            heartbeats.add(options.data as Map<String, dynamic>);
+            if (heartbeats.length >= 2 && !twoHeartbeatsSeen.isCompleted) {
+              twoHeartbeatsSeen.complete();
+            }
+          }
+          return {
+            'code': 0,
+            'data': {'url': '/music/api/v1/track/hls/id-heartbeat/test.m3u8'},
+          };
+        }),
+      );
+      final service = FeiNiuTranscodeService.instance;
+      service.setHeartbeatIntervalForTest(const Duration(milliseconds: 20));
+      await service.transcodeHlsUrlFor(_song('id-heartbeat', format: 'flac'));
+
+      await twoHeartbeatsSeen.future.timeout(const Duration(seconds: 1));
+      expect(heartbeats[0], {'guid': 'id-heartbeat', 'timestamp': 1});
+      expect(heartbeats[1], {'guid': 'id-heartbeat', 'timestamp': 2});
+
+      final countAtQuit = heartbeats.length;
+      await service.quitFor('id-heartbeat');
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(heartbeats, hasLength(countAtQuit), reason: 'quit 后应停止心跳');
     });
 
     test('master 关闭 → 不转码', () async {

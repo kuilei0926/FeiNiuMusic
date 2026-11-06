@@ -787,6 +787,17 @@ class FeiNiuApiClient {
     await _post('/track/transcode/quit', data: {'guid': guid});
   }
 
+  /// 续期服务端转码会话；服务端要求 [timestamp] 为非零值。
+  Future<void> trackTranscodeHeartbeat(
+    String guid, {
+    required int timestamp,
+  }) async {
+    await _post(
+      '/track/transcode/heartbeat',
+      data: {'guid': guid, 'timestamp': timestamp},
+    );
+  }
+
   /// 拼接 HLS 绝对地址：服务器返回相对路径（以 /music/api/v1 开头）时
   /// 拼上 baseUrl，绝对地址原样返回。
   String resolveHlsUrl(String rel) {
