@@ -16,7 +16,7 @@ import '../state/song_state.dart';
 import '../state/settings_state.dart';
 import 'android_platform_service.dart';
 import 'cover_local_cache.dart';
-import 'media_notification_car_lyrics.dart';
+import 'media_notification_metadata.dart';
 import 'player_service.dart';
 
 class MediaNotificationService {
@@ -337,16 +337,6 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   /// Bitmap。队列/浏览条目（[current] 为 false）仍用 content://，供
   /// Android Auto 等外部进程读取。
   MediaItem _itemFromSong(SongEntity song, {bool current = false}) {
-    final lyricLine = MediaNotificationSettings.showLyrics.value
-        ? _currentLyricLine
-        : null;
-    final titleText = song.title.trim();
-    final artistText = song.artistDisplayName.trim();
-    final songAndArtist = artistText.isEmpty
-        ? titleText
-        : '$titleText · $artistText';
-    final albumName = song.albumDisplayName;
-
     // artUri: 当前曲目优先 file:// 本地路径；队列/浏览用 content://。
     Uri? artUri;
     if (song.coverId != null && song.coverId!.isNotEmpty) {
@@ -366,87 +356,26 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
       }
     }
 
-    final lyricOnTop = MediaNotificationSettings.lyricOnTop.value;
-    // 车载蓝牙歌词：独立于通知歌词（showLyrics/lyricOnTop），直接从
-    // LyricsService 当前行读取。仅作用于当前曲目的 MediaItem（current=true）：
-    // 队列/浏览条目一律真实歌名，避免队列项与歌词行不一致。且仅播放中生效，
-    // 暂停时回退真实歌名，与暂停态保留的真实 queueIndex 一起满足 AVRCP
-    // isMetadataSynced() 的一致性检查（见 _stateFromSnap）。开关关 → extras
-    // 为 null（不发歌词）；开关开但无歌词 → 发空串，让车机清除之前显示的行。
-    final isPlaying = player.snapshot.value.isPlaying;
-    final carLyricsEnabled = MediaNotificationSettings.carBluetoothLyrics.value;
-    final carLyricsActive = carLyricsEnabled && current && isPlaying;
-    final carLyricLine = carLyricsActive
-        ? LyricsService.instance.currentLineText.value
-        : null;
-    final carLyricsExtras = carLyricsActive
-        ? <String, dynamic>{'android.media.metadata.LYRICS': carLyricLine ?? ''}
-        : null;
-    // 车机只认 AVRCP 标准属性（TITLE/ARTIST/...），extras 里的 LYRICS 到不了车机。
-    // 用 title 携带当前歌词行，车机在 TITLE 位置显示歌词；关闭时回退真实歌名。
-    final carLyricsOverride = carLyricsTitleOverride(
-      carLyricsEnabled: carLyricsActive,
-      isCurrentSong: current,
-      isPlaying: isPlaying,
-      currentCarLyricLine: carLyricLine,
-    );
-    // 「歌词置顶」只作用于当前曲目。队列条目绝不能进这个分支：displayTitle
-    // 会带上发布时刻的歌词行（stale），既污染 AA 队列显示，也破坏 AVRCP
-    // 检查的 title 一致性。
-    if (current && lyricOnTop && lyricLine != null) {
-      return MediaItem(
-        id: song.id,
-        // 车载歌词开启时 AVRCP 的 TITLE 必须与队列当前项一致：播放中走
-        // override（queueIndex=null 绕过检查），暂停回退真实歌名；车载关闭
-        // 时保持原「歌词置顶」行为。通知栏标题读 displayTitle，不受影响。
-        title: carLyricsOverride ?? (carLyricsEnabled ? song.title : lyricLine),
-        artist: songAndArtist,
-        album: albumName,
-        artUri: artUri,
-        duration: song.durationMs != null
-            ? Duration(milliseconds: song.durationMs!)
-            : null,
-        displayTitle: lyricLine,
-        displaySubtitle: songAndArtist,
-        displayDescription: artistText.isEmpty ? null : artistText,
-        artHeaders: FeiNiuApiClient.imageAuthHeaders(),
-        extras: carLyricsExtras,
-      );
-    }
-    // AVRCP 元信息一致性（实测 AOSP MediaPlayerWrapper.isMetadataSynced）：
-    // 有活动队列项时，系统会用 Metadata.equals() 比对「队列当前项」与
-    // 「会话 metadata」的 title/artist；不一致则拦截更新，只排 2s 兜底超时。
-    // 关键链路：audio_service 把队列转成系统 QueueItem 时走
-    // MediaMetadataCompat.getDescription()，artist/album/duration 全部丢失，
-    // 系统侧队列条目的 artist 实际取自 description.subtitle，即我们
-    // MediaItem 的 displaySubtitle。因此：
-    // - 队列条目（current=false）displaySubtitle 必须是真实歌手，否则切歌
-    //   后队列条目 artist 为空（displaySubtitle=歌词行为 null）→ 与 metadata
-    //   的 artist 永不匹配 → 每次更新都被拦满 2s，车机切歌延迟明显（实测
-    //   日志：Timeout while waiting for metadata to sync）。
-    // - metadata 的 artist 一律真实歌手（歌词行曾写入 artist，同样永不
-    //   匹配）。通知/锁屏歌词展示走 displaySubtitle（current=true），不受影响。
-    return MediaItem(
-      id: song.id,
-      title: carLyricsOverride ?? song.title,
-      artist: carLyricsOverride != null
-          ? songAndArtist
-          : song.artistDisplayName,
-      album: albumName,
-      artUri: artUri,
-      duration: song.durationMs != null
-          ? Duration(milliseconds: song.durationMs!)
-          : null,
-      displayTitle: song.title,
-      displaySubtitle: current ? lyricLine : song.artistDisplayName,
-      displayDescription: current && lyricLine != null
-          ? song.artistDisplayName
-          : null,
-      // audio_service 加载 artUri 时使用这些 HTTP 请求头（用于服务器认证）
-      artHeaders: FeiNiuApiClient.imageAuthHeaders(),
-      extras: carLyricsExtras,
-    );
+    return _metadataForSong(song, current: current, artUri: artUri).item;
   }
+
+  ({MediaItem item, bool suppressQueueIndex}) _metadataForSong(
+    SongEntity song, {
+    bool current = false,
+    Uri? artUri,
+  }) => buildMediaNotificationMetadata(
+    song,
+    current: current,
+    isAndroid: io.Platform.isAndroid,
+    isPlaying: player.snapshot.value.isPlaying,
+    showLyrics: MediaNotificationSettings.showLyrics.value,
+    lyricOnTop: MediaNotificationSettings.lyricOnTop.value,
+    carLyricsEnabled: MediaNotificationSettings.carBluetoothLyrics.value,
+    lyricLine: _currentLyricLine,
+    carLyricLine: LyricsService.instance.currentLineText.value,
+    artUri: artUri,
+    artHeaders: FeiNiuApiClient.imageAuthHeaders(),
+  );
 
   List<MediaItem> _rootBrowseItems() {
     return <MediaItem>[
@@ -910,21 +839,10 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   PlaybackState _stateFromSnap(PlaybackSnapshot snap) {
     final playing = snap.isPlaying;
     final queueIndex = _publishedQueueIds.indexOf(snap.song?.id ?? '');
-    // 车载蓝牙歌词：AOSP AVRCP 的 MediaPlayerWrapper.isMetadataSynced()
-    // 只有在「队列当前项的 title/artist 与会话 metadata 一致」时才放行
-    // metadata 更新，否则仅调度 2s 兜底超时；而本 app 播放中高频刷新
-    // playbackState，会不断重置该超时，导致歌词类 metadata 永远到不了
-    // 车机。播放中开启车载歌词时 metadata.title 每句歌词都变化，无法与
-    // 静态队列项保持一致，故此时发布 queueIndex=null
-    // （activeQueueItemId=-1）让该检查直接放行（无队列的 demo 正常推送
-    // 同理）。暂停时保留真实 queueIndex，并让 metadata 回退真实歌名（见
-    // carLyricsTitleOverride 的 isPlaying 门控），两个稳态都满足一致性
-    // 检查：暂停态列表高亮与歌名完全正常，播放中仅暂时失去高亮。队列
-    // 内容始终照常发布，Android Auto 浏览不受影响。
+    final song = snap.song;
     final suppressQueueIndex =
-        MediaNotificationSettings.carBluetoothLyrics.value &&
-        snap.isPlaying &&
-        snap.song != null;
+        song != null &&
+        _metadataForSong(song, current: true).suppressQueueIndex;
     // 自定义按键（关闭/收藏）只有 Android 通知栏有实现。iOS/macOS 的
     // MPRemoteCommandCenter 没有 custom action：若把 MediaControl.custom
     // 放进 controls，其 action 枚举恰好落到 changeRepeatMode 命令位，
@@ -1218,6 +1136,7 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
       snap.index,
       snap.isPlaying,
       next.processingState.name,
+      next.queueIndex,
       snap.position.inMilliseconds,
       snap.bufferedPosition.inMilliseconds,
       snap.duration?.inMilliseconds ?? -1,
@@ -1238,6 +1157,7 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   void _onLyricLineChanged() {
     _currentLyricLine = LyricsService.instance.currentLineText.value;
     _syncMediaItem();
+    _syncPlaybackState(player.snapshot.value);
   }
 
   void _onNotificationSettingsChanged() {
