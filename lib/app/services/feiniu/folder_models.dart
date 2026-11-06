@@ -1,33 +1,73 @@
-/// 文件夹视图模型（来自 FnMusicEnhance 服务端增强接口）。
+/// 文件夹视图模型（来自飞牛音乐官方 folder-view 接口）。
 ///
-/// 响应信封为增强服务自有的 `{code, msg, data}`，不走主 API 的
-/// [FeiNiuResponse] 封装；页面直接解析 `data` 段为这些模型。
-///
-/// 所有路径均为**库内相对路径**（如 `/`、`/IU/A Flower Bookmark 2`），
-/// 不含 `/vol3/1000/...` 等 NAS 内部前缀，仅用于展示。
+/// 官方接口使用 NAS 绝对路径（如 `/vol3/1000/Music`）。页面内仍保留
+/// [FolderFile] 作为播放队列的适配层：官方返回的每个 track 对应一个文件项。
 library;
 
-/// 单个目录层级的内容：子目录 + 音频文件。
+int? _asInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse('$value');
+}
+
+/// 共享音乐库。
+class SharedMusicLibrary {
+  final String guid;
+  final String name;
+  final String path;
+  final int itemCount;
+  final int? contentLastChangedAt;
+  final int? accessStatus;
+
+  const SharedMusicLibrary({
+    required this.guid,
+    required this.name,
+    required this.path,
+    this.itemCount = 0,
+    this.contentLastChangedAt,
+    this.accessStatus,
+  });
+
+  factory SharedMusicLibrary.fromJson(Map<String, dynamic> json) {
+    return SharedMusicLibrary(
+      guid: json['guid'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      path: json['path'] as String? ?? '/',
+      itemCount: _asInt(json['itemCount']) ?? 0,
+      contentLastChangedAt: _asInt(json['contentLastChangedAt']),
+      accessStatus: _asInt(json['accessStatus']),
+    );
+  }
+
+  /// 共享库名称为空时，使用路径最后一段作为展示名。
+  String get displayName {
+    if (name.trim().isNotEmpty) return name;
+    final parts = path.split('/').where((part) => part.isNotEmpty).toList();
+    return parts.isEmpty ? '音乐库' : parts.last;
+  }
+}
+
+/// 单个目录层级的内容：子目录 + 音频曲目。
 class FolderListing {
-  /// 库根目录名（如 `Music`），用于顶部标题。
+  /// 当前共享音乐库根路径；虚拟根目录时为空。
   final String libraryRoot;
 
-  /// 当前相对路径（如 `/` 或 `/IU`）。
+  /// 当前目录绝对路径；虚拟根目录为 `/`。
   final String path;
 
-  /// 上级相对路径；根目录为 null。
+  /// 上级目录路径；虚拟根目录为 null。
   final String? parent;
 
   /// 子目录列表。
   final List<FolderDir> folders;
 
-  /// 音频文件列表（当前分页的一页）。
+  /// 音频文件列表（每个官方 track 包装为一个文件项）。
   final List<FolderFile> files;
 
-  /// 当前目录文件总数（分页用）。
+  /// 当前查询结果中的歌曲总数。
   final int total;
 
-  /// 当前目录文件总数（分页依据；CUE 整轨文件算 1 个文件）。
+  /// 当前查询结果中的文件项总数。
   final int fileTotal;
 
   const FolderListing({
@@ -40,21 +80,47 @@ class FolderListing {
     this.fileTotal = 0,
   });
 
-  factory FolderListing.fromJson(Map<String, dynamic> json) {
+  factory FolderListing.root(List<FolderDir> libraries) {
+    return FolderListing(libraryRoot: '', path: '/', folders: libraries);
+  }
+
+  factory FolderListing.fromFolderView(
+    Map<String, dynamic> data, {
+    required String libraryRoot,
+    required String? parent,
+  }) {
+    final folder = data['folder'] is Map<String, dynamic>
+        ? data['folder'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+    final folders =
+        (folder['folders'] as List<dynamic>?)
+            ?.map((item) {
+              if (item is! Map<String, dynamic>) return null;
+              return FolderDir.fromJson(item);
+            })
+            .whereType<FolderDir>()
+            .where((dir) => !dir.isAdminDeleted)
+            .toList() ??
+        const <FolderDir>[];
+    final files =
+        (folder['tracks'] as List<dynamic>?)
+            ?.map((item) {
+              if (item is! Map<String, dynamic>) return null;
+              return FolderFile.fromTrack(FolderTrack.fromJson(item));
+            })
+            .whereType<FolderFile>()
+            .where((file) => !file.tracks.any((track) => track.isAdminDeleted))
+            .toList() ??
+        const <FolderFile>[];
+
     return FolderListing(
-      libraryRoot: json['libraryRoot'] as String? ?? '',
-      path: json['path'] as String? ?? '/',
-      parent: json['parent'] as String?,
-      folders: (json['folders'] as List<dynamic>?)
-              ?.map((e) => FolderDir.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          const [],
-      files: (json['files'] as List<dynamic>?)
-              ?.map((e) => FolderFile.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          const [],
-      total: json['total'] as int? ?? 0,
-      fileTotal: json['fileTotal'] as int? ?? 0,
+      libraryRoot: libraryRoot,
+      path: folder['path'] as String? ?? '/',
+      parent: parent,
+      folders: folders,
+      files: files,
+      total: files.fold(0, (sum, file) => sum + file.tracks.length),
+      fileTotal: files.length,
     );
   }
 }
@@ -63,13 +129,22 @@ class FolderListing {
 class FolderDir {
   final String name;
   final String path;
+  final int itemCount;
+  final bool isAdminDeleted;
 
-  const FolderDir({required this.name, required this.path});
+  const FolderDir({
+    required this.name,
+    required this.path,
+    this.itemCount = 0,
+    this.isAdminDeleted = false,
+  });
 
   factory FolderDir.fromJson(Map<String, dynamic> json) {
     return FolderDir(
       name: json['name'] as String? ?? '',
       path: json['path'] as String? ?? '/',
+      itemCount: _asInt(json['itemCount']) ?? 0,
+      isAdminDeleted: json['isAdminDeleted'] as bool? ?? false,
     );
   }
 }
@@ -82,7 +157,7 @@ class FolderFile {
   final int? size;
   final int? durationMs;
 
-  /// 音质信息（来自 audio_file 技术参数）。
+  /// 音质信息。
   final FolderAudioSpec? audioSpec;
 
   /// 创建时间（epoch 毫秒）。
@@ -102,19 +177,37 @@ class FolderFile {
     this.tracks = const [],
   });
 
+  /// 将官方 folder-view 曲目适配为页面使用的文件项。
+  factory FolderFile.fromTrack(FolderTrack track) {
+    return FolderFile(
+      name: track.title,
+      path: track.audioPath ?? '/',
+      suffix: track.audioFormat ?? '',
+      size: track.audioSize,
+      durationMs: track.durationMs,
+      audioSpec: track.audioSpec,
+      tracks: [track],
+    );
+  }
+
   factory FolderFile.fromJson(Map<String, dynamic> json) {
     return FolderFile(
       name: json['name'] as String? ?? '',
       path: json['path'] as String? ?? '/',
       suffix: json['suffix'] as String? ?? '',
-      size: json['size'] as int?,
-      durationMs: json['durationMs'] as int?,
+      size: _asInt(json['size']),
+      durationMs: _asInt(json['durationMs']),
       audioSpec: json['audioSpec'] is Map<String, dynamic>
           ? FolderAudioSpec.fromJson(json['audioSpec'] as Map<String, dynamic>)
           : null,
-      createdAt: json['createdAt'] as int?,
-      tracks: (json['tracks'] as List<dynamic>?)
-              ?.map((e) => FolderTrack.fromJson(e as Map<String, dynamic>))
+      createdAt: _asInt(json['createdAt']),
+      tracks:
+          (json['tracks'] as List<dynamic>?)
+              ?.map((item) {
+                if (item is! Map<String, dynamic>) return null;
+                return FolderTrack.fromJson(item);
+              })
+              .whereType<FolderTrack>()
               .toList() ??
           const [],
     );
@@ -125,7 +218,8 @@ class FolderFile {
     final spec = audioSpec;
     if (spec == null) return '';
     final parts = <String>[];
-    if (suffix.isNotEmpty) parts.add(suffix.toUpperCase());
+    final format = suffix.isNotEmpty ? suffix : spec.format;
+    if (format != null && format.isNotEmpty) parts.add(format.toUpperCase());
     if (spec.sampleRate != null && spec.sampleRate! > 0) {
       parts.add('${(spec.sampleRate! / 1000).toStringAsFixed(1)}kHz');
     }
@@ -139,13 +233,16 @@ class FolderFile {
   }
 }
 
-/// 音质信息（audio_file 技术参数）。
+/// 音质信息。
 class FolderAudioSpec {
   final int? bitrate;
   final int? sampleRate;
   final int? bitDepth;
   final int? channel;
   final String? codec;
+  final String? format;
+  final String? path;
+  final int? size;
 
   const FolderAudioSpec({
     this.bitrate,
@@ -153,15 +250,21 @@ class FolderAudioSpec {
     this.bitDepth,
     this.channel,
     this.codec,
+    this.format,
+    this.path,
+    this.size,
   });
 
   factory FolderAudioSpec.fromJson(Map<String, dynamic> json) {
     return FolderAudioSpec(
-      bitrate: json['bitrate'] as int?,
-      sampleRate: json['sampleRate'] as int?,
-      bitDepth: json['bitDepth'] as int?,
-      channel: json['channel'] as int?,
+      bitrate: _asInt(json['bitrate']),
+      sampleRate: _asInt(json['sampleRate']),
+      bitDepth: _asInt(json['bitDepth']),
+      channel: _asInt(json['channel']),
       codec: json['codec'] as String?,
+      format: json['format'] as String?,
+      path: json['path'] as String?,
+      size: _asInt(json['size']),
     );
   }
 }
@@ -181,7 +284,7 @@ class FolderArtist {
   }
 }
 
-/// 文件对应的曲目（可播放，含增强的专辑/歌手信息）。
+/// 官方 folder-view 曲目。
 class FolderTrack {
   final String guid;
   final String title;
@@ -192,6 +295,9 @@ class FolderTrack {
   final String? albumGuid;
   final String? coverId;
   final bool isCue;
+  final bool isFavorite;
+  final bool isAdminDeleted;
+  final FolderAudioSpec? audioSpec;
   final List<FolderArtist> artists;
 
   const FolderTrack({
@@ -204,29 +310,52 @@ class FolderTrack {
     this.albumGuid,
     this.coverId,
     this.isCue = false,
+    this.isFavorite = false,
+    this.isAdminDeleted = false,
+    this.audioSpec,
     this.artists = const [],
   });
 
   factory FolderTrack.fromJson(Map<String, dynamic> json) {
+    final albumJson = json['album'] is Map<String, dynamic>
+        ? json['album'] as Map<String, dynamic>
+        : const <String, dynamic>{};
     return FolderTrack(
       guid: json['guid'] as String? ?? '',
       title: json['title'] as String? ?? '',
-      durationMs: json['durationMs'] as int?,
-      trackNo: json['trackNo'] as int?,
-      year: json['year'] as int?,
-      album: json['album'] as String?,
-      albumGuid: json['albumGuid'] as String?,
-      coverId: json['coverId'] as String?,
+      durationMs: _asInt(json['duration']) ?? _asInt(json['durationMs']),
+      trackNo: _asInt(json['trackNo']),
+      year: _asInt(json['year']),
+      album: albumJson['name'] as String?,
+      albumGuid: albumJson['guid'] as String?,
+      coverId: json['coverId'] as String? ?? albumJson['coverId'] as String?,
       isCue: json['isCue'] as bool? ?? false,
-      artists: (json['artists'] as List<dynamic>?)
-              ?.map((e) => FolderArtist.fromJson(e as Map<String, dynamic>))
+      isFavorite: json['isFavorite'] as bool? ?? false,
+      isAdminDeleted: json['isAdminDeleted'] as bool? ?? false,
+      audioSpec: json['audioSpec'] is Map<String, dynamic>
+          ? FolderAudioSpec.fromJson(json['audioSpec'] as Map<String, dynamic>)
+          : null,
+      artists:
+          (json['artists'] as List<dynamic>?)
+              ?.map((item) {
+                if (item is! Map<String, dynamic>) return null;
+                return FolderArtist.fromJson(item);
+              })
+              .whereType<FolderArtist>()
               .toList() ??
           const [],
     );
   }
 
-  /// 歌手显示名（多个用「/」连接）。
-  String get artistDisplay =>
-      artists.map((a) => a.name).where((n) => n.isNotEmpty).join(' / ');
-}
+  String? get audioPath => audioSpec?.path;
 
+  String? get audioFormat => audioSpec?.format;
+
+  int? get audioSize => audioSpec?.size;
+
+  /// 歌手显示名（多个用「/」连接）。
+  String get artistDisplay => artists
+      .map((artist) => artist.name)
+      .where((name) => name.isNotEmpty)
+      .join(' / ');
+}

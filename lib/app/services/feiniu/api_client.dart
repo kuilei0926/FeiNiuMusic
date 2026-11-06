@@ -428,6 +428,46 @@ class FeiNiuApiClient {
     );
   }
 
+  /// 获取当前账号可访问的共享音乐库。
+  ///
+  /// 官方接口：`GET /shared-library/list`。
+  Future<Map<String, dynamic>> getSharedLibraryList() async {
+    final data = await _get('/shared-library/list');
+    return _officialFolderPayload(data, '获取共享音乐库失败');
+  }
+
+  /// 获取指定绝对路径下的文件夹与曲目。
+  ///
+  /// 官方接口：`GET /folder-view/list?parentPath=<绝对路径>`。
+  Future<Map<String, dynamic>> getFolderViewList(String parentPath) async {
+    final data = await _get(
+      '/folder-view/list',
+      queryParameters: {'parentPath': parentPath},
+    );
+    return _officialFolderPayload(data, '获取文件夹内容失败');
+  }
+
+  Map<String, dynamic> _officialFolderPayload(
+    Map<String, dynamic> data,
+    String fallbackMessage,
+  ) {
+    if (data.isEmpty) {
+      throw Exception('$fallbackMessage：服务端返回数据异常');
+    }
+    final code = data['code'];
+    if (code != null && '$code' != '0') {
+      final message = data['msg'] as String?;
+      throw Exception(
+        message == null || message.isEmpty ? fallbackMessage : message,
+      );
+    }
+    final payload = data['data'];
+    if (payload is! Map<String, dynamic>) {
+      throw Exception('$fallbackMessage：服务端返回数据异常');
+    }
+    return payload;
+  }
+
   // endregion
 
   // region 1. 用户登录

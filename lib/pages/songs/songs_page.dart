@@ -13,7 +13,6 @@ import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/state/settings_layout_state.dart';
-import '../../app/state/settings_lyric_companion.dart';
 import '../../app/state/song_state.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/deferred_page_init_mixin.dart';
@@ -406,13 +405,9 @@ class _SongsPageState extends State<SongsPage>
     );
   }
 
-  /// 打开文件夹视图（服务端增强）。未开启时引导到设置页。
+  /// 打开文件夹视图（官方共享音乐库 + folder-view 接口）。
   void _openFolders() {
-    if (LyricCompanionSettings.enabled.value) {
-      Navigator.of(context).push(buildAppPageRoute((_) => const FoldersPage()));
-    } else {
-      AppToast.show(context, '请先在设置 → 元数据管理开启「服务端增强」', type: ToastType.error);
-    }
+    Navigator.of(context).push(buildAppPageRoute((_) => const FoldersPage()));
   }
 
   void _playSong(int index) {
@@ -600,7 +595,7 @@ class _SongsPageState extends State<SongsPage>
                             onTap: _hasMoreSongs ? _showLoadMoreDialog : null,
                           ),
                           const Spacer(),
-                          // 文件夹视图入口（服务端增强）
+                          // 文件夹视图入口（官方共享音乐库）
                           InkWell(
                             borderRadius: BorderRadius.circular(16),
                             onTap: _openFolders,

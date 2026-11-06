@@ -5,12 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
-import '../../app/router/app_router.dart';
-import '../../app/services/companion/folder_companion_service.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/folder_models.dart';
+import '../../app/services/feiniu/folder_service.dart';
 import '../../app/services/player_service.dart';
-import '../../app/state/settings_lyric_companion.dart';
 import '../../app/state/song_state.dart';
 import '../../app/utils/natural_sort.dart';
 import '../../components/index.dart';
@@ -19,12 +17,10 @@ import 'library_detail_pages.dart';
 
 /// 文件夹视图 —— 按 NAS 文件系统目录层级浏览音乐文件。
 ///
-/// 目录数据来自服务端增强（FnMusicEnhance，经 nginx /music-enhance/ 提供）的
-/// `GET /music/api/v1/folder/list`，路径为库内相对路径（不含 /vol3/...）。
-/// 第一层是库根目录（如 `/Music`），根请求 `/` 只显示库根入口。
-/// 需要已开启「服务端增强」（[LyricCompanionSettings.enabled]）。
+/// 根目录来自官方 `GET /shared-library/list`，具体目录来自官方
+/// `GET /folder-view/list?parentPath=<绝对路径>`。
 class FoldersPage extends StatefulWidget {
-  /// 初始目录（库内相对路径，`/` 为根目录）。
+  /// 初始目录（`/` 为共享音乐库入口，其余为共享库内绝对路径）。
   final String initialPath;
 
   const FoldersPage({super.key, this.initialPath = '/'});
@@ -42,7 +38,7 @@ class _FoldersPageState extends State<FoldersPage>
   @override
   List<SongEntity> get multiSelectSongs => _allSongs;
 
-  final FolderCompanionService _service = FolderCompanionService.instance;
+  final FeiNiuFolderService _service = FeiNiuFolderService.instance;
   final FeiNiuApiClient _api = FeiNiuApiClient.instance;
   final PlayerService _player = PlayerService.instance;
 
@@ -148,7 +144,18 @@ class _FoldersPageState extends State<FoldersPage>
   bool _handleBack() {
     final current = _path.value;
     if (current == '/') return true;
-    final parent = _parentOf(current);
+    final listing = _listing.value;
+    final parent = switch (listing) {
+      null => _parentOf(current),
+      final value when value.path == current =>
+        value.parent ?? _parentOf(current),
+      final value
+          when value.path == '/' &&
+              value.folders.any((folder) => folder.path == current) =>
+        '/',
+      final value when current.startsWith('${value.path}/') => value.path,
+      _ => _parentOf(current),
+    };
     _goTo(parent);
     return false;
   }
@@ -171,12 +178,25 @@ class _FoldersPageState extends State<FoldersPage>
 
   /// 当前路径的面包屑段：`[{label, path}]`，末位为当前目录。
   List<({String label, String path})> get _crumbs {
-    final segs = _path.value.split('/').where((s) => s.isNotEmpty).toList();
     final crumbs = <({String label, String path})>[];
     crumbs.add((label: '/', path: '/'));
+    final current = _path.value;
+    if (current == '/') return crumbs;
+
+    final libraryRoot = _listing.value?.libraryRoot ?? '';
+    final root = libraryRoot.isNotEmpty && current.startsWith(libraryRoot)
+        ? libraryRoot
+        : '';
+    if (root.isNotEmpty) {
+      final parts = root.split('/').where((s) => s.isNotEmpty).toList();
+      crumbs.add((label: parts.isEmpty ? '音乐库' : parts.last, path: root));
+    }
+
+    final relative = root.isEmpty ? current : current.substring(root.length);
+    final segs = relative.split('/').where((s) => s.isNotEmpty).toList();
     var acc = '';
     for (final seg in segs) {
-      acc = '$acc/$seg';
+      acc = '$root$acc/$seg';
       crumbs.add((label: seg, path: acc));
     }
     return crumbs;
@@ -209,7 +229,9 @@ class _FoldersPageState extends State<FoldersPage>
     final listing = _listing.value;
     if (listing == null || listing.folders.isEmpty) return const [];
     final list = [...listing.folders];
-    list.sort((a, b) => naturalPinyinCompare(a.name, b.name, cache: _sortCache));
+    list.sort(
+      (a, b) => naturalPinyinCompare(a.name, b.name, cache: _sortCache),
+    );
     return list;
   });
 
@@ -222,9 +244,21 @@ class _FoldersPageState extends State<FoldersPage>
           title: '排序',
           options: const [
             SortOption(key: 'name', label: '文件名', icon: Icons.abc_rounded),
-            SortOption(key: 'createdAt', label: '创建时间', icon: Icons.access_time_rounded),
-            SortOption(key: 'duration', label: '时长', icon: Icons.timer_outlined),
-            SortOption(key: 'size', label: '大小', icon: Icons.data_usage_rounded),
+            SortOption(
+              key: 'createdAt',
+              label: '创建时间',
+              icon: Icons.access_time_rounded,
+            ),
+            SortOption(
+              key: 'duration',
+              label: '时长',
+              icon: Icons.timer_outlined,
+            ),
+            SortOption(
+              key: 'size',
+              label: '大小',
+              icon: Icons.data_usage_rounded,
+            ),
           ],
           currentKey: _sortKey.value,
           ascending: _ascending.value,
@@ -332,7 +366,11 @@ class _FoldersPageState extends State<FoldersPage>
       _hasMore.value = _files.value.length < listing.fileTotal;
     } catch (e) {
       if (!mounted) return;
-      AppToast.show(context, e.toString().replaceFirst('Exception: ', ''), type: ToastType.error);
+      AppToast.show(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+        type: ToastType.error,
+      );
     } finally {
       if (mounted) _isLoadingMore.value = false;
     }
@@ -348,6 +386,7 @@ class _FoldersPageState extends State<FoldersPage>
         final listing = await _service.list(
           path: _path.value,
           keyword: _searchQuery.value,
+          flatten: _flatten.value,
           sort: _sortKey.value,
           asc: _ascending.value,
           page: nextPage,
@@ -398,8 +437,7 @@ class _FoldersPageState extends State<FoldersPage>
       id: t.guid,
       title: t.title,
       artist: jsonEncode([
-        for (final a in t.artists)
-          {'guid': a.guid, 'name': a.name},
+        for (final a in t.artists) {'guid': a.guid, 'name': a.name},
       ]),
       album: t.album == null
           ? null
@@ -412,6 +450,8 @@ class _FoldersPageState extends State<FoldersPage>
       format: file.suffix.isEmpty ? null : file.suffix.toUpperCase(),
       codec: spec?.codec,
       audioSpec: specText.isEmpty ? null : specText,
+      fileSize: file.size,
+      isFavorite: t.isFavorite,
       coverId: t.coverId,
       trackNumber: t.trackNo,
       isCue: t.isCue,
@@ -436,6 +476,7 @@ class _FoldersPageState extends State<FoldersPage>
         final listing = await _service.list(
           path: _path.value,
           keyword: _searchQuery.value,
+          flatten: _flatten.value,
           sort: _sortKey.value,
           asc: _ascending.value,
           page: nextPage,
@@ -525,8 +566,10 @@ class _FoldersPageState extends State<FoldersPage>
                             ? null
                             : () => _goTo(crumb.path),
                         child: Padding(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 4,
+                          ),
                           child: Text(
                             crumb.label,
                             style: TextStyle(
@@ -568,8 +611,6 @@ class _FoldersPageState extends State<FoldersPage>
 
   @override
   Widget build(BuildContext context) {
-    final enabled = LyricCompanionSettings.enabled.value;
-
     return PopScope(
       // 根目录可正常返回（退出本页）；子目录时拦截返回键做逐级上退
       canPop: _path.value == '/',
@@ -613,7 +654,9 @@ class _FoldersPageState extends State<FoldersPage>
                   SortActionButton(onTap: _showSortSheet),
                   IconButton(
                     tooltip: _searchVisible ? '关闭搜索' : '搜索',
-                    icon: Icon(_searchVisible ? Icons.search_off : Icons.search),
+                    icon: Icon(
+                      _searchVisible ? Icons.search_off : Icons.search,
+                    ),
                     onPressed: _toggleSearch,
                   ),
                 ],
@@ -658,108 +701,102 @@ class _FoldersPageState extends State<FoldersPage>
               ),
             Expanded(
               child: Watch.builder(
-          builder: (context) {
-            // 未开启服务端增强：提示并引导到设置
-            if (!enabled) {
-              return _CenterHint(
-                icon: Icons.folder_open_rounded,
-                text: '请先在设置 → 元数据管理开启「服务端增强」',
-                actionText: '去开启',
-                onAction: () =>
-                    Navigator.of(context).pushNamed(AppRoutes.metadataMatchSettings),
-              );
-            }
-
-            if (_loading.value) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final error = _error.value;
-            if (error != null) {
-              return _CenterHint(
-                icon: Icons.error_outline_rounded,
-                text: error,
-                actionText: '重试',
-                onAction: () => _load(forceRefresh: true),
-              );
-            }
-            final listing = _listing.value;
-            if (listing == null || (listing.folders.isEmpty && _files.value.isEmpty)) {
-              return _CenterHint(
-                icon: Icons.folder_open_rounded,
-                text: '此文件夹暂无音乐',
-                actionText: '刷新',
-                onAction: () => _load(forceRefresh: true),
-              );
-            }
-            final files = _sortedFiles;
-            // 平铺模式不显示子目录
-            final folders = _flatten.value ? const <FolderDir>[] : _sortedFolders.value;
-
-            // 展平文件行：单轨文件 1 行，CUE 多轨文件展开为每轨 1 行。
-            final fileRows = <Widget>[
-              for (final f in files)
-                if (f.tracks.length > 1)
-                  for (final t in f.tracks) _buildTrackRow(f, t)
-                else
-                  _buildFileRow(f),
-            ];
-
-            return Column(
-              children: [
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: () => _load(forceRefresh: true),
-                    child: ListView.builder(
-                controller: _listController,
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                // 数量行 + 文件夹 + 文件行 + 加载中行（无区块标题）
-                itemCount:
-                    (_total.value > 0 ? 1 : 0) +
-                    folders.length +
-                    fileRows.length +
-                    (_isLoadingMore.value ? 1 : 0),
-                itemBuilder: (context, index) {
-                  var i = 0;
-                  // 数量行
-                  if (_total.value > 0) {
-                    if (index == 0) {
-                      return _buildCountRow();
-                    }
-                    i += 1;
+                builder: (context) {
+                  if (_loading.value) {
+                    return const Center(child: CircularProgressIndicator());
                   }
-                  // 文件夹行
-                  if (index < i + folders.length) {
-                    return _buildFolderRow(folders[index - i]);
-                  }
-                  i += folders.length;
-                  // 文件行
-                  if (index < i + fileRows.length) {
-                    return fileRows[index - i];
-                  }
-                  i += fileRows.length;
-                  // 加载中
-                  if (_isLoadingMore.value) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      child: Center(
-                        child: SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
+                  final error = _error.value;
+                  if (error != null) {
+                    return _CenterHint(
+                      icon: Icons.error_outline_rounded,
+                      text: error,
+                      actionText: '重试',
+                      onAction: () => _load(forceRefresh: true),
                     );
                   }
-                  return const SizedBox.shrink();
+                  final listing = _listing.value;
+                  if (listing == null ||
+                      (listing.folders.isEmpty && _files.value.isEmpty)) {
+                    return _CenterHint(
+                      icon: Icons.folder_open_rounded,
+                      text: '此文件夹暂无音乐',
+                      actionText: '刷新',
+                      onAction: () => _load(forceRefresh: true),
+                    );
+                  }
+                  final files = _sortedFiles;
+                  // 平铺模式不显示子目录
+                  final folders = _flatten.value
+                      ? const <FolderDir>[]
+                      : _sortedFolders.value;
+
+                  // 展平文件行：单轨文件 1 行，CUE 多轨文件展开为每轨 1 行。
+                  final fileRows = <Widget>[
+                    for (final f in files)
+                      if (f.tracks.length > 1)
+                        for (final t in f.tracks) _buildTrackRow(f, t)
+                      else
+                        _buildFileRow(f),
+                  ];
+
+                  return Column(
+                    children: [
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: () => _load(forceRefresh: true),
+                          child: ListView.builder(
+                            controller: _listController,
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                            // 数量行 + 文件夹 + 文件行 + 加载中行（无区块标题）
+                            itemCount:
+                                (_total.value > 0 ? 1 : 0) +
+                                folders.length +
+                                fileRows.length +
+                                (_isLoadingMore.value ? 1 : 0),
+                            itemBuilder: (context, index) {
+                              var i = 0;
+                              // 数量行
+                              if (_total.value > 0) {
+                                if (index == 0) {
+                                  return _buildCountRow();
+                                }
+                                i += 1;
+                              }
+                              // 文件夹行
+                              if (index < i + folders.length) {
+                                return _buildFolderRow(folders[index - i]);
+                              }
+                              i += folders.length;
+                              // 文件行
+                              if (index < i + fileRows.length) {
+                                return fileRows[index - i];
+                              }
+                              i += fileRows.length;
+                              // 加载中
+                              if (_isLoadingMore.value) {
+                                return const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+                              return const SizedBox.shrink();
+                            },
+                          ),
+                        ),
+                      ),
+                      if (isMultiSelecting) buildMultiSelectBar(),
+                    ],
+                  );
                 },
               ),
-                    ),
-                  ),
-                  if (isMultiSelecting) buildMultiSelectBar(),
-                ],
-              );
-          },
-        ),
             ),
           ],
         ),
@@ -881,12 +918,8 @@ class _FoldersPageState extends State<FoldersPage>
               child: PlayingBars(color: scheme.primary, animating: true),
             )
           : null,
-      onTap: isMultiSelecting
-          ? () => toggleSongSelection(song.id)
-          : onTap,
-      onLongPress: isMultiSelecting
-          ? null
-          : () => _showSongDetail(song),
+      onTap: isMultiSelecting ? () => toggleSongSelection(song.id) : onTap,
+      onLongPress: isMultiSelecting ? null : () => _showSongDetail(song),
     );
   }
 
@@ -942,10 +975,8 @@ class _FoldersPageState extends State<FoldersPage>
           if (artistGuid != null) {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => ArtistDetailPage(
-                  artistName: name,
-                  artistGuid: artistGuid,
-                ),
+                builder: (_) =>
+                    ArtistDetailPage(artistName: name, artistGuid: artistGuid),
               ),
             );
           }
@@ -955,10 +986,8 @@ class _FoldersPageState extends State<FoldersPage>
           if (guid != null) {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => AlbumDetailPage(
-                  albumName: name,
-                  albumGuid: guid,
-                ),
+                builder: (_) =>
+                    AlbumDetailPage(albumName: name, albumGuid: guid),
               ),
             );
           }
@@ -1000,10 +1029,7 @@ class _CenterHint extends StatelessWidget {
             ),
             if (actionText != null && onAction != null) ...[
               const SizedBox(height: 16),
-              FilledButton.tonal(
-                onPressed: onAction,
-                child: Text(actionText!),
-              ),
+              FilledButton.tonal(onPressed: onAction, child: Text(actionText!)),
             ],
           ],
         ),
