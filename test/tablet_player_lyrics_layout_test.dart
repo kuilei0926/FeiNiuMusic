@@ -69,6 +69,15 @@ void main() {
 
     // 平板横屏布局应渲染歌词视图
     expect(find.byType(PlayerLyricsView), findsOneWidget);
+    final lyricsColumn = tester
+        .element(find.byType(PlayerLyricsView))
+        .findAncestorWidgetOfExactType<Expanded>()!;
+    expect(lyricsColumn.flex, 6);
+    expect(
+      lyricsColumn.child,
+      isA<PlayerLyricsView>(),
+      reason: '歌词区域应直接透出播放背景，不包裹带底色或圆角边框的容器',
+    );
 
     final rect = tester.getRect(find.byType(PlayerLyricsView));
     // 歌词块应从布局顶部开始（仅留外层布局 Padding 8px），

@@ -501,7 +501,6 @@ class _LandscapePlayerLayoutState extends State<_LandscapePlayerLayout> {
     final compact = size.width < 900;
     final horizontalPadding = compact ? 12.0 : 24.0;
     final gap = compact ? 12.0 : 24.0;
-    const lyricRadius = 24.0;
 
     return Padding(
       key: const ValueKey('landscape-player-layout'),
@@ -516,18 +515,7 @@ class _LandscapePlayerLayoutState extends State<_LandscapePlayerLayout> {
                 : _buildStackedColumn(compact: compact),
           ),
           SizedBox(width: gap),
-          Expanded(
-            flex: 6,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(lyricRadius),
-              child: Container(
-                color: Theme.of(
-                  context,
-                ).colorScheme.surface.withValues(alpha: 0.16),
-                child: const PlayerLyricsView(fadeEdges: true),
-              ),
-            ),
-          ),
+          const Expanded(flex: 6, child: PlayerLyricsView(fadeEdges: true)),
         ],
       ),
     );

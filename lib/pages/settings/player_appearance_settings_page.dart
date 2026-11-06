@@ -5,6 +5,7 @@ import '../../app/state/settings_state.dart';
 import '../../components/index.dart';
 import '../../components/player/player_style_preview.dart';
 import '../player/widgets/player_background.dart';
+import 'player_background_image_settings.dart';
 
 class PlayerAppearanceSettingsPage extends StatefulWidget {
   const PlayerAppearanceSettingsPage({super.key});
@@ -148,8 +149,10 @@ class _PlayerAppearanceSettingsPageState
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding =
-        AppPageScaffold.scrollableBottomPadding(context, showMiniPlayer: false);
+    final bottomPadding = AppPageScaffold.scrollableBottomPadding(
+      context,
+      showMiniPlayer: false,
+    );
     return AppPageScaffold(
       extendBodyBehindAppBar: true,
       appBar: const AppTopBar(
@@ -179,6 +182,7 @@ class _PlayerAppearanceSettingsPageState
                   );
                 },
               ),
+              const PlayerBackgroundImageSettings(),
               ValueListenableBuilder<bool>(
                 valueListenable:
                     PlayerBackgroundSettings.dynamicGradientEnabled,
@@ -261,7 +265,9 @@ class _PlayerAppearanceSettingsPageState
                                 subtitle: '播放时封面缓慢旋转',
                                 value: enabled,
                                 onChanged: (value) {
-                                  PlayerBackgroundSettings.setRotateCover(value);
+                                  PlayerBackgroundSettings.setRotateCover(
+                                    value,
+                                  );
                                 },
                               );
                             },

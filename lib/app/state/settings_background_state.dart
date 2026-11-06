@@ -14,6 +14,10 @@ class AppBackgroundSettings {
   static const String _prefsPanelBlur = 'setting_panel_blur';
   static const String _prefsPanelBlurEnabled = 'setting_panel_blur_enabled';
 
+  static const String _prefsHomeCardOpacity = 'setting_home_card_opacity';
+
+  static final ValueNotifier<double> homeCardOpacity = ValueNotifier(1.0);
+
   static final ValueNotifier<String?> backgroundImagePath = ValueNotifier(null);
   static final ValueNotifier<double> backgroundMaskOpacity = ValueNotifier(
     0.35,
@@ -22,8 +26,10 @@ class AppBackgroundSettings {
   // that "透明度=0" still looked hazy — that was this constant-16 blur.
   static final ValueNotifier<double> backgroundBlurSigma = ValueNotifier(16);
   static final ValueNotifier<bool> pageGlowEnabled = ValueNotifier(false);
+
   /// 面板高斯模糊强度（0 = 无模糊，32 = 最大模糊）
   static final ValueNotifier<double> panelBlurStrength = ValueNotifier(20);
+
   /// 高斯模糊总开关。关闭后 [panelBlurStrength] 视为 0，各处不渲染模糊。
   static final ValueNotifier<bool> panelBlurEnabled = ValueNotifier(true);
 
@@ -44,8 +50,37 @@ class AppBackgroundSettings {
     backgroundBlurSigma.value =
         (prefs.getDouble(_prefsBackgroundBlurSigma) ?? 16).clamp(0.0, 32.0);
     pageGlowEnabled.value = prefs.getBool(_prefsPageGlowEnabled) ?? false;
-    panelBlurStrength.value = (prefs.getDouble(_prefsPanelBlur) ?? 20).clamp(0.0, 32.0);
+    homeCardOpacity.value = (prefs.getDouble(_prefsHomeCardOpacity) ?? 1.0)
+        .clamp(0.0, 1.0);
+    panelBlurStrength.value = (prefs.getDouble(_prefsPanelBlur) ?? 20).clamp(
+      0.0,
+      32.0,
+    );
     panelBlurEnabled.value = prefs.getBool(_prefsPanelBlurEnabled) ?? true;
+  }
+
+  static double get effectiveHomeCardOpacity {
+    final path = backgroundImagePath.value;
+    return path != null && path.trim().isNotEmpty ? homeCardOpacity.value : 1.0;
+  }
+
+  static Future<void> setHomeCardOpacity(double value) async {
+    final next = value.isFinite ? value.clamp(0.0, 1.0) : 1.0;
+    homeCardOpacity.value = next;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_prefsHomeCardOpacity, next);
+  }
+
+  @visibleForTesting
+  static void resetForTest() {
+    _loading = null;
+    backgroundImagePath.value = null;
+    backgroundMaskOpacity.value = 0.35;
+    backgroundBlurSigma.value = 16;
+    pageGlowEnabled.value = false;
+    panelBlurStrength.value = 20;
+    panelBlurEnabled.value = true;
+    homeCardOpacity.value = 1.0;
   }
 
   static Future<void> setBackgroundImagePath(String? path) async {
