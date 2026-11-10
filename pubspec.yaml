@@ -80,6 +80,7 @@ dependencies:
   liquid_glass_widgets: ^0.30.1
   tray_manager: ^0.5.3
   window_manager: ^0.5.2
+  screen_retriever: ^0.2.2
   desktop_multi_window: ^0.3.1
 
 dev_dependencies:

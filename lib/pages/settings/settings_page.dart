@@ -307,8 +307,6 @@ class _DesktopLyricsStyleSheetState extends State<_DesktopLyricsStyleSheet> {
   late final TextEditingController _textColorController;
   late final TextEditingController _highlightColorController;
   late double _fontSize;
-  late double _backgroundOpacity;
-  late String _position;
 
   @override
   void initState() {
@@ -320,8 +318,6 @@ class _DesktopLyricsStyleSheetState extends State<_DesktopLyricsStyleSheet> {
       text: _toHex(DesktopLyricsSettings.highlightColor.value),
     );
     _fontSize = DesktopLyricsSettings.fontSize.value;
-    _backgroundOpacity = DesktopLyricsSettings.backgroundOpacity.value;
-    _position = DesktopLyricsSettings.position.value;
   }
 
   @override
@@ -376,43 +372,9 @@ class _DesktopLyricsStyleSheetState extends State<_DesktopLyricsStyleSheet> {
               onSubmitted: (value) =>
                   _saveColor(value, DesktopLyricsSettings.setHighlightColor),
             ),
-            const SizedBox(height: 8),
-            AppSettingSlider(
-              title: '背景透明度',
-              value: _backgroundOpacity,
-              min: 0,
-              max: 0.9,
-              divisions: 18,
-              valueText: _backgroundOpacity == 0
-                  ? '完全透明'
-                  : '${(_backgroundOpacity * 100).round()}%',
-              description: '设为 0 即只显示歌词文字；位置可通过下方预设调整。',
-              onChanged: (value) {
-                setState(() => _backgroundOpacity = value);
-                DesktopLyricsSettings.setBackgroundOpacity(value);
-              },
-            ),
-            const SizedBox(height: 4),
-            DropdownButtonFormField<String>(
-              initialValue: _position,
-              decoration: const InputDecoration(
-                labelText: '默认位置',
-                border: OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'fixed', child: Text('固定位置')),
-                DropdownMenuItem(value: 'free', child: Text('自由拖动')),
-                DropdownMenuItem(value: 'locked', child: Text('锁定当前位置')),
-              ],
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() => _position = value);
-                DesktopLyricsSettings.setPosition(value);
-              },
-            ),
             const SizedBox(height: 12),
             Text(
-              '提示：选择“自由拖动”调整位置，拖动结束后选择“锁定当前位置”即可保存并点击穿透。',
+              '歌词背景始终透明。直接拖动歌词调整位置，点击歌词右上角的小锁锁定或解锁；位置会自动记住。',
               style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
             ),
           ],

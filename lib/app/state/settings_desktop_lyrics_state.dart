@@ -1,24 +1,21 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// macOS 桌面歌词的显示设置。
+/// 桌面歌词的显示设置。
 ///
-/// 颜色使用 ARGB 整数保存，位置使用 `fixed`（固定位置）或 `free`（自由拖动）。
+/// 颜色使用 ARGB 整数保存，位置使用 `free`（自由拖动）或 `locked`（锁定）。
 class DesktopLyricsSettings {
   static const String _prefsEnabled = 'desktop_lyrics_enabled';
   static const String _prefsFontFamily = 'desktop_lyrics_font_family';
   static const String _prefsFontSize = 'desktop_lyrics_font_size';
   static const String _prefsTextColor = 'desktop_lyrics_text_color';
   static const String _prefsHighlightColor = 'desktop_lyrics_highlight_color';
-  static const String _prefsBackgroundOpacity =
-      'desktop_lyrics_background_opacity';
   static const String _prefsPosition = 'desktop_lyrics_position';
   static const String _prefsLockedPositionX =
       'desktop_lyrics_locked_position_x';
   static const String _prefsLockedPositionY =
       'desktop_lyrics_locked_position_y';
 
-  static const String positionFixed = 'fixed';
   static const String positionFree = 'free';
   static const String positionLocked = 'locked';
 
@@ -27,8 +24,7 @@ class DesktopLyricsSettings {
   static const double defaultFontSize = 24;
   static const int defaultTextColor = 0xFFFFFFFF;
   static const int defaultHighlightColor = 0xFF59F7E7;
-  static const double defaultBackgroundOpacity = 0.64;
-  static const String defaultPosition = positionFixed;
+  static const String defaultPosition = positionFree;
 
   static final ValueNotifier<bool> enabled = ValueNotifier(false);
   static final ValueNotifier<String> fontFamily = ValueNotifier(
@@ -38,9 +34,6 @@ class DesktopLyricsSettings {
   static final ValueNotifier<int> textColor = ValueNotifier(defaultTextColor);
   static final ValueNotifier<int> highlightColor = ValueNotifier(
     defaultHighlightColor,
-  );
-  static final ValueNotifier<double> backgroundOpacity = ValueNotifier(
-    defaultBackgroundOpacity,
   );
   static final ValueNotifier<String> position = ValueNotifier(defaultPosition);
 
@@ -64,9 +57,6 @@ class DesktopLyricsSettings {
     textColor.value = prefs.getInt(_prefsTextColor) ?? defaultTextColor;
     highlightColor.value =
         prefs.getInt(_prefsHighlightColor) ?? defaultHighlightColor;
-    backgroundOpacity.value = _clampOpacity(
-      prefs.getDouble(_prefsBackgroundOpacity) ?? defaultBackgroundOpacity,
-    );
     position.value = _normalizePosition(prefs.getString(_prefsPosition));
     _lockedPositionX = prefs.getDouble(_prefsLockedPositionX);
     _lockedPositionY = prefs.getDouble(_prefsLockedPositionY);
@@ -105,12 +95,6 @@ class DesktopLyricsSettings {
     highlightColor.value = value;
   }
 
-  static Future<void> setBackgroundOpacity(double value) async {
-    final normalized = _clampOpacity(value);
-    await _saveDouble(_prefsBackgroundOpacity, normalized);
-    backgroundOpacity.value = normalized;
-  }
-
   static Future<void> setPosition(String value) async {
     final normalized = _normalizePosition(value);
     await _saveString(_prefsPosition, normalized);
@@ -126,8 +110,6 @@ class DesktopLyricsSettings {
   }
 
   static double _clampFontSize(double value) => value.clamp(14.0, 48.0);
-
-  static double _clampOpacity(double value) => value.clamp(0.0, 0.9);
 
   static String _normalizePosition(String? value) {
     if (value == positionFree || value == positionLocked) return value!;
@@ -162,7 +144,6 @@ class DesktopLyricsSettings {
     fontSize.value = defaultFontSize;
     textColor.value = defaultTextColor;
     highlightColor.value = defaultHighlightColor;
-    backgroundOpacity.value = defaultBackgroundOpacity;
     position.value = defaultPosition;
     _lockedPositionX = null;
     _lockedPositionY = null;
