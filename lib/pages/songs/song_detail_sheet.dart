@@ -16,6 +16,7 @@ import '../../components/feedback/app_toast.dart';
 import '../library/library_detail_pages.dart';
 import '../library/playlists_page.dart';
 import '../player/widgets/player_bottom_panel.dart';
+import '../player/widgets/player_transcode_tag.dart';
 import 'song_edit_page.dart';
 
 class SongDetailSheet extends StatefulWidget {
@@ -310,15 +311,17 @@ class _SongDetailSheetState extends State<SongDetailSheet> {
                   title: '音频规格',
                   subtitle: song.audioSpec,
                   // 转码格式 tag + 解码器 tag 属于播放控制：仅播放器界面打开时显示，
-                  // 点击可切换。转码 tag 显示当前转码格式（FLAC/MP3/OPUS）或「直连」。
+                  // 点击可切换。转码 tag 跟随实际播放源，配置选择由弹出面板显示。
                   trailing: widget.showPlayerControls
                       ? ValueListenableBuilder<EngineKind>(
                           valueListenable: PlayerService.instance.decoderEngine,
                           builder: (context, engine, _) => Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              _TranscodeTag(
-                                song: song,
+                              PlayerTranscodeTag(
+                                playbackCodecListenable: PlayerService
+                                    .instance
+                                    .playbackTranscodeCodec,
                                 onTap: () =>
                                     _showTranscodeFormatPicker(context),
                               ),
@@ -712,63 +715,9 @@ class _DecoderPickerSheet extends StatelessWidget {
   }
 }
 
-/// 转码格式标签：显示当前歌曲**配置上会走**的转码格式（FLAC/MP3/OPUS）；
-/// 配置为直连（未开启转码 / 源格式==转码格式 / 本曲被强制直连 / 转码已失败）
-/// 时显示「直连」。可点击弹出转码格式选择。
-class _TranscodeTag extends StatelessWidget {
-  final SongEntity song;
-  final VoidCallback? onTap;
-  const _TranscodeTag({required this.song, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final svc = FeiNiuTranscodeService.instance;
-    final player = PlayerService.instance;
-    // 本曲被强制直连 / 转码已失败 → 直连
-    final forcedDirect = player.isTranscodeDirect(song.id);
-    final failed = player.isTranscodeFailed(song.id);
-    // 按配置应转码的格式（同步，不依赖短暂的活动会话）；手动「强制转码」的
-    // 歌会由 configuredTranscodeLabel 返回强制格式（不依赖全局开关）。
-    final configured = forcedDirect || failed
-        ? null
-        : svc.configuredTranscodeLabel(song);
-    final isTranscoding = configured != null;
-    final label = configured ?? '直连';
-    final color = isTranscoding
-        ? const Color(0xFFB08000) // 琥珀：转码中
-        : const Color(0xFF607D8B); // 蓝灰：直连
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: color.withValues(alpha: 0.4)),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: color,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 转码格式四选一选择面板：直连 / FLAC 无损 / MP3 / OPUS。选定后切换当前歌曲
-/// 转码格式（直连 = 本歌强制不转码，返回 `_TranscodeChoice.direct`；格式 =
-/// 本歌**强制**按该格式转码，不依赖全局「开启转码」开关）。
-///
-/// 高亮与转码 tag 同源（`FeiNiuTranscodeService.configuredTranscodeLabel` +
-/// 强制直连/失败标记）：本歌实际直连（未开启 / 源格式==转码格式 / 超阈值判定
-/// 不转 / 被强制直连 / 转码已失败）就高亮「直连」，否则高亮实际生效格式——
-/// **不再高亮全局设置格式**（避免 tag 直连、选择器却选中全局 mp3 的不一致）。
-/// 手动「强制转码」过的歌由 configuredTranscodeLabel 返回强制格式，高亮强制格式。
+/// 选择直连、MP3 或 OPUS。选择格式会强制本曲转码，不依赖全局开关。
+/// 高亮表示本曲的配置选择；信息标签和进度条规格则显示实际播放格式，
+/// 命中原始缓存或转码回退时，两者可能不同。
 class _TranscodeFormatPickerSheet extends StatelessWidget {
   final SongEntity song;
   const _TranscodeFormatPickerSheet({required this.song});
