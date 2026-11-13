@@ -89,10 +89,11 @@ class PlayerService with WidgetsBindingObserver {
   /// 能救回的）后标记，不再对这首歌重转码，回退直连（防死循环）。
   final Set<String> _transcodeFailedSongIds = {};
 
-  /// 当前正在播的转码 HLS 地址 + 其 codec：该歌播完时后台拼接下载成完整
-  /// 文件（`StreamCacheService.cacheTranscodedSong`），第二次起零流量。
-  String? _activeTranscodeHlsUrl;
-  String? _activeTranscodeCodec;
+  /// 构建播放源时解析为在线转码 HLS 的歌曲（id → 地址 + codec）：该歌播完时
+  /// 后台拼接下载成完整文件（`StreamCacheService.cacheTranscodedSong`），第二次
+  /// 起零流量；也用于判断当前歌是否在线转码。同一 run 内的歌曲会并发解析，
+  /// 且 run 内自动切歌不会重建源，所以必须按歌曲记录，不能只记最后一个地址。
+  final Map<String, ({String url, String codec})> _transcodeHlsSources = {};
 
   /// 当前歌曲实际播放的服务器转码格式；null 表示直连原始音源。
   final ValueNotifier<String?> playbackTranscodeCodec = ValueNotifier(null);
@@ -100,13 +101,9 @@ class PlayerService with WidgetsBindingObserver {
   /// 构建播放源时记录每首歌最终命中的转码格式，激活对应逻辑索引后再发布。
   final Map<String, String> _resolvedPlaybackCodecs = {};
 
-  /// 构建播放源时解析为在线转码 HLS 的歌曲。同一 run 内的歌曲会并发解析，
-  /// 不能用「最后一次解析的 HLS 地址」判断当前歌是否在线转码。
-  final Set<String> _transcodeHlsSongIds = {};
-
   bool get _isCurrentTranscodeHls {
     final id = currentSong.value?.id;
-    return id != null && _transcodeHlsSongIds.contains(id);
+    return id != null && _transcodeHlsSources.containsKey(id);
   }
 
   /// 当前引擎 run 在逻辑队列中的起始索引。引擎 currentIndexStream 给的是
@@ -420,8 +417,7 @@ class PlayerService with WidgetsBindingObserver {
       );
 
       // 旧 HLS 不再代表当前网络策略，先清掉播放完成后的后台缓存标记并释放会话。
-      _activeTranscodeHlsUrl = null;
-      _activeTranscodeCodec = null;
+      _transcodeHlsSources.remove(song.id);
       playbackTranscodeCodec.value = null;
       await FeiNiuTranscodeService.instance.quitFor(song.id);
 
@@ -790,20 +786,17 @@ class PlayerService with WidgetsBindingObserver {
     _recorder.markCompleted(); // 完整播完：报告埋点标记 completed=1
     // 当前歌播完：若它是转码 HLS，后台把全部分片拼接下载成完整文件，
     // 第二次重播命中本地零流量。fire-and-forget，不阻塞切歌。
-    final activeHls = _activeTranscodeHlsUrl;
-    final activeCodec = _activeTranscodeCodec;
-    if (activeHls != null && activeCodec != null) {
-      final curSong = currentSong.value;
-      if (curSong != null) {
-        StreamCacheService.instance.cacheTranscodedSong(
-          curSong.id,
-          activeCodec,
-          activeHls,
-        );
-      }
+    final curSong = currentSong.value;
+    final activeHls = curSong == null
+        ? null
+        : _transcodeHlsSources.remove(curSong.id);
+    if (curSong != null && activeHls != null) {
+      StreamCacheService.instance.cacheTranscodedSong(
+        curSong.id,
+        activeHls.codec,
+        activeHls.url,
+      );
     }
-    _activeTranscodeHlsUrl = null;
-    _activeTranscodeCodec = null;
     playbackTranscodeCodec.value = null;
     final list = queue.value;
     final idx = currentIndex.value;
@@ -2999,8 +2992,7 @@ class PlayerService with WidgetsBindingObserver {
     _transcodeFailedSongIds.remove(song.id);
     // 当前歌即将重新选源，先撤销旧播放链路的展示；新转码源解析成功后
     // _transcodedSourceFor 会写入实际 codec，失败回退直连时则保持 null。
-    _activeTranscodeHlsUrl = null;
-    _activeTranscodeCodec = null;
+    _transcodeHlsSources.remove(song.id);
     playbackTranscodeCodec.value = null;
     final seekPos = position.value;
     final wasPlaying = isPlaying.value;
@@ -3025,8 +3017,7 @@ class PlayerService with WidgetsBindingObserver {
     FeiNiuTranscodeService.instance.invalidate(song.id);
     FeiNiuTranscodeService.instance.clearDowngradeFor(song.id);
     _transcodeFailedSongIds.remove(song.id);
-    _activeTranscodeHlsUrl = null;
-    _activeTranscodeCodec = null;
+    _transcodeHlsSources.remove(song.id);
     playbackTranscodeCodec.value = null;
     final seekPos = position.value;
     final wasPlaying = isPlaying.value;
@@ -4116,7 +4107,7 @@ class PlayerService with WidgetsBindingObserver {
     bool forceRefresh = false,
   }) async {
     _resolvedPlaybackCodecs.remove(song.id);
-    _transcodeHlsSongIds.remove(song.id);
+    _transcodeHlsSources.remove(song.id);
     final api = FeiNiuApiClient.instance;
     if (api.baseUrl.isNotEmpty) {
       // 播放出错重试时删除损坏/过期的缓存，强制走远端
@@ -4254,9 +4245,7 @@ class PlayerService with WidgetsBindingObserver {
     }
     // 记录转码 HLS 地址：播完该歌时后台拼接下载成完整文件（第二次起零流量）。
     // 不在构建源时立即下载，避免首次播放双倍带宽。
-    _activeTranscodeHlsUrl = hlsUrl;
-    _transcodeHlsSongIds.add(song.id);
-    _activeTranscodeCodec = codec;
+    _transcodeHlsSources[song.id] = (url: hlsUrl, codec: codec);
     _resolvedPlaybackCodecs[song.id] = codec;
     if (currentSong.value?.id == song.id) {
       playbackTranscodeCodec.value = codec;
