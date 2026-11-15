@@ -28,6 +28,7 @@ import android.os.IBinder
 import android.util.Log
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +50,8 @@ class MediaCastDlnaPlugin : FlutterPlugin, MediaCastDlnaApi {
     private var context: Context? = null
     private var upnpService: AndroidUpnpService? = null
     private var isServiceBound = false
+    private var bindingRequested = false
+    private var initialization: CompletableDeferred<Unit>? = null
     private lateinit var upnpRegistryListener: UpnpRegistryListener
     private var discoveryEventsFlutterApi: DiscoveryEventsFlutterApi? = null
     private var wifiMulticastLockManager: WifiMulticastLockManager? = null
@@ -61,27 +64,39 @@ class MediaCastDlnaPlugin : FlutterPlugin, MediaCastDlnaApi {
     // Service connection for UPnP service
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            upnpService = service as AndroidUpnpService
-            upnpService?.get()?.startup()
-            upnpService?.registry?.addListener(upnpRegistryListener)
-            isServiceBound = true
+            if (!bindingRequested) return
+            try {
+                upnpService = service as AndroidUpnpService
+                upnpService?.get()?.startup()
+                upnpService?.registry?.addListener(upnpRegistryListener)
+                isServiceBound = true
+                initialization?.complete(Unit)
+            } catch (error: Exception) {
+                initialization?.completeExceptionally(error)
+            }
         }
 
         override fun onServiceDisconnected(className: ComponentName) {
             upnpService = null
             isServiceBound = false
+            initialization?.completeExceptionally(IllegalStateException("UPnP service disconnected"))
         }
     }
 
     private val didlMetadataConverter: DidlMetadataConverter = DefaultDidlMetadataConverter()
-    private val mediaControlManager: MediaControlManager by lazy {
-        MediaControlManager(upnpService)
-    }
-    private val deviceDiscoveryManager: DeviceDiscoveryManager by lazy {
-        DeviceDiscoveryManager(upnpService, upnpRegistryListener)
-    }
-    private val volumeManager: VolumeManager by lazy {
-        VolumeManager(upnpService)
+    private val mediaControlManager get() = MediaControlManager(upnpService)
+    private val deviceDiscoveryManager get() = DeviceDiscoveryManager(upnpService, upnpRegistryListener)
+    private val volumeManager get() = VolumeManager(upnpService)
+
+    private fun releaseBinding() {
+        initialization?.completeExceptionally(IllegalStateException("UPnP binding closed"))
+        initialization = null
+        if (bindingRequested) {
+            try { context?.unbindService(serviceConnection) } catch (_: IllegalArgumentException) {}
+        }
+        bindingRequested = false
+        isServiceBound = false
+        upnpService = null
     }
 
     // --- Plugin lifecycle ---
@@ -97,9 +112,7 @@ class MediaCastDlnaPlugin : FlutterPlugin, MediaCastDlnaApi {
         MediaCastDlnaApi.setUp(binding.binaryMessenger, null)
         discoveryTimeoutJob?.cancel()
         discoveryTimeoutJob = null
-        if (upnpService != null && context != null) {
-            context?.unbindService(serviceConnection)
-        }
+        releaseBinding()
         wifiMulticastLockManager?.cleanup()
         discoveryEventsFlutterApi = null
         upnpService = null
@@ -107,19 +120,35 @@ class MediaCastDlnaPlugin : FlutterPlugin, MediaCastDlnaApi {
     }
 
     override fun initializeUpnpService(callback: (Result<Unit>) -> Unit) {
-        pluginScope.launch {
+        pluginScope.launch(Dispatchers.Main.immediate) {
+            var pending: CompletableDeferred<Unit>? = null
             try {
-                context?.let {
-                    val intent = Intent(it, AndroidUpnpServiceImpl::class.java)
-                    val bindResult =
-                        it.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+                if (isServiceBound && upnpService != null) {
                     callback(Result.success(Unit))
-                } ?: run {
-                    val error =
-                        IllegalStateException("Context is not available. Ensure the plugin is attached to the engine.")
-                    callback(Result.failure(dlnaPlatformError(error)))
+                    return@launch
                 }
+                val appContext = context ?: throw IllegalStateException("Plugin is detached")
+                pending = initialization
+                if (pending == null) {
+                    // A disconnected binding must be released before retrying.
+                    releaseBinding()
+                    pending = CompletableDeferred()
+                    initialization = pending
+                    bindingRequested = true
+                    if (!appContext.bindService(
+                            Intent(appContext, AndroidUpnpServiceImpl::class.java),
+                            serviceConnection, Context.BIND_AUTO_CREATE
+                        )) {
+                        throw IllegalStateException("Unable to bind UPnP service")
+                    }
+                }
+                val readiness = checkNotNull(pending)
+                withTimeout(10000L) { readiness.await() }
+                check(isServiceBound && upnpService != null) { "UPnP service disconnected during initialization" }
+                if (initialization === pending) initialization = null
+                callback(Result.success(Unit))
             } catch (e: Exception) {
+                if (initialization === pending) releaseBinding()
                 callback(Result.failure(dlnaPlatformError(e)))
             }
         }
@@ -137,19 +166,11 @@ class MediaCastDlnaPlugin : FlutterPlugin, MediaCastDlnaApi {
     }
 
     override fun shutdownUpnpService(callback: (Result<Unit>) -> Unit) {
-        pluginScope.launch {
+        pluginScope.launch(Dispatchers.Main.immediate) {
             try {
                 discoveryTimeoutJob?.cancel()
                 discoveryTimeoutJob = null
-                if (upnpService != null && context != null && isServiceBound) {
-                    try {
-                        context!!.unbindService(serviceConnection)
-                    } catch (e: IllegalArgumentException) {
-                        // Service unbind failed, ignore
-                    }
-                    isServiceBound = false
-                }
-                upnpService = null
+                releaseBinding()
                 callback(Result.success(Unit))
             } catch (e: Exception) {
                 callback(Result.failure(dlnaPlatformError(e)))

@@ -9,6 +9,8 @@ import '../../state/song_state.dart';
 import '../feiniu/api_client.dart';
 import '../feiniu/transcode_service.dart';
 import 'dlna_action_failure.dart';
+import 'dlna_capabilities.dart';
+import 'dlna_completion_tracker.dart';
 import 'media_stream_proxy.dart';
 
 /// DLNA 投屏状态。
@@ -62,15 +64,39 @@ class DlnaCastService {
       DlnaActionFailure.from(error)?.diagnostic ??
       error.toString().replaceAll(RegExp(r'https?://[^\s]+'), '<url>');
 
+  static const _capabilitiesChannel = MethodChannel('com.feiniu.music/dlna_capabilities');
+  DlnaCapabilities _capabilities = DlnaCapabilities(null);
+  String? _capabilityDeviceUdn;
+
+  Future<void> _ensureCapabilities(DlnaDevice device, bool Function() isCurrent) async {
+    if (_capabilityDeviceUdn == device.udn.value) return;
+    String? sink;
+    try {
+      sink = await _capabilitiesChannel.invokeMethod<String>(
+        'getSinkProtocolInfo', {'udn': device.udn.value},
+      ).timeout(const Duration(seconds: 6));
+    } catch (error) {
+      _log('capability query unavailable: ${_safeError(error)}');
+    }
+    if (!isCurrent()) return;
+    _capabilities = DlnaCapabilities(sink);
+    _capabilityDeviceUdn = device.udn.value;
+    _log('capability query result=${sink == null ? 'unknown' : 'received'}');
+  }
+
   final MediaCastDlnaApi _api;
   final Duration _positionPollInterval;
   final Duration _playbackStartGrace;
+  bool isBackgrounded = false;
 
   /// Android 原生音量键透传通道：投屏时原生层拦截物理音量键，回调
   /// `volumeDelta(+1/-1)`，这里遥控投屏设备音量；Dart 侧通过 `setActive`
   /// 通知原生层「投屏中，音量键应拦截」。
   static const MethodChannel _volumeChannel = MethodChannel(
     'com.feiniu.music/cast_volume',
+  );
+  static const MethodChannel _networkChannel = MethodChannel(
+    'com.feiniu.music/cast_network',
   );
   bool _volumeHandlerRegistered = false;
 
@@ -136,6 +162,12 @@ class DlnaCastService {
   /// 上一帧轮询的投屏设备位置（秒）。用于播完检测（位置到达时长且不再前进）。
   int _lastPollPositionSeconds = -1;
   bool _castCompletedNotified = false;
+  final _completionTracker = DlnaCompletionTracker();
+  // Include time spent in Android deep sleep, which Stopwatch does not count.
+  Duration get _completionNow =>
+      Duration(milliseconds: DateTime.now().millisecondsSinceEpoch);
+  bool _completionSuppressed = false;
+  int _seekRevision = 0;
 
   /// 当前投屏歌曲的预期时长（秒）。很多渲染器对 HLS 报 duration 为 0 或占位值，
   /// 用歌曲自身已知时长兜底做播完检测。
@@ -200,7 +232,7 @@ class DlnaCastService {
   }
 
   /// 通知原生层「投屏中，物理音量键应拦截并回调」。投屏结束时置 false，
-  /// 让音量键恢复控制本机媒体音量。
+  /// 让音量键恢复控制本机媒体音量，并释放 Android 投屏会话的 CPU 唤醒锁。
   Future<void> _setNativeVolumeCapture(bool active) async {
     if (!kIsWeb) {
       try {
@@ -208,6 +240,15 @@ class DlnaCastService {
       } catch (_) {
         // 非 Android 或通道不可用时静默忽略
       }
+    }
+  }
+
+  Future<void> _setNativeNetworkActive(bool active) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      await _networkChannel.invokeMethod<void>('setActive', {'active': active});
+    } catch (e) {
+      _log('network lock active=$active failed: ${_safeError(e)}');
     }
   }
 
@@ -327,8 +368,8 @@ class DlnaCastService {
   /// 选择一台设备并投屏当前歌曲。
   ///
   /// 若已在投屏则先断开旧设备（静默：不触发本机恢复，避免切设备时
-  /// 本机短暂出声）。默认使用原始流，不受本机解码引擎或转码阈值影响；
-  /// 明确的格式错误或确认启动失败时最多尝试一次服务器 MP3 HLS 转码。
+  /// 本机短暂出声）。先查询接收设备能力，再决定直传或转码；
+  /// 声明未知时先直传，沿用格式错误或确认启动失败后的一次性转码回退。
   /// 统一经 [MediaStreamProxy] 换签为匿名 URL。
   Future<bool> castTo(DlnaDevice device, SongEntity song) async {
     lastCastError = null;
@@ -383,6 +424,7 @@ class DlnaCastService {
       if (!accepted) {
         _log('cast aborted: no castable URL');
         await MediaStreamProxy.instance.stop();
+        await _setNativeNetworkActive(false);
         return false;
       }
       currentDevice.value = device;
@@ -410,6 +452,7 @@ class DlnaCastService {
           DlnaActionFailure.from(e)?.userMessage ?? '投屏加载失败，请检查设备和网络后重试';
       _log('cast failed: ${_safeError(e)}');
       await MediaStreamProxy.instance.stop();
+      await _setNativeNetworkActive(false);
       return false;
     }
   }
@@ -449,6 +492,8 @@ class DlnaCastService {
   }
 
   void _prepareSong(SongEntity song) {
+    _completionTracker.reset();
+    _completionSuppressed = false;
     _castSong = song;
     _transcodeAttempted = false;
     _usingTranscode = false;
@@ -463,6 +508,20 @@ class DlnaCastService {
     bool transcode = false,
   }) async {
     if (!isCurrent()) return false;
+    await _setNativeNetworkActive(true);
+    if (!isCurrent()) return false;
+    await _ensureCapabilities(device, isCurrent);
+    if (!isCurrent()) return false;
+    final format = await FeiNiuTranscodeService.instance.resolvedFormatFor(song);
+    if (!isCurrent()) return false;
+    final support = _capabilities.supportFor(song, format);
+    transcode = transcode || support == DlnaSupport.unsupported;
+    _log('media capability=${support.name} transcode=$transcode');
+    if (transcode && _capabilities.mp3HlsSupport == DlnaSupport.unsupported) {
+      lastCastError = '投屏设备不支持原格式，也未声明支持当前 MP3 HLS 转码流';
+      _log('no compatible server transcode transport');
+      return false;
+    }
     if (transcode) _transcodeAttempted = true;
     final proxyUrl = await _resolveCastUrl(
       song,
@@ -582,7 +641,9 @@ class DlnaCastService {
     final device = currentDevice.value;
     if (device == null) return;
     try {
+      await _setNativeNetworkActive(true);
       await _api.play(device.udn);
+      _completionSuppressed = false;
     } catch (e) {
       if (kDebugMode) debugPrint('[DlnaCastService] play failed: $e');
     }
@@ -592,8 +653,11 @@ class DlnaCastService {
     final device = currentDevice.value;
     if (device == null) return;
     _startupFallbackSuppressed = true;
+    _completionSuppressed = true;
+    _completionTracker.reset();
     try {
       await _api.pause(device.udn);
+      await _setNativeNetworkActive(false);
     } catch (e) {
       if (kDebugMode) debugPrint('[DlnaCastService] pause failed: $e');
     }
@@ -603,6 +667,8 @@ class DlnaCastService {
     final device = currentDevice.value;
     if (device == null) return;
     _startupFallbackSuppressed = true;
+    _completionSuppressed = true;
+    _completionTracker.reset();
     try {
       await _api.stop(device.udn);
     } catch (e) {
@@ -613,10 +679,24 @@ class DlnaCastService {
   Future<void> seek(Duration position) async {
     final device = currentDevice.value;
     if (device == null) return;
+    final revision = _playbackRevision;
+    final seekRevision = ++_seekRevision;
+    _stopPositionPoll();
+    _completionTracker.reset();
     try {
       await _api.seek(device.udn, TimePosition(seconds: position.inSeconds));
     } catch (e) {
       if (kDebugMode) debugPrint('[DlnaCastService] seek failed: $e');
+    } finally {
+      if (revision == _playbackRevision &&
+          seekRevision == _seekRevision &&
+          currentDevice.value == device) {
+        _lastPollPositionSeconds = -1;
+        _consecutiveStoppedFrames = 0;
+        _castCompletedNotified = false;
+        _completionTracker.seek(position.inSeconds, _completionNow);
+        _startPositionPoll();
+      }
     }
   }
 
@@ -712,6 +792,8 @@ class DlnaCastService {
     final revision = ++_playbackRevision;
     _stopPositionPoll();
     _castSong = null;
+    _capabilities = DlnaCapabilities(null);
+    _capabilityDeviceUdn = null;
     _startupFallbackSuppressed = true;
     final discoveryStop = stopDiscovery();
     currentDevice.value = null;
@@ -733,6 +815,8 @@ class DlnaCastService {
     if (revision != _playbackRevision) return;
     state.value = DlnaCastState.idle;
     await MediaStreamProxy.instance.stop();
+    if (revision != _playbackRevision) return;
+    await _setNativeNetworkActive(false);
     if (revision != _playbackRevision) return;
     if (wasCasting && !silent) {
       onCastDisconnect?.call();
@@ -760,9 +844,14 @@ class DlnaCastService {
     bool isCurrent() =>
         revision == _pollRevision && currentDevice.value == device;
     var positionWarningLogged = false;
-    _positionPollTimer = Timer.periodic(_positionPollInterval, (_) async {
-      if (!isCurrent() || _pollInFlight) return;
+    Future<void> poll() async {
+      if (!isCurrent()) return;
+      if (_pollInFlight) {
+        _positionPollTimer = Timer(_positionPollInterval, poll);
+        return;
+      }
       _pollInFlight = true;
+      var pollDelay = _positionPollInterval;
       try {
         final info = await _api
             .getPlaybackInfo(device.udn)
@@ -775,6 +864,12 @@ class DlnaCastService {
         final effectiveDur = info.duration.seconds > 0
             ? info.duration.seconds
             : _castExpectedDurationSec;
+        if (isBackgrounded &&
+            (info.state == TransportState.paused ||
+                (info.state == TransportState.playing &&
+                    effectiveDur - posSec > 15))) {
+          pollDelay = const Duration(seconds: 5);
+        }
 
         castPosition.value = Duration(seconds: posSec);
         switch (info.state) {
@@ -809,31 +904,19 @@ class DlnaCastService {
         final prevPos = _lastPollPositionSeconds;
         _lastPollPositionSeconds = posSec;
 
-        // ---- 播完 / 停止检测 ----
-        final reachedEnd = effectiveDur > 0 && posSec >= effectiveDur;
-        final wasNearEnd = effectiveDur > 0 && prevPos >= effectiveDur * 0.9;
-
-        var completed = false;
-        if (reachedEnd) {
-          // 1) 位置连续两帧到达末尾 → 播完
-          if (!_castCompletedNotified && prevPos >= effectiveDur) {
-            completed = true;
-          }
-        } else if (posSec <= 5 &&
-            wasNearEnd &&
-            prevPos > posSec + 30 &&
-            effectiveDur > 0) {
-          // 2) 位置从接近末尾骤降到 0 附近 → 渲染器播完归零
-          completed = true;
-        } else if (info.state == TransportState.stopped ||
-            info.state == TransportState.noMediaPresent) {
-          // 3) 渲染器停止/无媒体：
-          //    - 上次位置接近末尾 → 自然播完 → 续播下一首；
-          //    - 上次位置中途 → 用户停止/退出电视端 → 连续 N 帧确认后断开
-          //      （换源/缓冲等瞬态 stopped 帧不误断）。
-          if (wasNearEnd && prevPos >= 0) {
-            completed = true;
-          } else if (prevPos >= 0) {
+        final completed =
+            !_completionSuppressed &&
+            _completionTracker.observe(
+              state: info.state,
+              now: _completionNow,
+              duration: effectiveDur,
+              position: posSec,
+            );
+        if (!completed &&
+            !_castCompletedNotified &&
+            (info.state == TransportState.stopped ||
+                info.state == TransportState.noMediaPresent)) {
+          if (prevPos >= 0) {
             _consecutiveStoppedFrames++;
             if (_consecutiveStoppedFrames >= _stopConfirmFrames) {
               final song = _castSong;
@@ -872,10 +955,9 @@ class DlnaCastService {
         if (completed) {
           if (!_castCompletedNotified) {
             _castCompletedNotified = true;
+            _log('renderer completed; advancing queue');
             onCastCompleted?.call();
           }
-        } else {
-          _castCompletedNotified = false;
         }
       } catch (e) {
         if (!isCurrent()) return;
@@ -890,6 +972,20 @@ class DlnaCastService {
                 .timeout(const Duration(seconds: 6));
             if (!isCurrent()) return;
             _castPollFailures = 0;
+            final completed =
+                !_completionSuppressed &&
+                _completionTracker.observe(
+                  state: transport,
+                  now: _completionNow,
+                  duration: _castExpectedDurationSec,
+                );
+            if (completed && !_castCompletedNotified) {
+              _castCompletedNotified = true;
+              _log('renderer completed via transport fallback; advancing queue');
+              onCastCompleted?.call();
+              return;
+            }
+            if (_castCompletedNotified) return;
             if (transport == TransportState.playing ||
                 transport == TransportState.paused) {
               _playbackStartDeadline = null;
@@ -928,8 +1024,13 @@ class DlnaCastService {
         }
       } finally {
         _pollInFlight = false;
+        if (isCurrent()) {
+          _positionPollTimer = Timer(pollDelay, poll);
+        }
       }
-    });
+    }
+
+    _positionPollTimer = Timer(_positionPollInterval, poll);
   }
 
   /// 渲染器在歌曲中途停止（用户停止/退出电视端）→ 断开投屏。
