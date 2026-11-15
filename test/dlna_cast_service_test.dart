@@ -18,8 +18,25 @@ class _FakeCastApi extends MediaCastDlnaApi {
   int pollCalls = 0;
   int stopCalls = 0;
 
+  final List<int> volumes = [];
+  int volumeQueries = 0;
+
   @override
   Future<void> seek(DeviceUdn deviceUdn, TimePosition position) async {}
+
+  @override
+  Future<VolumeInfo> getVolumeInfo(DeviceUdn deviceUdn) async {
+    volumeQueries++;
+    return VolumeInfo(
+      level: VolumeLevel(percentage: 40),
+      muteState: MuteState(isMuted: false),
+    );
+  }
+
+  @override
+  Future<void> setVolume(DeviceUdn deviceUdn, VolumeLevel volumeLevel) async {
+    volumes.add(volumeLevel.percentage);
+  }
 
   @override
   Future<TransportState> getTransportState(DeviceUdn deviceUdn) async =>
@@ -118,6 +135,14 @@ void main() {
     expect(api.pollCalls, 2);
   });
 
+  test('滑块设置音量后音量键以新音量为基准', () async {
+    await service.setVolume(0.8);
+    await service.adjustVolumeForTest(1);
+    await service.adjustVolumeForTest(-1);
+    expect(api.volumes, [80, 85, 80]);
+    expect(api.volumeQueries, 0);
+  });
+
   test('后台临近结尾仍快速轮询并自动续播', () async {
     service.isBackgrounded = true;
     var completions = 0;
@@ -132,7 +157,11 @@ void main() {
 
   test('慢切歌期间停轮询，播放启动时容忍停止帧，确认播放后仍检测停止', () async {
     var disconnects = 0;
-    service.onCastDisconnect = () => disconnects++;
+    String? disconnectReason;
+    service.onCastDisconnect = (reason) {
+      disconnects++;
+      disconnectReason = reason;
+    };
     await service.loadSong(_song('first'));
     await _waitUntil(() => api.pollCalls == 1);
 
@@ -158,6 +187,7 @@ void main() {
     api.onPoll = () async => _info(TransportState.stopped, 10);
     await _waitUntil(() => disconnects == 1);
     expect(service.isCasting, isFalse);
+    expect(disconnectReason, contains('停止播放'));
   });
 
   test('快速连续切歌串行执行，只播放最新请求', () async {

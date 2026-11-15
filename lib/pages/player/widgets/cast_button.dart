@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:signals_flutter/signals_flutter.dart' hide computed;
 import 'package:media_cast_dlna/media_cast_dlna.dart';
 
@@ -60,42 +59,20 @@ class CastButton extends StatelessWidget {
     );
   }
 
-  /// 打开投屏设备面板：请求附近设备权限 → 开始搜索 → 设备列表 → 连接/断开。
+  /// 打开投屏设备面板：开始搜索 → 设备列表 → 连接/断开。
   ///
   /// 未投屏：点开搜索设备并选择连接；
   /// 投屏中：点开面板显示当前设备 + 其他设备（可切换）+ 断开按钮。
+  ///
+  /// SSDP 组播发现只依赖组播锁（CHANGE_WIFI_MULTICAST_STATE），不需要
+  /// 「附近的设备」运行时权限，因此不在这里弹权限请求。
   Future<void> _showCastSheet(BuildContext context) async {
-    final cast = DlnaCastService.instance;
-    // 未投屏：请求 Android 13+ 本地网络权限
-    if (!cast.isCasting) {
-      final granted = await _ensureNearbyPermission();
-      if (!context.mounted) return;
-      if (!granted) {
-        AppToast.show(context, '需要「附近的设备」权限才能搜索投屏设备');
-        return;
-      }
-      await cast.startDiscovery();
-    }
-    if (!context.mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => const _CastDeviceSheet(),
     );
-  }
-
-  /// 请求 Android 13+ 的「附近的设备」运行时权限（SSDP 组播发现需要）。
-  /// API 33+ 返回 nearbyWifiDevices；更早版本无需（直接放行）。
-  Future<bool> _ensureNearbyPermission() async {
-    if (!kIsWeb && Platform.isAndroid) {
-      final version = int.tryParse(Platform.version.split(' ').first) ?? 0;
-      if (version >= 13) {
-        final status = await Permission.nearbyWifiDevices.request();
-        return status.isGranted;
-      }
-    }
-    return true;
   }
 }
 
@@ -109,33 +86,47 @@ class _CastDeviceSheet extends StatefulWidget {
 
 class _CastDeviceSheetState extends State<_CastDeviceSheet> {
   final DlnaCastService _cast = DlnaCastService.instance;
-  VoidCallback? _deviceListener;
+  late final Listenable _castChanges = Listenable.merge([
+    _cast.devices,
+    _cast.state,
+    _cast.currentDevice,
+  ]);
   Timer? _stopSearchTimer;
+
+  /// 正在连接的设备 UDN；连接期间忽略其他点击，避免重复投送。
+  String? _connectingUdn;
+  bool _disconnecting = false;
+
+  bool get _busy => _connectingUdn != null || _disconnecting;
 
   @override
   void initState() {
     super.initState();
-    // 面板打开期间持续监听设备列表变化（面板关闭后移除）
-    _deviceListener = () {
-      if (mounted) setState(() {});
-    };
-    _cast.devices.addListener(_deviceListener!);
-    // 搜索 10 秒后自动停止（保持设备列表稳定，避免一直占用组播锁）
-    _stopSearchTimer = Timer(const Duration(seconds: 10), () {
-      unawaited(_cast.stopDiscovery());
-    });
-    unawaited(_cast.startDiscovery());
+    // 面板打开期间监听设备列表、搜索状态与当前设备（搜索结束、被动断开
+    // 都要刷新，否则「正在搜索」会一直转）。
+    _castChanges.addListener(_onCastChanged);
+    _startSearch();
   }
 
   @override
   void dispose() {
-    if (_deviceListener != null) {
-      _cast.devices.removeListener(_deviceListener!);
-      _deviceListener = null;
-    }
+    _castChanges.removeListener(_onCastChanged);
     _stopSearchTimer?.cancel();
     unawaited(_cast.stopDiscovery());
     super.dispose();
+  }
+
+  void _onCastChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// 搜索 10 秒后自动停止（保持设备列表稳定，避免一直占用组播锁）。
+  void _startSearch() {
+    _stopSearchTimer?.cancel();
+    _stopSearchTimer = Timer(const Duration(seconds: 10), () {
+      unawaited(_cast.stopDiscovery());
+    });
+    unawaited(_cast.startDiscovery());
   }
 
   @override
@@ -173,19 +164,42 @@ class _CastDeviceSheetState extends State<_CastDeviceSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            Text(
-              '投屏到设备',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: scheme.onSurface,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '投屏到设备',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                ),
+                if (discovering)
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                else
+                  IconButton(
+                    tooltip: '重新搜索',
+                    icon: const Icon(Icons.refresh_rounded),
+                    onPressed: _busy ? null : _startSearch,
+                  ),
+              ],
             ),
             const SizedBox(height: 4),
             Text(
               isCasting && current != null
                   ? '正在投屏到「${current.friendlyName}」'
-                  : '搜索局域网内的 DLNA 设备…',
+                  : discovering
+                  ? '正在搜索局域网内的 DLNA 设备…'
+                  : '选择要投屏的设备',
               style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
@@ -231,6 +245,7 @@ class _CastDeviceSheetState extends State<_CastDeviceSheet> {
                         final isCurrent =
                             current != null &&
                             current.udn.value == device.udn.value;
+                        final connecting = _connectingUdn == device.udn.value;
                         return ListTile(
                           leading: Icon(
                             Icons.cast,
@@ -256,7 +271,15 @@ class _CastDeviceSheetState extends State<_CastDeviceSheet> {
                               fontSize: 12,
                             ),
                           ),
-                          trailing: isCurrent
+                          trailing: connecting
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : isCurrent
                               ? Text(
                                   '正在投屏',
                                   style: TextStyle(
@@ -266,7 +289,10 @@ class _CastDeviceSheetState extends State<_CastDeviceSheet> {
                                   ),
                                 )
                               : null,
-                          onTap: () => _onSelectDevice(device),
+                          enabled: !_busy || connecting,
+                          onTap: connecting
+                              ? null
+                              : () => _onSelectDevice(device),
                         );
                       },
                     ),
@@ -277,13 +303,7 @@ class _CastDeviceSheetState extends State<_CastDeviceSheet> {
                 child: SizedBox(
                   width: double.infinity,
                   child: FilledButton.tonalIcon(
-                    onPressed: () async {
-                      await _cast.disconnect(reason: null);
-                      if (context.mounted) {
-                        AppToast.show(context, '已断开投屏');
-                        Navigator.pop(context);
-                      }
-                    },
+                    onPressed: _busy ? null : _onDisconnect,
                     icon: const Icon(Icons.stop_circle_outlined),
                     label: const Text('断开投屏'),
                   ),
@@ -296,19 +316,36 @@ class _CastDeviceSheetState extends State<_CastDeviceSheet> {
   }
 
   Future<void> _onSelectDevice(DlnaDevice device) async {
+    if (_busy) return;
+    // 点当前设备不重新投送（否则会停播再重推一遍）。
+    if (_cast.currentDevice.value?.udn.value == device.udn.value) {
+      Navigator.pop(context);
+      return;
+    }
     final song = PlayerService.instance.currentSong.value;
     if (song == null) {
       AppToast.show(context, '当前没有正在播放的歌曲');
       return;
     }
+    setState(() => _connectingUdn = device.udn.value);
+    _stopSearchTimer?.cancel();
     await _cast.stopDiscovery();
     final ok = await _cast.castTo(device, song);
     if (!mounted) return;
+    setState(() => _connectingUdn = null);
     if (ok) {
       AppToast.show(context, '已投屏到「${device.friendlyName}」');
       Navigator.pop(context);
     } else {
       AppToast.show(context, _cast.lastCastError ?? '投屏失败，请检查设备是否支持');
     }
+  }
+
+  Future<void> _onDisconnect() async {
+    setState(() => _disconnecting = true);
+    await _cast.disconnect(reason: null);
+    if (!mounted) return;
+    AppToast.show(context, '已断开投屏');
+    Navigator.pop(context);
   }
 }

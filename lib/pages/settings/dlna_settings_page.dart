@@ -20,8 +20,10 @@ class _DlnaSettingsPageState extends State<DlnaSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding =
-        AppPageScaffold.scrollableBottomPadding(context, showMiniPlayer: false);
+    final bottomPadding = AppPageScaffold.scrollableBottomPadding(
+      context,
+      showMiniPlayer: false,
+    );
     return AppPageScaffold(
       extendBodyBehindAppBar: true,
       appBar: const AppTopBar(
@@ -59,13 +61,16 @@ class _DlnaSettingsPageState extends State<DlnaSettingsPage> {
             children: [
               AppSettingTile(
                 title: '如何使用',
-                subtitle: '播放页右上角点击投屏图标，选择设备即可投屏。'
-                    '投屏后手机端可遥控播放/暂停/进度/音量。',
+                subtitle:
+                    '播放页右上角点击投屏图标，选择设备即可投屏。'
+                    '投屏后手机端可遥控播放/暂停/进度/音量，音量键调节电视音量。'
+                    '设备离线或在电视端停止时会自动断开，手机保持暂停。',
               ),
               AppSettingTile(
                 title: '支持格式',
-                subtitle: '无损格式（FLAC/DSF 等）会自动转码为 MP3 后投屏，'
-                    '确保大部分设备可正常播放。',
+                subtitle:
+                    '优先推送原始音频；设备声明不支持该格式或无法起播时，'
+                    '自动改用服务器转码的 MP3 流重试一次。',
               ),
             ],
           ),

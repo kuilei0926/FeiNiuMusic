@@ -424,6 +424,65 @@ seg1.m4s
       }
     });
 
+    test('渲染器中途断开不算媒体失败，上游错误仍会记录', () async {
+      final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final upstreamPort = upstream.port;
+      final upstreamDone = Completer<void>();
+      upstream.listen((request) async {
+        if (request.uri.path.endsWith('missing.mp3')) {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+        request.response.headers.contentType = ContentType('audio', 'mpeg');
+        try {
+          for (var i = 0; i < 200; i++) {
+            request.response.add(List<int>.filled(16 * 1024, i % 256));
+            await request.response.flush();
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+          }
+          await request.response.close();
+        } catch (_) {
+          // 代理断开上游连接后写入失败属预期。
+        } finally {
+          if (!upstreamDone.isCompleted) upstreamDone.complete();
+        }
+      });
+
+      try {
+        final registered = await MediaStreamProxy.instance.registerMedia(
+          'http://127.0.0.1:$upstreamPort/long.mp3',
+          fileExtension: 'mp3',
+        );
+        final uri = Uri.parse(registered!);
+        final socket = await Socket.connect(uri.host, uri.port);
+        socket.write('GET ${uri.path} HTTP/1.1\r\nHost: ${uri.host}\r\n\r\n');
+        await socket.firstWhere((chunk) => chunk.isNotEmpty);
+        socket.destroy();
+        await upstreamDone.future.timeout(const Duration(seconds: 10));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(MediaStreamProxy.instance.hasMediaData, isTrue);
+        expect(MediaStreamProxy.instance.hasMediaFailure, isFalse);
+
+        final missing = await MediaStreamProxy.instance.registerMedia(
+          'http://127.0.0.1:$upstreamPort/missing.mp3',
+          fileExtension: 'mp3',
+        );
+        final client = HttpClient();
+        try {
+          final resp = await (await client.getUrl(Uri.parse(missing!))).close();
+          await resp.drain<void>();
+          expect(resp.statusCode, HttpStatus.notFound);
+        } finally {
+          client.close(force: true);
+        }
+        expect(MediaStreamProxy.instance.hasMediaFailure, isTrue);
+      } finally {
+        await upstream.close(force: true);
+      }
+    });
+
     test('媒体代理 URL 保留音频格式后缀', () async {
       final registered = await MediaStreamProxy.instance.registerMedia(
         'http://nas/music/api/v1/track/stream?guid=flac-id',

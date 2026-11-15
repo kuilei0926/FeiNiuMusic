@@ -439,7 +439,8 @@ class PlayerService with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_shuttingDown) return;
-    DlnaCastService.instance.isBackgrounded = state != AppLifecycleState.resumed;
+    DlnaCastService.instance.isBackgrounded =
+        state != AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
       _stopBackgroundAudioKeepAlive();
       // 后台期间 Timer 挂起，resume 立即重检定时音量（时间窗可能已跨越）。
@@ -557,11 +558,22 @@ class PlayerService with WidgetsBindingObserver {
       // 把下一首推送到投屏设备。
       unawaited(_advanceCastToNext(automatic: true));
     };
-    cast.onCastDisconnect = () {
-      _debugLog('cast disconnect -> resume local playback');
+    cast.onCastDisconnect = (reason) {
+      // 只有用户主动断开且电视正在播时才在本机接着出声；设备离线、无响应、
+      // 电视端停止等被动断开只恢复进度并保持暂停，避免手机突然外放。
+      final resumePlaying = reason == null && isPlaying.value;
+      _debugLog(
+        'cast disconnect -> restore local playback play=$resumePlaying '
+        'passive=${reason != null}',
+      );
       isCasting.value = false;
+      if (reason != null && !_shuttingDown) AppToast.showGlobal(reason);
       // 无歌曲则不动。
       if (currentSong.value == null) return;
+      if (!resumePlaying) {
+        isPlaying.value = false;
+        _emitSnapshot(force: true);
+      }
       unawaited(() async {
         try {
           final target = currentSong.value;
@@ -576,7 +588,7 @@ class PlayerService with WidgetsBindingObserver {
             play: false,
             initialPosition: resumePosition,
           );
-          await _startPlayback();
+          if (resumePlaying) await _startPlayback();
         } catch (e) {
           if (kDebugMode) {
             debugPrint('PlayerService cast disconnect resume failed: $e');

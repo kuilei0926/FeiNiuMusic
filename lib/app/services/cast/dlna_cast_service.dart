@@ -64,17 +64,24 @@ class DlnaCastService {
       DlnaActionFailure.from(error)?.diagnostic ??
       error.toString().replaceAll(RegExp(r'https?://[^\s]+'), '<url>');
 
-  static const _capabilitiesChannel = MethodChannel('com.feiniu.music/dlna_capabilities');
+  static const _capabilitiesChannel = MethodChannel(
+    'com.feiniu.music/dlna_capabilities',
+  );
   DlnaCapabilities _capabilities = DlnaCapabilities(null);
   String? _capabilityDeviceUdn;
 
-  Future<void> _ensureCapabilities(DlnaDevice device, bool Function() isCurrent) async {
+  Future<void> _ensureCapabilities(
+    DlnaDevice device,
+    bool Function() isCurrent,
+  ) async {
     if (_capabilityDeviceUdn == device.udn.value) return;
     String? sink;
     try {
-      sink = await _capabilitiesChannel.invokeMethod<String>(
-        'getSinkProtocolInfo', {'udn': device.udn.value},
-      ).timeout(const Duration(seconds: 6));
+      sink = await _capabilitiesChannel
+          .invokeMethod<String>('getSinkProtocolInfo', {
+            'udn': device.udn.value,
+          })
+          .timeout(const Duration(seconds: 6));
     } catch (error) {
       _log('capability query unavailable: ${_safeError(error)}');
     }
@@ -120,7 +127,11 @@ class DlnaCastService {
 
   /// 投屏后由 [PlayerService] 注册：开始投屏时暂停本机、断开时恢复本机。
   void Function()? onCastStart;
-  void Function()? onCastDisconnect;
+
+  /// 投屏会话结束（切换设备除外）。`reason` 为 null 表示用户主动断开；
+  /// 非 null 表示设备离线、无响应、电视端停止或加载失败等被动断开，
+  /// 内容可直接展示给用户。
+  void Function(String? reason)? onCastDisconnect;
 
   /// 投屏位置/状态轮询回调（由 [PlayerService] 注册，把投屏设备进度同步到
   /// 播放页 UI）。参数为（position, playing）。
@@ -193,12 +204,7 @@ class DlnaCastService {
   /// 初始化 jUPnP 服务（幂等）。失败时置 false 让下次重试。
   Future<void> _ensureInitialized() async {
     if (_serviceInitialized) return;
-    final init = _initFuture ??= _doInit();
-    try {
-      await init;
-    } finally {
-      // 允许失败后重试
-    }
+    await (_initFuture ??= _doInit());
   }
 
   Future<void> _doInit() async {
@@ -272,9 +278,14 @@ class DlnaCastService {
     try {
       await _api.setVolume(device.udn, VolumeLevel(percentage: next));
     } catch (e) {
+      // 设备实际音量未知，下次按键重新查询，避免本地估值与设备持续偏离。
+      _castVolumeLevel = -1;
       if (kDebugMode) debugPrint('[DlnaCastService] volume adjust failed: $e');
     }
   }
+
+  @visibleForTesting
+  Future<void> adjustVolumeForTest(int delta) => _adjustCastVolume(delta);
 
   /// 订阅发现事件流（幂等）。首次调用时创建事件接收器。
   void _ensureEvents() {
@@ -327,7 +338,7 @@ class DlnaCastService {
     // 当前投屏设备掉线 → 自动断开并恢复本机
     final current = currentDevice.value;
     if (current != null && current.udn.value == udn.value) {
-      unawaited(disconnect(reason: '投屏设备已离线'));
+      unawaited(disconnect(reason: '投屏设备已离线，已断开投屏'));
     }
   }
 
@@ -512,7 +523,9 @@ class DlnaCastService {
     if (!isCurrent()) return false;
     await _ensureCapabilities(device, isCurrent);
     if (!isCurrent()) return false;
-    final format = await FeiNiuTranscodeService.instance.resolvedFormatFor(song);
+    final format = await FeiNiuTranscodeService.instance.resolvedFormatFor(
+      song,
+    );
     if (!isCurrent()) return false;
     final support = _capabilities.supportFor(song, format);
     transcode = transcode || support == DlnaSupport.unsupported;
@@ -704,12 +717,13 @@ class DlnaCastService {
   Future<void> setVolume(double volume) async {
     final device = currentDevice.value;
     if (device == null) return;
+    final level = (volume.clamp(0.0, 1.0) * 100).round();
     try {
-      await _api.setVolume(
-        device.udn,
-        VolumeLevel(percentage: (volume.clamp(0.0, 1.0) * 100).round()),
-      );
+      await _api.setVolume(device.udn, VolumeLevel(percentage: level));
+      // 与音量键共用同一基准，否则滑块调过后再按音量键会跳回旧值。
+      if (currentDevice.value == device) _castVolumeLevel = level;
     } catch (e) {
+      if (currentDevice.value == device) _castVolumeLevel = -1;
       if (kDebugMode) debugPrint('[DlnaCastService] setVolume failed: $e');
     }
   }
@@ -756,7 +770,7 @@ class DlnaCastService {
       );
       if (!isCurrent()) return;
       if (!accepted) {
-        unawaited(disconnect(reason: lastCastError));
+        unawaited(disconnect(reason: lastCastError ?? '投屏加载失败，已断开投屏'));
         return;
       }
       // 更新投屏歌曲预期时长与播完检测状态
@@ -784,7 +798,8 @@ class DlnaCastService {
 
   /// 断开投屏：停止设备播放、停代理、恢复本机播放。
   ///
-  /// [reason] 非空时向 UI 提示（设备离线等）。[silent] 为 true 时不触发
+  /// [reason] 为 null 表示用户主动断开；非空表示被动断开（设备离线等），
+  /// 经 `onCastDisconnect` 交给 UI 提示。[silent] 为 true 时不触发
   /// `onCastDisconnect`（切换投屏设备时用，避免本机短暂恢复出声）。
   Future<void> disconnect({String? reason, bool silent = false}) async {
     final wasCasting = isCasting;
@@ -819,10 +834,8 @@ class DlnaCastService {
     await _setNativeNetworkActive(false);
     if (revision != _playbackRevision) return;
     if (wasCasting && !silent) {
-      onCastDisconnect?.call();
-      if (reason != null && kDebugMode) {
-        debugPrint('[DlnaCastService] disconnected: $reason');
-      }
+      if (reason != null) _log('disconnected: $reason');
+      onCastDisconnect?.call(reason);
     }
   }
 
@@ -981,7 +994,9 @@ class DlnaCastService {
                 );
             if (completed && !_castCompletedNotified) {
               _castCompletedNotified = true;
-              _log('renderer completed via transport fallback; advancing queue');
+              _log(
+                'renderer completed via transport fallback; advancing queue',
+              );
               onCastCompleted?.call();
               return;
             }
@@ -1020,7 +1035,7 @@ class DlnaCastService {
           _log(
             'renderer unreachable after $_castPollFailures polls; disconnect',
           );
-          unawaited(disconnect(reason: null));
+          unawaited(disconnect(reason: '投屏设备无响应，已断开投屏'));
         }
       } finally {
         _pollInFlight = false;
@@ -1037,7 +1052,7 @@ class DlnaCastService {
   /// 触发 `onCastDisconnect` 恢复本机、清 `isCasting`，手机端不再显示投屏。
   void _handleCastStopped() {
     _log('renderer stopped mid-song');
-    unawaited(disconnect(reason: null));
+    unawaited(disconnect(reason: '投屏设备已停止播放，已断开投屏'));
   }
 
   void _stopPositionPoll() {
