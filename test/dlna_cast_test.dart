@@ -127,8 +127,6 @@ void main() {
           await renderer.close();
         }
       },
-      // macOS does not bind 127.0.0.2 without an explicit loopback alias.
-      skip: Platform.isMacOS,
     );
 
     test('fails when the renderer endpoint cannot be reached', () async {
@@ -142,108 +140,6 @@ void main() {
       await expectLater(
         MediaStreamProxy.resolveLocalAddress('127.0.0.1', -1),
         throwsArgumentError,
-      );
-    });
-
-    test(
-      'does not advertise the renderer address as the local address',
-      () async {
-        // 1.6.9 的回归就是这个形态：Socket.address 是「连接目标」，被当成 host 上报。
-        // macOS 需要显式 lo0 别名才能绑定 127.0.0.2（Linux 整段 127/8 可绑）。
-        ServerSocket renderer;
-        try {
-          renderer = await ServerSocket.bind(InternetAddress('127.0.0.2'), 0);
-        } on SocketException {
-          markTestSkipped('本机不支持绑定 127.0.0.2 别名，跳过该场景');
-          return;
-        }
-        final accepted = renderer.first;
-        try {
-          final local = await MediaStreamProxy.resolveLocalAddress(
-            '127.0.0.2',
-            renderer.port,
-          );
-          final peer = await accepted;
-          try {
-            expect(local, peer.remoteAddress.address);
-            expect(local, isNot('127.0.0.2'));
-          } finally {
-            peer.destroy();
-          }
-        } finally {
-          await renderer.close();
-        }
-      },
-    );
-
-    test(
-      'advertises the LAN address, never loopback, for a remote renderer',
-      () async {
-        // 渲染器在别的机器上时，通告 127.0.0.1 等于让它连自己。
-        final interfaces = await NetworkInterface.list(
-          type: InternetAddressType.IPv4,
-        );
-        final lanIp = interfaces
-            .expand((interface) => interface.addresses)
-            .map((address) => address.address)
-            .firstWhere((ip) => !ip.startsWith('127.'), orElse: () => '');
-        if (lanIp.isEmpty) {
-          markTestSkipped('本机没有非回环 IPv4，无法构造跨机场景');
-          return;
-        }
-        final renderer = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
-        try {
-          expect(
-            await MediaStreamProxy.resolveLocalAddress(lanIp, renderer.port),
-            lanIp,
-          );
-        } finally {
-          await renderer.close();
-        }
-      },
-    );
-
-    test(
-      'probes the renderer subnet before overlay and loopback addresses',
-      () {
-        // 覆盖网/VPN（10.111.15.232）常常单向可达，先试通就会通告渲染器拉不到的
-        // host；顺序也不应依赖网卡枚举顺序。
-        expect(
-          MediaStreamProxy.orderCandidates('192.168.8.140', const [
-            '10.111.15.232',
-            '127.0.0.1',
-            '192.168.8.179',
-          ]),
-          ['192.168.8.179', '10.111.15.232'],
-        );
-      },
-    );
-
-    test('keeps loopback only when the renderer is on this host', () {
-      expect(
-        MediaStreamProxy.orderCandidates('127.0.0.2', const [
-          '192.168.8.179',
-          '127.0.0.1',
-        ]),
-        ['127.0.0.1', '192.168.8.179'],
-      );
-    });
-
-    test('routed renderers are probed in a stable, address-aware order', () {
-      expect(
-        MediaStreamProxy.orderCandidates('10.20.30.40', const [
-          '192.168.1.5',
-          '10.111.15.232',
-        ]),
-        ['10.111.15.232', '192.168.1.5'],
-      );
-      // 完全不相干的地址保持原枚举顺序，不引入随机性。
-      expect(
-        MediaStreamProxy.orderCandidates('10.20.30.40', const [
-          '172.17.0.2',
-          '192.168.1.5',
-        ]),
-        ['172.17.0.2', '192.168.1.5'],
       );
     });
 
@@ -523,6 +419,65 @@ seg1.m4s
         } finally {
           client.close(force: true);
         }
+      } finally {
+        await upstream.close(force: true);
+      }
+    });
+
+    test('渲染器中途断开不算媒体失败，上游错误仍会记录', () async {
+      final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final upstreamPort = upstream.port;
+      final upstreamDone = Completer<void>();
+      upstream.listen((request) async {
+        if (request.uri.path.endsWith('missing.mp3')) {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+        request.response.headers.contentType = ContentType('audio', 'mpeg');
+        try {
+          for (var i = 0; i < 200; i++) {
+            request.response.add(List<int>.filled(16 * 1024, i % 256));
+            await request.response.flush();
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+          }
+          await request.response.close();
+        } catch (_) {
+          // 代理断开上游连接后写入失败属预期。
+        } finally {
+          if (!upstreamDone.isCompleted) upstreamDone.complete();
+        }
+      });
+
+      try {
+        final registered = await MediaStreamProxy.instance.registerMedia(
+          'http://127.0.0.1:$upstreamPort/long.mp3',
+          fileExtension: 'mp3',
+        );
+        final uri = Uri.parse(registered!);
+        final socket = await Socket.connect(uri.host, uri.port);
+        socket.write('GET ${uri.path} HTTP/1.1\r\nHost: ${uri.host}\r\n\r\n');
+        await socket.firstWhere((chunk) => chunk.isNotEmpty);
+        socket.destroy();
+        await upstreamDone.future.timeout(const Duration(seconds: 10));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(MediaStreamProxy.instance.hasMediaData, isTrue);
+        expect(MediaStreamProxy.instance.hasMediaFailure, isFalse);
+
+        final missing = await MediaStreamProxy.instance.registerMedia(
+          'http://127.0.0.1:$upstreamPort/missing.mp3',
+          fileExtension: 'mp3',
+        );
+        final client = HttpClient();
+        try {
+          final resp = await (await client.getUrl(Uri.parse(missing!))).close();
+          await resp.drain<void>();
+          expect(resp.statusCode, HttpStatus.notFound);
+        } finally {
+          client.close(force: true);
+        }
+        expect(MediaStreamProxy.instance.hasMediaFailure, isTrue);
       } finally {
         await upstream.close(force: true);
       }

@@ -7,6 +7,7 @@
     <!-- DLNA 投屏（media_cast_dlna / jUPnP）：SSDP 组播发现需要 WiFi 状态
          与组播锁权限。插件 manifest 已自带，此处显式声明保证合并一致。 -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Android 13+ 本地网络发现：SSDP 组播需 NEARBY_WIFI_DEVICES 运行时权限。 -->
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />

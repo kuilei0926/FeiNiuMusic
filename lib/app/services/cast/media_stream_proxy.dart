@@ -35,6 +35,14 @@ class MediaStreamProxy {
       error.toString().replaceAll(RegExp(r'https?://[^\s]+'), '<url>');
 
   HttpServer? _server;
+
+  /// HLS 分片专用的复用客户端：转码 HLS 每几秒拉一个分片，复用连接可省掉
+  /// 每片的 TCP/TLS 握手。空闲超时短于常见服务端 keep-alive，避免拿到
+  /// 已被对端关闭的连接。
+  ///
+  /// 主媒体流不走这里：渲染器探测/拖动时会中途断开，而复用客户端会把被取消
+  /// 的响应读完以便复用连接，大文件会在后台被整首下载。
+  HttpClient? _segmentClient;
   String? _token;
   String? _mediaId;
   String _proxyBase = '';
@@ -172,6 +180,7 @@ class MediaStreamProxy {
     try {
       final server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
       _server = server;
+      _segmentClient = HttpClient()..idleTimeout = const Duration(seconds: 10);
       _token = _generateToken();
       _proxyBase = 'http://$advertisedHost:${server.port}';
       server.listen(
@@ -243,6 +252,8 @@ class MediaStreamProxy {
   Future<void> stop() async {
     final server = _server;
     _server = null;
+    _segmentClient?.close(force: true);
+    _segmentClient = null;
     _token = null;
     _mediaId = null;
     _proxyBase = '';
@@ -307,6 +318,7 @@ class MediaStreamProxy {
         logResponse: isPrimaryMediaRequest,
         mediaProxyBase: '$_proxyBase/m/${pathSegments[1]}/${pathSegments[2]}',
         transfer: _mediaTransfer,
+        reuseConnection: !isPrimaryMediaRequest,
       );
     } catch (e) {
       _log('handle error: ${_safeError(e)}');
@@ -325,8 +337,10 @@ class MediaStreamProxy {
     bool logResponse = true,
     String? mediaProxyBase,
     _MediaTransferState? transfer,
+    bool reuseConnection = false,
   }) async {
-    final client = HttpClient();
+    final shared = reuseConnection ? _segmentClient : null;
+    final client = shared ?? HttpClient();
     try {
       var uri = Uri.parse(target);
       for (var hop = 0; hop < _maxRedirects; hop++) {
@@ -417,7 +431,7 @@ class MediaStreamProxy {
       if (transfer != null) transfer.failed = true;
       rethrow;
     } finally {
-      client.close(force: true);
+      if (shared == null) client.close(force: true);
     }
   }
 

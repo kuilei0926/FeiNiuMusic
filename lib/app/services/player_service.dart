@@ -439,6 +439,8 @@ class PlayerService with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_shuttingDown) return;
+    DlnaCastService.instance.isBackgrounded =
+        state != AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
       _stopBackgroundAudioKeepAlive();
       // 后台期间 Timer 挂起，resume 立即重检定时音量（时间窗可能已跨越）。
@@ -538,6 +540,8 @@ class PlayerService with WidgetsBindingObserver {
     cast.onCastStart = () {
       _debugLog('cast start -> pause local engine');
       isCasting.value = true;
+      isPlaying.value = cast.castPlaying.value;
+      _emitSnapshot(force: true);
       unawaited(_pausePlayback());
     };
     cast.onCastProgress = (position, playing) {
@@ -552,13 +556,24 @@ class PlayerService with WidgetsBindingObserver {
     cast.onCastCompleted = () {
       // 投屏设备播完当前歌曲：推进逻辑队列（含随机/漫游自动填充），
       // 把下一首推送到投屏设备。
-      unawaited(_advanceCastToNext());
+      unawaited(_advanceCastToNext(automatic: true));
     };
-    cast.onCastDisconnect = () {
-      _debugLog('cast disconnect -> resume local playback');
+    cast.onCastDisconnect = (reason) {
+      // 只有用户主动断开且电视正在播时才在本机接着出声；设备离线、无响应、
+      // 电视端停止等被动断开只恢复进度并保持暂停，避免手机突然外放。
+      final resumePlaying = reason == null && isPlaying.value;
+      _debugLog(
+        'cast disconnect -> restore local playback play=$resumePlaying '
+        'passive=${reason != null}',
+      );
       isCasting.value = false;
+      if (reason != null && !_shuttingDown) AppToast.showGlobal(reason);
       // 无歌曲则不动。
       if (currentSong.value == null) return;
+      if (!resumePlaying) {
+        isPlaying.value = false;
+        _emitSnapshot(force: true);
+      }
       unawaited(() async {
         try {
           final target = currentSong.value;
@@ -573,7 +588,7 @@ class PlayerService with WidgetsBindingObserver {
             play: false,
             initialPosition: resumePosition,
           );
-          await _startPlayback();
+          if (resumePlaying) await _startPlayback();
         } catch (e) {
           if (kDebugMode) {
             debugPrint('PlayerService cast disconnect resume failed: $e');
@@ -2286,11 +2301,15 @@ class PlayerService with WidgetsBindingObserver {
 
   /// 投屏设备播完当前歌曲后的续播：推进逻辑队列（随机/漫游模式自动填充），
   /// 把下一首推送到投屏设备。
-  Future<void> _advanceCastToNext() async {
+  Future<void> _advanceCastToNext({bool automatic = false}) async {
     // 随机/漫游模式：队尾无下一首时先追加，保证队列不枯竭。
     final list = queue.value;
     final idx = currentIndex.value;
     if (list.isEmpty || idx < 0) return;
+    if (automatic && playbackMode.value == PlaybackMode.single) {
+      await DlnaCastService.instance.loadSong(list[idx]);
+      return;
+    }
     if (playbackMode.value == PlaybackMode.shuffle && idx >= list.length - 1) {
       // 漫游链：roam-next 追加；本地随机（playShuffle）：queueExtender 追加。
       if (roamActive) {
@@ -3627,7 +3646,7 @@ class PlayerService with WidgetsBindingObserver {
   }
 
   void _syncPositionFromPlayer({bool allowZeroOverride = true}) {
-    if (_isSeeking) return;
+    if (_isSeeking || isCasting.value) return;
     final playerPosition = _activeEngine.position;
     if (playerPosition < Duration.zero) return;
     if (!allowZeroOverride &&

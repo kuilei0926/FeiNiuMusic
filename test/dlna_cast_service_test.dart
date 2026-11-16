@@ -18,6 +18,26 @@ class _FakeCastApi extends MediaCastDlnaApi {
   int pollCalls = 0;
   int stopCalls = 0;
 
+  final List<int> volumes = [];
+  int volumeQueries = 0;
+
+  @override
+  Future<void> seek(DeviceUdn deviceUdn, TimePosition position) async {}
+
+  @override
+  Future<VolumeInfo> getVolumeInfo(DeviceUdn deviceUdn) async {
+    volumeQueries++;
+    return VolumeInfo(
+      level: VolumeLevel(percentage: 40),
+      muteState: MuteState(isMuted: false),
+    );
+  }
+
+  @override
+  Future<void> setVolume(DeviceUdn deviceUdn, VolumeLevel volumeLevel) async {
+    volumes.add(volumeLevel.percentage);
+  }
+
   @override
   Future<TransportState> getTransportState(DeviceUdn deviceUdn) async =>
       await onTransportPoll?.call() ?? TransportState.playing;
@@ -103,9 +123,45 @@ void main() {
     await service.disconnect(silent: true);
   });
 
+  test('后台稳定播放降低轮询频率，断开后停止查询', () async {
+    service.isBackgrounded = true;
+    await service.loadSong(_song('background'));
+    await _waitUntil(() => api.pollCalls == 1);
+    await Future<void>.delayed(const Duration(seconds: 3));
+    expect(api.pollCalls, 1);
+    await _waitUntil(() => api.pollCalls == 2);
+    await service.disconnect(silent: true);
+    await Future<void>.delayed(const Duration(seconds: 6));
+    expect(api.pollCalls, 2);
+  });
+
+  test('滑块设置音量后音量键以新音量为基准', () async {
+    await service.setVolume(0.8);
+    await service.adjustVolumeForTest(1);
+    await service.adjustVolumeForTest(-1);
+    expect(api.volumes, [80, 85, 80]);
+    expect(api.volumeQueries, 0);
+  });
+
+  test('后台临近结尾仍快速轮询并自动续播', () async {
+    service.isBackgrounded = true;
+    var completions = 0;
+    service.onCastCompleted = () => completions++;
+    api.onPoll = () async => _info(TransportState.playing, 190);
+    await service.loadSong(_song('ending'));
+    await _waitUntil(() => api.pollCalls >= 2);
+    api.onPoll = () async => _info(TransportState.stopped, 0);
+    await _waitUntil(() => completions == 1);
+    expect(service.isCasting, isTrue);
+  });
+
   test('慢切歌期间停轮询，播放启动时容忍停止帧，确认播放后仍检测停止', () async {
     var disconnects = 0;
-    service.onCastDisconnect = () => disconnects++;
+    String? disconnectReason;
+    service.onCastDisconnect = (reason) {
+      disconnects++;
+      disconnectReason = reason;
+    };
     await service.loadSong(_song('first'));
     await _waitUntil(() => api.pollCalls == 1);
 
@@ -131,6 +187,7 @@ void main() {
     api.onPoll = () async => _info(TransportState.stopped, 10);
     await _waitUntil(() => disconnects == 1);
     expect(service.isCasting, isFalse);
+    expect(disconnectReason, contains('停止播放'));
   });
 
   test('快速连续切歌串行执行，只播放最新请求', () async {
@@ -299,5 +356,46 @@ void main() {
       expect(service.isCasting, isTrue);
     }
     expect(api.titles, ['first', 'next-1', 'next-2']);
+  });
+
+  test('等待下一曲期间进度回退不会重复触发完成事件', () async {
+    var completions = 0;
+    var polls = 0;
+    service.onCastCompleted = () => completions++;
+    api.onPoll = () async {
+      polls++;
+      return _info(TransportState.playing, polls == 3 ? 150 : 200);
+    };
+    await service.loadSong(_song('first'));
+    await _waitUntil(() => polls >= 5, timeout: const Duration(seconds: 7));
+    expect(completions, 1);
+  });
+
+  test('接近末尾后进度解析失败仍从播放状态识别完成', () async {
+    var completions = 0;
+    service.onCastCompleted = () => completions++;
+    api.onPoll = () async => _info(TransportState.playing, 190);
+    await service.loadSong(_song('first'));
+    await _waitUntil(() => service.castPosition.value.inSeconds == 190);
+    api.onPoll = () async => throw PlatformException(
+      code: 'dlna_action_failed',
+      details: {'action': 'GetPositionInfo', 'category': 'invalid_response'},
+    );
+    api.onTransportPoll = () async => TransportState.stopped;
+    await _waitUntil(() => completions == 1);
+    expect(service.isCasting, isTrue);
+  });
+
+  test('末尾拖回开头不会被当作自然播完', () async {
+    var completions = 0;
+    service.onCastCompleted = () => completions++;
+    api.onPoll = () async => _info(TransportState.playing, 190);
+    await service.loadSong(_song('first'));
+    await _waitUntil(() => service.castPosition.value.inSeconds == 190);
+    await service.seek(Duration.zero);
+    api.onPoll = () async => _info(TransportState.playing, 0);
+    await _waitUntil(() => service.castPosition.value == Duration.zero);
+    expect(completions, 0);
+    expect(service.isCasting, isTrue);
   });
 }

@@ -10,6 +10,7 @@ import android.app.NotificationManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
+import android.os.PowerManager
 import android.os.Bundle
 import android.os.Environment
 import android.os.Build
@@ -51,6 +52,7 @@ class MainActivity : AudioServiceActivity() {
     private var lyriconEnabled = false
     private var castVolumeChannel: MethodChannel? = null
     private var castVolumeActive = false
+    private var castWakeLock: PowerManager.WakeLock? = null
 
     /**
      * 投屏时拦截物理音量键，转发到 Flutter 侧遥控投屏设备音量。
@@ -67,6 +69,9 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (!flutterEngine.plugins.has(CastNetworkPlugin::class.java)) {
+            flutterEngine.plugins.add(CastNetworkPlugin())
+        }
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -329,19 +334,55 @@ class MainActivity : AudioServiceActivity() {
         // DLNA 投屏音量键透传通道：Flutter 侧设置「投屏激活」标志，原生层在
         // onKeyDown 拦截物理音量键并回调 volumeDelta（+1 / -1），由 Flutter 遥控
         // 投屏设备音量。投屏时手机音量条不再调节本机媒体音量。
+        val capabilities = DlnaCapabilitiesBridge(applicationContext)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.feiniu.music/dlna_capabilities")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "getSinkProtocolInfo") {
+                    val udn = call.argument<String>("udn")
+                    if (udn.isNullOrBlank()) result.error("invalid_udn", "Missing device UDN", null)
+                    else capabilities.query(udn, result)
+                } else result.notImplemented()
+            }
         val castChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             castVolumeChannelName
         )
         castVolumeChannel = castChannel
-        castChannel.setMethodCallHandler { call, _ ->
+        castChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "setActive" -> {
                     castVolumeActive = call.argument<Boolean>("active") ?: false
+                    // DLNA 代理和自动切歌轮询在手机上运行，息屏后仍需 CPU；不保持屏幕常亮。
+                    if (castVolumeActive) {
+                        if (castWakeLock == null) {
+                            val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+                            castWakeLock = power.newWakeLock(
+                                PowerManager.PARTIAL_WAKE_LOCK,
+                                "feiniu:dlnaCast"
+                            ).apply { setReferenceCounted(false) }
+                        }
+                        if (castWakeLock?.isHeld != true) castWakeLock?.acquire()
+                    } else {
+                        releaseCastWakeLock()
+                    }
+                    result.success(null)
                 }
-                else -> {}
+                else -> result.notImplemented()
             }
         }
+    }
+
+    private fun releaseCastWakeLock() {
+        castWakeLock?.let { if (it.isHeld) it.release() }
+        castWakeLock = null
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        releaseCastWakeLock()
+        castVolumeActive = false
+        castVolumeChannel?.setMethodCallHandler(null)
+        castVolumeChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     /** 单一实例持有，保证歌词行去重 / 节流状态在多次 MethodChannel 调用间保持。 */

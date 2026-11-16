@@ -82,6 +82,8 @@ void main() {
   late HttpServer upstream;
   late HttpClient client;
   late List<RequestOptions> requests;
+  String? rendererSink;
+  int capabilityQueries = 0;
   late Future<Map<String, dynamic>> Function() transcodeResponse;
   late Future<void> Function(HttpRequest) serve;
 
@@ -97,6 +99,16 @@ void main() {
     DlnaCastSettings.resetForTest();
     DlnaCastSettings.enabled.value = true;
     requests = [];
+    rendererSink = null;
+    capabilityQueries = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('com.feiniu.music/dlna_capabilities'), (call) async {
+        expect(call.method, 'getSinkProtocolInfo');
+        expect(call.arguments, {'udn': 'renderer'});
+        capabilityQueries++;
+        return rendererSink;
+      },
+    );
     transcodeResponse = () async => {
       'code': 0,
       'data': {'url': '/fallback.m3u8'},
@@ -152,6 +164,63 @@ void main() {
     client.close(force: true);
     await upstream.close(force: true);
     DlnaCastSettings.resetForTest();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('com.feiniu.music/dlna_capabilities'), null,
+    );
+  });
+
+  test('device capabilities are queried before choosing the initial route', () async {
+    rendererSink = 'http-get:*:audio/mpeg:*,http-get:*:application/vnd.apple.mpegurl:*';
+    service.currentDevice.value = null;
+    expect(await service.castTo(device, _song('wav', format: 'wav')), isTrue);
+    expect(capabilityQueries, 1);
+    expect(api.urls, [endsWith('.m3u8')]);
+    expect(requests, hasLength(1));
+  });
+
+  test('supported original formats stay direct and capabilities are cached per session', () async {
+    rendererSink = 'http-get:*:audio/flac:*,http-get:*:audio/wav:*';
+    await service.loadSong(_song('flac'));
+    await service.loadSong(_song('wav', format: 'wav'));
+    expect(api.urls, [endsWith('.flac'), endsWith('.wav')]);
+    expect(capabilityQueries, 1);
+    expect(requests, isEmpty);
+  });
+
+  test('MP3-only renderer is not assumed to support HLS', () async {
+    rendererSink = 'http-get:*:audio/mpeg:*';
+    await service.loadSong(_song('wav', format: 'wav'));
+    await _until(() => !service.isCasting);
+    expect(api.urls, isEmpty);
+    expect(requests, isEmpty);
+    expect(service.lastCastError, contains('MP3 HLS'));
+  });
+
+  test('capability query failure leaves original-first fallback available', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('com.feiniu.music/dlna_capabilities'), (call) async {
+        throw PlatformException(code: 'unavailable');
+      },
+    );
+    api.onSetMedia = (url) async {
+      if (url.endsWith('.wav')) throw PlatformException(code: '714');
+    };
+    await service.loadSong(_song('wav', format: 'wav'));
+    expect(api.urls, [endsWith('.wav'), endsWith('.m3u8')]);
+    expect(requests, hasLength(1));
+  });
+
+  test('disconnect during capability query cannot send stale media', () async {
+    final sink = Completer<String?>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('com.feiniu.music/dlna_capabilities'), (call) => sink.future,
+    );
+    final loading = service.loadSong(_song('cancelled'));
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    final disconnecting = service.disconnect(silent: true);
+    sink.complete('http-get:*:audio/flac:*');
+    await Future.wait([loading, disconnecting]);
+    expect(api.urls, isEmpty);
   });
 
   test('all formats and large files start with original stream', () async {
