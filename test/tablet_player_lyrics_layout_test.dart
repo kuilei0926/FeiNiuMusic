@@ -46,6 +46,7 @@ void main() {
       await tester.pump();
       expect(MediaQuery.sizeOf(tester.element(lyrics)), size / 2);
       expect(tester.takeException(), isNull);
+      expect(find.byTooltip('返回').hitTestable(), findsOneWidget);
       expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
       final playRect = tester.getRect(find.byIcon(Icons.play_arrow_rounded));
       expect(playRect.overlaps(Offset.zero & size), isTrue);
@@ -54,6 +55,41 @@ void main() {
       await tester.pump();
     });
   }
+
+  testWidgets('Android 横屏：点击返回按钮回到原页面', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        theme: ThemeData(platform: TargetPlatform.android),
+        home: const Scaffold(body: Text('原页面')),
+      ),
+    );
+    final playerRoute = MaterialPageRoute<void>(
+      builder: (_) => const PlayerPage(),
+    );
+    navigatorKey.currentState!.push(playerRoute);
+    await tester.pump();
+    await tester.pump(playerRoute.transitionDuration);
+
+    final backButton = find.byTooltip('返回');
+    expect(backButton, findsNothing);
+
+    tester.view.physicalSize = const Size(844, 390);
+    await tester.pump();
+    expect(backButton.hitTestable(), findsOneWidget);
+
+    await tester.tap(backButton);
+    await tester.pump();
+    await tester.pump(playerRoute.reverseTransitionDuration);
+    await tester.pumpAndSettle();
+    expect(find.byType(PlayerPage), findsNothing);
+    expect(find.text('原页面'), findsOneWidget);
+  });
 
   testWidgets('平板横屏：歌词块从顶部铺满（无重复 header 留白）', (tester) async {
     // 10 英寸平板横屏：逻辑 1280×800。
@@ -279,6 +315,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 5));
     expect(_panelOpacity(tester), 0.0, reason: '播放中静置后浮层应自动隐藏');
+    expect(find.byTooltip('返回').hitTestable(), findsOneWidget);
 
     PlayerService.instance.isPlaying.value = false;
     await _tapArtworkTop(tester);
