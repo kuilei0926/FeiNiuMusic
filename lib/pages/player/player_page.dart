@@ -179,6 +179,8 @@ class _PlayerPageState extends State<PlayerPage>
   Widget build(BuildContext context) {
     // 系统返回键：可退时正常 pop，不可退时（自动打开场景）走 _closePlayer 回到首页
     final isTv = AppLayoutSettings.tvMode.value;
+    final isLandscapePlayer =
+        isTv || MediaQuery.orientationOf(context) == Orientation.landscape;
     final Widget page = PopScope(
       canPop: Navigator.of(context).canPop(),
       onPopInvokedWithResult: (didPop, result) {
@@ -212,10 +214,6 @@ class _PlayerPageState extends State<PlayerPage>
                   valueListenable: PlayerStyleSettings.stylePreset,
                   builder: (context, stylePreset, _) {
                     final isPoster = stylePreset == PlayerStylePreset.poster;
-                    final mq = MediaQuery.of(context);
-                    final isLandscapePlayer =
-                        AppLayoutSettings.tvMode.value ||
-                        mq.orientation == Orientation.landscape;
                     // Poster 关闭顶部/底部 SafeArea 让封面延伸到屏幕边缘
                     // （覆盖状态栏/导航栏），歌词页再手动补回 inset 避免文字
                     // 滑入系统栏下方。
@@ -299,45 +297,47 @@ class _PlayerPageState extends State<PlayerPage>
                   },
                 ),
               ),
-              // 返回按钮：点击关闭播放页（等价于下滑返回/系统返回）。
-              // 桌面端没有系统返回键，始终显示；海报模式下封面/歌词页顶部
-              // 没有 header（即没有下滑返回手势），仅 iOS 没有系统返回键，
-              // 需要页内返回按钮兜底，避免无法退出播放页。安卓有系统返回
-              // 手势/按键，不需要重复显示。其他情况不显示。
               ValueListenableBuilder<PlayerStylePreset>(
                 valueListenable: PlayerStyleSettings.stylePreset,
                 builder: (context, stylePreset, _) {
-                  final isDesktop =
-                      Platform.isWindows ||
-                      Platform.isMacOS ||
-                      Platform.isLinux;
-                  final showBack =
-                      isDesktop ||
-                      (stylePreset == PlayerStylePreset.poster &&
-                          Platform.isIOS &&
-                          !isTv);
+                  final theme = Theme.of(context);
+                  final showBack = switch (theme.platform) {
+                    TargetPlatform.android => isLandscapePlayer,
+                    TargetPlatform.iOS =>
+                      stylePreset == PlayerStylePreset.poster && !isTv,
+                    TargetPlatform.windows ||
+                    TargetPlatform.macOS ||
+                    TargetPlatform.linux => true,
+                    _ => false,
+                  };
                   if (!showBack) return const SizedBox.shrink();
+                  final isAndroid = theme.platform == TargetPlatform.android;
+                  final buttonSize = isAndroid ? 48.0 : 40.0;
                   return Positioned(
                     top: 8,
                     left: 12,
                     child: SafeArea(
                       child: IconButton(
                         tooltip: '返回',
-                        visualDensity: const VisualDensity(
-                          horizontal: -4,
-                          vertical: -4,
-                        ),
+                        visualDensity: isAndroid
+                            ? VisualDensity.standard
+                            : const VisualDensity(horizontal: -4, vertical: -4),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 40,
-                          height: 40,
+                        constraints: BoxConstraints.tightFor(
+                          width: buttonSize,
+                          height: buttonSize,
                         ),
+                        style: isAndroid
+                            ? IconButton.styleFrom(
+                                backgroundColor: theme.colorScheme.surface,
+                              )
+                            : null,
                         icon: Icon(
                           Icons.arrow_back_rounded,
                           size: 24,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.72),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: isAndroid ? 1 : 0.72,
+                          ),
                         ),
                         onPressed: _closePlayer,
                       ),
