@@ -111,11 +111,16 @@ Future<void> main(List<String> args) async {
   AppLayoutSettings.syncTvMode();
   // 按设备类型锁定方向：TV 恒横屏；平板（或手动平板模式）四方向自由旋转；
   // 手机锁竖屏。运行中开关切换由 app.dart 的 _TvOrientationSync 负责再应用。
-  await SystemChrome.setPreferredOrientations(
-    AppLayoutSettings.orientationsForDevice(
-      isTv: AppLayoutSettings.tvMode.value,
-      shortestSide: AppLayoutSettings.currentShortestSide(),
-      manualTabletMode: AppLayoutSettings.tabletMode.value,
+  // 不能 await：系统或桌面先绑定媒体服务时，audio_service 会在 Activity
+  // 出现前启动引擎执行 main()，此时 flutter/platform 通道不回复，await 会让
+  // 启动永久卡住。
+  unawaited(
+    SystemChrome.setPreferredOrientations(
+      AppLayoutSettings.orientationsForDevice(
+        isTv: AppLayoutSettings.tvMode.value,
+        shortestSide: AppLayoutSettings.currentShortestSide(),
+        manualTabletMode: AppLayoutSettings.tabletMode.value,
+      ),
     ),
   );
   // 必须先恢复认证信息（token / 服务器地址）再初始化播放相关服务：
